@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
+  <rect width="64" height="64" rx="14" fill="#0F2040"/>
+  <!-- House shape -->
+  <path d="M32 12 L52 30 L48 30 L48 52 L16 52 L16 30 L12 30 Z" fill="#C9A84C"/>
+  <!-- Door -->
+  <rect x="26" y="38" width="12" height="14" rx="2" fill="#0F2040"/>
+  <!-- Window -->
+  <rect x="20" y="32" width="8" height="7" rx="1" fill="#0F2040"/>
+  <rect x="36" y="32" width="8" height="7" rx="1" fill="#0F2040"/>
+</svg>

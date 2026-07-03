@@ -1,0 +1,33 @@
+name = "re-workspace"
+main = "worker/index.ts"
+compatibility_date = "2024-06-01"
+compatibility_flags = ["nodejs_compat"]
+
+# Cloudflare Pages site output
+[site]
+bucket = "./dist"
+
+# Environment variables (non-secret)
+[vars]
+APP_NAME = "RE Workspace"
+APP_ENV = "production"
+
+# KV Namespaces — bind after creating with: wrangler kv:namespace create WORKSPACE_KV
+# [[kv_namespaces]]
+# binding = "WORKSPACE_KV"
+# id = "<YOUR_KV_ID>"
+
+# D1 Database — bind after creating with: wrangler d1 create re-workspace-db
+# [[d1_databases]]
+# binding = "DB"
+# database_name = "re-workspace-db"
+# database_id = "<YOUR_D1_ID>"
+
+# R2 Storage — bind after creating with: wrangler r2 bucket create re-workspace-assets
+# [[r2_buckets]]
+# binding = "ASSETS"
+# bucket_name = "re-workspace-assets"
+
+[env.staging]
+name = "re-workspace-staging"
+vars = { APP_ENV = "staging" }
