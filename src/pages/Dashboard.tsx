@@ -54,7 +54,7 @@ const DEFAULT_DASHBOARD_SETTINGS: DashboardSettings = {
   },
   quickLinks: [
     { id: 'mls', label: 'MLS Listings', url: '/api/inventory/sso', icon: 'Home' },
-    { id: 'prime-america-kb', label: 'Knowledge Base Hub', url: '/api/sso/redirect?app=prime-america-kb', icon: 'BookOpen' },
+    { id: 'cabinet-ai', label: 'Cabinet AI Knowledge', url: '/api/sso/redirect?app=cabinet', icon: 'FolderKanban' },
     { id: 'academy', label: 'Academy', url: 'https://primeamerica.theceshop.com/real-estate/', icon: 'BookOpen' },
   ],
   customModules: [
@@ -71,12 +71,12 @@ const DEFAULT_DASHBOARD_SETTINGS: DashboardSettings = {
       adminOnly: true
     },
     {
-      id: 'prime-america-kb',
-      name: 'Prime America Knowledge Base',
-      description: 'Prime America Real Estate knowledge base hub for admin, broker, and team',
-      icon: 'BookOpen',
-      path: '/learning/kb',
-      externalUrl: '/api/sso/redirect?app=prime-america-kb',
+      id: 'cabinet-ai',
+      name: 'Cabinet AI Knowledge Base',
+      description: 'AI-first team knowledge base, document workspace, and startup OS',
+      icon: 'FolderKanban',
+      path: '/tools/cabinet',
+      externalUrl: '/api/sso/redirect?app=cabinet',
       status: 'active',
       category: 'learning',
       color: '#6366F1',
