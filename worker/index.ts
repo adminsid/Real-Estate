@@ -129,8 +129,6 @@ const STATIC_ALLOWED_ORIGINS = [
   'https://inventory.primeamericarealestate.com',
   'https://openhouse.primeamericarealestate.com',
   'https://inside.primeamericarealestate.com',
-  'https://cabinet.primeamericarealestate.com',
-  'https://cabinet.lama-4db.workers.dev',
   'https://prime-america-kb.lama-4db.workers.dev',
   'http://localhost:5173',
   'http://localhost:4173',
@@ -622,8 +620,8 @@ async function handleApi(request: Request, env: Env, path: string, url: URL, hos
    */
   if (path === '/api/sso/redirect' && request.method === 'GET') {
     let targetApp = url.searchParams.get('app') || ''
-    if (targetApp === 'cabinet' || targetApp === 'cabinet-ai') {
-      targetApp = 'cabinet.primeamericarealestate.com'
+    if (targetApp === 'cabinet' || targetApp === 'cabinet-ai' || targetApp === 'prime-america-kb' || targetApp === 'kb') {
+      targetApp = 'prime-america-kb.lama-4db.workers.dev'
     }
     const returnTo = url.searchParams.get('return_to') || ''
 
@@ -642,7 +640,7 @@ async function handleApi(request: Request, env: Env, path: string, url: URL, hos
       .bind(targetApp)
       .first<{ hostname: string; controlled: number; sso_capable: number }>()
 
-    if (!appRow && (targetApp === 'cabinet.primeamericarealestate.com' || targetApp.includes('cabinet') || targetApp.includes('prime-america-kb'))) {
+    if (!appRow && (targetApp === 'prime-america-kb.lama-4db.workers.dev' || targetApp.includes('prime-america-kb') || targetApp.includes('cabinet'))) {
       appRow = { hostname: targetApp, controlled: 1, sso_capable: 1 }
     }
 
@@ -659,6 +657,9 @@ async function handleApi(request: Request, env: Env, path: string, url: URL, hos
       .run()
 
     const targetUrl = new URL(`https://${targetApp}`)
+    if (targetApp === 'prime-america-kb.lama-4db.workers.dev') {
+      targetUrl.pathname = '/hub/'
+    }
     if (returnTo) {
       try {
         // Only redirect to the path/query part of returnTo for safety (prevent open redirect)
