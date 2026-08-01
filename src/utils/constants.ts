@@ -8,15 +8,27 @@ export const APP_VERSION = '1.0.0'
 // ─── Default Branding ──────────────────────────────────────────────────────
 export const DEFAULT_BRANDING: WorkspaceBranding = {
   companyName: 'Prime America Realty',
+  companyAddress: '100 Wall Street, 12th Floor, New York, NY 10005',
+  companyTelephone: '(212) 555-0100',
+  companyFax: '',
   primaryColor: '#0F2040',
   accentColor: '#C9A84C',
   tagline: 'Your Real Estate Command Center',
   websiteUrl: 'https://primeamericany.com',
+  leadAppDomain: '',
 }
-
-// ─── App Modules ───────────────────────────────────────────────────────────
 export const APP_MODULES: AppModule[] = [
   // — Transactions ——————————————————————————————————————
+  {
+    id: 'deals',
+    name: 'Deals Pipeline',
+    description: 'Track and manage transaction pipelines, inspect deals, and apply checklists',
+    icon: 'ArrowLeftRight',
+    path: '/transactions/pipeline',
+    status: 'active',
+    category: 'transactions',
+    color: '#3B82F6',
+  },
   {
     id: 'cma',
     name: 'CMA',
@@ -33,44 +45,34 @@ export const APP_MODULES: AppModule[] = [
     description: 'Digital forms, e-signatures, and transaction management',
     icon: 'FileSignature',
     path: '/transactions/desk',
-    status: 'under_construction',
+    externalUrl: 'https://pr.transactiondesk.com/',
+    status: 'active',
     category: 'transactions',
     color: '#8B5CF6',
+  },
+  {
+    id: 'onekey-portal',
+    name: 'OneKey MLS',
+    description: 'Find MLS listings for buyers and access OneKey MLS dashboard features',
+    icon: 'Map',
+    path: '/transactions/onekey',
+    externalUrl: 'https://onekey.clareity.net/layouts',
+    status: 'active',
+    category: 'transactions',
+    color: '#3B82F6',
   },
   // — Inventory ———————————————————————————————————————
   {
     id: 'mls',
-    name: 'MLS Listings',
-    description: 'Browse and manage Multiple Listing Service properties',
+    name: 'Listings',
+    description: 'Browse and manage real estate listings',
     icon: 'Map',
     path: '/inventory/mls',
-    externalUrl: 'https://inventory.primeamericany.com',
     status: 'active',
     category: 'inventory',
     color: '#10B981',
   },
-  {
-    id: 'listing-manager',
-    name: 'Listing Manager',
-    description: 'Create and publish new property listings',
-    icon: 'Home',
-    path: '/inventory/listings',
-    status: 'under_construction',
-    category: 'inventory',
-    color: '#F59E0B',
-  },
   // — Marketing ———————————————————————————————————————
-  {
-    id: 'website',
-    name: 'Custom Website',
-    description: 'Your branded real estate website at primeamericany.com',
-    icon: 'Globe',
-    path: '/marketing/website',
-    externalUrl: 'https://primeamericany.com',
-    status: 'active',
-    category: 'marketing',
-    color: '#EC4899',
-  },
   {
     id: 'crm',
     name: 'CRM',
@@ -81,16 +83,7 @@ export const APP_MODULES: AppModule[] = [
     category: 'marketing',
     color: '#EF4444',
   },
-  {
-    id: 'marketing-hub',
-    name: 'Marketing Hub',
-    description: 'Email campaigns, social media, and promotional materials',
-    icon: 'Megaphone',
-    path: '/marketing/hub',
-    status: 'under_construction',
-    category: 'marketing',
-    color: '#F97316',
-  },
+
   // — Learning ————————————————————————————————————————
   {
     id: 'academy',
@@ -124,6 +117,28 @@ export const APP_MODULES: AppModule[] = [
     category: 'learning',
     color: '#14B8A6',
   },
+  {
+    id: 'brand-marketing-hub',
+    name: 'Brand & Marketing Hub',
+    description: 'Marketing resources, branding files, forms, policies, and company assets',
+    icon: 'Megaphone',
+    path: '/marketing/brand-marketing-hub',
+    externalUrl: 'https://inside.primeamericarealestate.com/',
+    status: 'active',
+    category: 'marketing',
+    color: '#EC4899',
+  },
+  {
+    id: 'prime-america-kb',
+    name: 'Prime America Knowledge Base',
+    description: 'Prime America Real Estate knowledge base hub for admin, broker, and team',
+    icon: 'BookOpen',
+    path: '/learning/kb',
+    externalUrl: '/api/sso/redirect?app=prime-america-kb',
+    status: 'active',
+    category: 'learning',
+    color: '#6366F1',
+  },
 ]
 
 // ─── Navigation ────────────────────────────────────────────────────────────
@@ -141,6 +156,7 @@ export interface NavItem {
   label: string
   path: string
   status?: AppModule['status']
+  externalUrl?: string
 }
 
 export const NAV_CATEGORIES: NavCategory[] = [
@@ -151,8 +167,10 @@ export const NAV_CATEGORIES: NavCategory[] = [
     path: '/transactions',
     color: '#3B82F6',
     children: [
+      { id: 'deals', label: 'Deals Pipeline', path: '/transactions/pipeline' },
       { id: 'cma', label: 'CMA', path: '/transactions/cma' },
-      { id: 'transaction-desk', label: 'TransactionDesk', path: '/transactions/desk', status: 'under_construction' },
+      { id: 'transaction-desk', label: 'TransactionDesk', path: '/transactions/desk', externalUrl: 'https://pr.transactiondesk.com/' },
+      { id: 'onekey-portal', label: 'OneKey MLS', path: '/transactions/onekey', externalUrl: 'https://onekey.clareity.net/layouts' },
     ],
   },
   {
@@ -162,8 +180,7 @@ export const NAV_CATEGORIES: NavCategory[] = [
     path: '/inventory',
     color: '#10B981',
     children: [
-      { id: 'mls', label: 'MLS Listings', path: '/inventory/mls' },
-      { id: 'listing-manager', label: 'Listing Manager', path: '/inventory/listings', status: 'under_construction' },
+      { id: 'mls', label: 'Listings', path: '/inventory/mls' },
     ],
   },
   {
@@ -173,9 +190,9 @@ export const NAV_CATEGORIES: NavCategory[] = [
     path: '/marketing',
     color: '#EC4899',
     children: [
-      { id: 'website', label: 'Website', path: '/marketing/website' },
       { id: 'crm', label: 'CRM', path: '/marketing/crm' },
-      { id: 'marketing-hub', label: 'Marketing Hub', path: '/marketing/hub', status: 'under_construction' },
+      { id: 'openhouse-list', label: 'Open Houses', path: '/marketing/openhouses' },
+      { id: 'brand-marketing-hub', label: 'Brand & Marketing Hub', path: '/marketing/brand-marketing-hub', externalUrl: 'https://inside.primeamericarealestate.com/' },
     ],
   },
   {
@@ -187,15 +204,9 @@ export const NAV_CATEGORIES: NavCategory[] = [
     children: [
       { id: 'academy', label: 'Academy', path: '/learning/academy' },
       { id: 'license-law', label: 'License Law (NY 12-A)', path: '/learning/license-law' },
+      { id: 'prime-america-kb', label: 'Prime America Knowledge Base', path: '/learning/kb', externalUrl: '/api/sso/redirect?app=prime-america-kb' },
       { id: 'broker-course', label: 'Broker License', path: '/learning/broker', status: 'coming_soon' },
     ],
-  },
-  {
-    id: 'network',
-    label: 'Network',
-    icon: 'Network',
-    path: '/network',
-    color: '#F59E0B',
   },
 ]
 
@@ -281,3 +292,39 @@ export const NY_COUNTIES = [
   'Rockland',
   'Orange',
 ]
+
+export function isSubitemVisible(childId: string, categoryId: string, user: any, can: (module: string, action: string) => boolean): boolean {
+  if (!user) return false
+  if (user.role === 'admin') return true
+
+  if (childId === 'crm') {
+    return can('crm', 'read')
+  }
+
+  let catModule = categoryId
+  if (categoryId === 'inventory') {
+    catModule = 'listings'
+  }
+
+  return can(catModule, 'read')
+}
+
+export function isCategoryVisible(cat: { id: string; children?: { id: string }[] }, user: any, can: (module: string, action: string) => boolean): boolean {
+  if (!user) return false
+  if (user.role === 'admin') return true
+
+  let catModule = cat.id
+  if (cat.id === 'inventory') {
+    catModule = 'listings'
+  }
+
+  if (!can(catModule, 'read')) {
+    return false
+  }
+
+  if (cat.children && cat.children.length > 0) {
+    return cat.children.some(child => isSubitemVisible(child.id, cat.id, user, can))
+  }
+
+  return true
+}
