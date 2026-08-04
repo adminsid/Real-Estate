@@ -193,11 +193,28 @@ interface UserRow {
   updated_at: string
 }
 
-async function createNotification(db: D1Database, tenantId: string, message: string) {
+async function createNotification(db: D1Database, tenantId: string, message: string, options: {
+  userId?: string;
+  priority?: 'urgent' | 'today' | 'informational';
+  actionUrl?: string;
+  relatedEntityId?: string;
+} = {}) {
   const id = crypto.randomUUID()
   await db
-    .prepare('INSERT INTO notifications (id, tenant_id, message) VALUES (?, ?, ?)')
-    .bind(id, tenantId, message)
+    .prepare(
+      `INSERT INTO notifications (
+        id, tenant_id, user_id, message, priority, action_url, related_entity_id, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))`
+    )
+    .bind(
+      id,
+      tenantId,
+      options.userId || null,
+      message,
+      options.priority || 'informational',
+      options.actionUrl || null,
+      options.relatedEntityId || null
+    )
     .run()
 }
 
@@ -531,7 +548,7 @@ async function handleApi(request: Request, env: Env, path: string, url: URL, hos
   // ── Derive the base URL for email links from the request hostname ──────────
   // This replaces the old hardcoded APP_BASE_URL env var.
   // Email links will point to the correct tenant hostname automatically.
-  const requestBaseUrl = `${url.protocol}//${url.host}`
+  const requestBaseUrl = url.host.includes('workers.dev') ? 'https://workspace.primeamericany.com' : `${url.protocol}//${url.host}`
   const method = request.method
 
   if (path === '/api/health') {
@@ -620,8 +637,17 @@ async function handleApi(request: Request, env: Env, path: string, url: URL, hos
    */
   if (path === '/api/sso/redirect' && request.method === 'GET') {
     let targetApp = url.searchParams.get('app') || ''
-    if (targetApp === 'cabinet' || targetApp === 'cabinet-ai' || targetApp === 'prime-america-kb' || targetApp === 'kb') {
+    if (targetApp === 'cabinet' || targetApp === 'cabinet-ai' || targetApp === 'prime-america-kb' || targetApp === 'company-brain' || targetApp === 'kb') {
       targetApp = 'prime-america-kb.lama-4db.workers.dev'
+    }
+    if (targetApp === 'listing-input' || targetApp === 'inventory-admin' || targetApp === 'inventory') {
+      targetApp = 'listing-input.lama-4db.workers.dev'
+    }
+    if (targetApp === 'open-house' || targetApp === 'openhouse') {
+      targetApp = 'openhouse.lama-4db.workers.dev'
+    }
+    if (targetApp === 'branding-hub' || targetApp === 'branding' || targetApp === 'inside') {
+      targetApp = 'branding-hub.lama-4db.workers.dev'
     }
     const returnTo = url.searchParams.get('return_to') || ''
 
@@ -640,13 +666,21 @@ async function handleApi(request: Request, env: Env, path: string, url: URL, hos
       .bind(targetApp)
       .first<{ hostname: string; controlled: number; sso_capable: number }>()
 
-    if (!appRow && (targetApp === 'prime-america-kb.lama-4db.workers.dev' || targetApp.includes('prime-america-kb') || targetApp.includes('cabinet'))) {
+    if (!appRow && (
+      targetApp.includes('listing-input') ||
+      targetApp.includes('openhouse') ||
+      targetApp.includes('branding-hub') ||
+      targetApp.includes('prime-america-kb') ||
+      targetApp.includes('cabinet')
+    )) {
       appRow = { hostname: targetApp, controlled: 1, sso_capable: 1 }
     }
 
     if (!appRow) {
       return err(`SSO redirect not available for ${targetApp}. This may be a third-party app.`, 400)
     }
+
+
 
     const token = generateToken(32)
     const expiresAt = new Date(Date.now() + 5 * 60 * 1000).toISOString()
@@ -920,7 +954,7 @@ async function handleApi(request: Request, env: Env, path: string, url: URL, hos
     const agentId = publicAgentMatch[1]
     const agent = await env.DB
       .prepare(`
-         SELECT u.id, u.tenant_id, u.name, u.email, u.role, u.avatar_url, u.phone, u.license_number,
+         SELECT u.id, u.tenant_id, u.name, u.email, u.role, u.avatar_url, u.phone, u.license_number, u.title,
                t.name as company_name, t.logo_url as company_logo_url, t.primary_color, t.accent_color,
                t.company_address, t.company_telephone, t.company_fax
         FROM users u
@@ -937,6 +971,7 @@ async function handleApi(request: Request, env: Env, path: string, url: URL, hos
         avatar_url: string | null
         phone: string | null
         license_number: string | null
+        title: string | null
         company_name: string | null
         company_logo_url: string | null
         primary_color: string | null
@@ -955,6 +990,7 @@ async function handleApi(request: Request, env: Env, path: string, url: URL, hos
       name: agent.name,
       email: agent.email,
       role: agent.role,
+      title: agent.title,
       avatarUrl: agent.avatar_url,
       phone: agent.phone,
       licenseNumber: agent.license_number,
@@ -3255,6 +3291,95 @@ async function handleApi(request: Request, env: Env, path: string, url: URL, hos
     return err('Storage or export endpoint not found', 404)
   }
 
+  // ── Notifications API — /api/notifications ───────────────────────────────
+  if (path === '/api/notifications' && method === 'GET') {
+    const session = await requireAuth(request, env.JWT_SECRET)
+    const todayStr = new Date().toISOString().substring(0, 10)
+
+    const dbNotifs = await env.DB
+      .prepare('SELECT * FROM notifications WHERE tenant_id = ? ORDER BY created_at DESC LIMIT 50')
+      .bind(session.tenantId)
+      .all<any>()
+
+    const list: any[] = (dbNotifs.results || []).map((n) => ({
+      id: n.id,
+      message: n.message,
+      priority: n.priority || 'informational',
+      is_read: n.is_read || 0,
+      action_url: n.action_url || null,
+      created_at: n.created_at,
+    }))
+
+    try {
+      const contacts = await env.DB
+        .prepare('SELECT id, first_name, last_name, next_follow_up_date, next_action, lead_stage FROM contacts WHERE tenant_id = ? AND next_follow_up_date IS NOT NULL')
+        .bind(session.tenantId)
+        .all<any>()
+
+      for (const c of contacts.results || []) {
+        if (!c.next_follow_up_date) continue
+        const isOverdue = c.next_follow_up_date < todayStr
+        const isToday = c.next_follow_up_date === todayStr
+
+        if (isOverdue) {
+          list.push({
+            id: `dyn_overdue_${c.id}`,
+            message: `Overdue Follow-up: ${c.first_name} ${c.last_name} (${c.next_action || 'Action required'})`,
+            priority: 'urgent',
+            is_read: 0,
+            action_url: `/marketing/crm/${c.id}`,
+            created_at: new Date().toISOString(),
+          })
+        } else if (isToday) {
+          list.push({
+            id: `dyn_today_${c.id}`,
+            message: `Scheduled Touchpoint Today: ${c.first_name} ${c.last_name} (${c.next_action || 'Follow up'})`,
+            priority: 'today',
+            is_read: 0,
+            action_url: `/marketing/crm/${c.id}`,
+            created_at: new Date().toISOString(),
+          })
+        }
+      }
+
+      const deals = await env.DB
+        .prepare('SELECT id, name, closing_date, status FROM deals WHERE tenant_id = ? AND status != ?')
+        .bind(session.tenantId, 'closed')
+        .all<any>()
+
+      for (const d of deals.results || []) {
+        if (d.closing_date && d.closing_date <= todayStr) {
+          list.push({
+            id: `dyn_deal_close_${d.id}`,
+            message: `Closing Milestone Reached: Deal "${d.name}" scheduled for title transfer`,
+            priority: 'urgent',
+            is_read: 0,
+            action_url: `/transactions/${d.id}`,
+            created_at: new Date().toISOString(),
+          })
+        }
+      }
+    } catch (e) {
+      console.error('Dynamic notification evaluation error', e)
+    }
+
+    return ok({ notifications: list, total: list.length })
+  }
+
+  if (path === '/api/notifications/read-all' && method === 'POST') {
+    const session = await requireAuth(request, env.JWT_SECRET)
+    await env.DB.prepare('UPDATE notifications SET is_read = 1 WHERE tenant_id = ?').bind(session.tenantId).run()
+    return ok({ message: 'All notifications marked as read' })
+  }
+
+  if (path.startsWith('/api/notifications/') && path.endsWith('/read') && method === 'POST') {
+    const session = await requireAuth(request, env.JWT_SECRET)
+    const notifId = path.split('/')[3]
+    await env.DB.prepare('UPDATE notifications SET is_read = 1 WHERE id = ? AND tenant_id = ?').bind(notifId, session.tenantId).run()
+    return ok({ message: 'Notification marked as read' })
+  }
+
+  // ── Notifications (SSE) — /api/notifications/stream ─────────────────────
   // ── Notifications (SSE) — /api/notifications/stream ─────────────────────
   if (path === '/api/notifications/stream' && method === 'GET') {
     const session = await requireAuth(request, env.JWT_SECRET)

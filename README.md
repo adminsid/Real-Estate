@@ -34,7 +34,7 @@ RE Workspace is an all-in-one workspace for real estate salespersons, brokers, a
 - **State:** React Context + Zustand
 - **Backend:** Cloudflare Workers (TypeScript)
 - **Storage:** Cloudflare KV (sessions), D1 (database), R2 (file assets)
-- **Deployment:** Cloudflare Pages + Workers
+- **Deployment:** Cloudflare Workers
 
 ---
 

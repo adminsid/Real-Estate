@@ -1,7 +1,9 @@
-import { Menu, Bell, Search, Wifi } from 'lucide-react'
+import { Menu } from 'lucide-react'
 import { useAuth } from '@/context/AuthContext'
 import { useWorkspace } from '@/context/WorkspaceContext'
 import { Link } from 'react-router-dom'
+import { WorkspaceSearch } from './WorkspaceSearch'
+import { NotificationBell } from './NotificationBell'
 
 interface HeaderProps {
   title?: string
@@ -32,26 +34,10 @@ export function Header({ title }: HeaderProps) {
       </div>
 
       {/* Search (desktop) */}
-      <div className="hidden md:flex items-center gap-2 bg-gray-50 border border-gray-200 rounded-xl px-3 py-2 w-64">
-        <Search className="h-4 w-4 text-gray-400 flex-shrink-0" />
-        <input
-          type="text"
-          placeholder="Search workspace…"
-          className="bg-transparent text-sm text-gray-700 placeholder:text-gray-400 focus:outline-none w-full"
-        />
-      </div>
-
-      {/* PWA online indicator */}
-      <div className="hidden sm:flex items-center gap-1 text-xs text-emerald-600">
-        <Wifi className="h-3.5 w-3.5" />
-        <span>Online</span>
-      </div>
+      <WorkspaceSearch />
 
       {/* Notifications */}
-      <button className="relative p-2 rounded-xl hover:bg-gray-100 transition-colors">
-        <Bell className="h-5 w-5 text-gray-600" />
-        <span className="absolute top-1.5 right-1.5 h-2 w-2 rounded-full bg-brand-gold" />
-      </button>
+      {user && <NotificationBell />}
 
       {/* Auth */}
       {user ? (

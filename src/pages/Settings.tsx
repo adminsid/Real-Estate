@@ -1,21 +1,57 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Settings, Palette, User2, Shield, Download, Trash2, CheckCircle2 } from 'lucide-react'
 import { Layout } from '@/components/layout/Layout'
 import { useAuth } from '@/context/AuthContext'
+import { useWorkspace } from '@/context/WorkspaceContext'
 
 type Tab = 'profile' | 'branding' | 'privacy' | 'data'
 
 export function SettingsPage() {
-  const { user, branding, updateBranding } = useAuth()
+  const { user, branding, updateBranding, updateProfile } = useAuth()
+  const { operationalMode, setOperationalMode } = useWorkspace()
   const [activeTab, setActiveTab] = useState<Tab>('profile')
   const [saved, setSaved] = useState(false)
+  const [profileSaved, setProfileSaved] = useState(false)
+  const [profileSaving, setProfileSaving] = useState(false)
 
   const [localBranding, setLocalBranding] = useState({ ...branding })
+
+  const [profileName, setProfileName] = useState(user?.name || '')
+  const [profileTitle, setProfileTitle] = useState(user?.title || '')
+  const [profilePhone, setProfilePhone] = useState(user?.phone || '')
+  const [profileLicenseNumber, setProfileLicenseNumber] = useState(user?.licenseNumber || '')
+
+  useEffect(() => {
+    if (user) {
+      setProfileName(user.name || '')
+      setProfileTitle(user.title || '')
+      setProfilePhone(user.phone || '')
+      setProfileLicenseNumber(user.licenseNumber || '')
+    }
+  }, [user?.id, user?.name, user?.title, user?.phone, user?.licenseNumber])
 
   function saveBranding() {
     updateBranding(localBranding)
     setSaved(true)
     setTimeout(() => setSaved(false), 2000)
+  }
+
+  async function saveProfile() {
+    setProfileSaving(true)
+    try {
+      await updateProfile({
+        name: profileName || undefined,
+        title: profileTitle || undefined,
+        phone: profilePhone || undefined,
+        licenseNumber: profileLicenseNumber || undefined,
+      })
+      setProfileSaved(true)
+      setTimeout(() => setProfileSaved(false), 2000)
+    } catch (e) {
+      console.error('Failed to save profile', e)
+    } finally {
+      setProfileSaving(false)
+    }
   }
 
   const tabs: { id: Tab; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
@@ -62,51 +98,114 @@ export function SettingsPage() {
         <div className="flex-1">
           {/* Profile */}
           {activeTab === 'profile' && (
-            <div className="bg-white rounded-2xl shadow-card border border-gray-100 p-6">
-              <h3 className="font-bold text-gray-800 mb-5">Profile Information</h3>
-              {user ? (
-                <div className="space-y-4">
-                  <div className="flex items-center gap-4 mb-6">
-                    <div className="h-16 w-16 rounded-2xl bg-brand-navy flex items-center justify-center">
-                      <span className="text-brand-gold font-bold text-2xl uppercase">
-                        {user.name.slice(0, 2)}
-                      </span>
+            <div className="space-y-6">
+              <div className="bg-white rounded-2xl shadow-card border border-gray-100 p-6">
+                <h3 className="font-bold text-gray-800 mb-5">Profile Information</h3>
+                {user ? (
+                  <div className="space-y-4">
+                    <div className="flex items-center gap-4 mb-6">
+                      <div className="h-16 w-16 rounded-2xl bg-brand-navy flex items-center justify-center">
+                        <span className="text-brand-gold font-bold text-2xl uppercase">
+                          {user.name.slice(0, 2)}
+                        </span>
+                      </div>
+                      <div>
+                        <p className="font-bold text-gray-800 text-lg">{user.name}</p>
+                        <p className="text-sm text-gray-500 capitalize">{user.role}</p>
+                        <p className="text-xs text-gray-400">{user.email}</p>
+                      </div>
                     </div>
-                    <div>
-                      <p className="font-bold text-gray-800 text-lg">{user.name}</p>
-                      <p className="text-sm text-gray-500 capitalize">{user.role}</p>
-                      <p className="text-xs text-gray-400">{user.email}</p>
-                    </div>
-                  </div>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div>
-                      <label className="text-sm font-medium text-gray-700 mb-1.5 block">Full Name</label>
-                      <input defaultValue={user.name} className="w-full rounded-xl border border-gray-200 px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-navy" />
-                    </div>
-                    <div>
-                      <label className="text-sm font-medium text-gray-700 mb-1.5 block">Email</label>
-                      <input defaultValue={user.email} type="email" className="w-full rounded-xl border border-gray-200 px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-navy" />
-                    </div>
-                    <div>
-                      <label className="text-sm font-medium text-gray-700 mb-1.5 block">Role</label>
-                      <input defaultValue={user.role} readOnly className="w-full rounded-xl border border-gray-200 px-4 py-2.5 text-sm bg-gray-50 text-gray-500 capitalize" />
-                    </div>
-                    {user.licenseNumber && (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div>
+                        <label className="text-sm font-medium text-gray-700 mb-1.5 block">Full Name</label>
+                        <input
+                          value={profileName}
+                          onChange={(e) => setProfileName(e.target.value)}
+                          className="w-full rounded-xl border border-gray-200 px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-navy"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-sm font-medium text-gray-700 mb-1.5 block">Email</label>
+                        <input defaultValue={user.email} type="email" readOnly className="w-full rounded-xl border border-gray-200 px-4 py-2.5 text-sm bg-gray-50 text-gray-500" />
+                      </div>
+                      <div>
+                        <label className="text-sm font-medium text-gray-700 mb-1.5 block">Role</label>
+                        <input defaultValue={user.role} readOnly className="w-full rounded-xl border border-gray-200 px-4 py-2.5 text-sm bg-gray-50 text-gray-500 capitalize" />
+                      </div>
+                      <div>
+                        <label className="text-sm font-medium text-gray-700 mb-1.5 block">Client-Facing License Title</label>
+                        <input
+                          value={profileTitle}
+                          onChange={(e) => setProfileTitle(e.target.value)}
+                          className="w-full rounded-xl border border-gray-200 px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-navy"
+                          placeholder="e.g. Licensed Real Estate Salesperson"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-sm font-medium text-gray-700 mb-1.5 block">Phone</label>
+                        <input
+                          value={profilePhone}
+                          onChange={(e) => setProfilePhone(e.target.value)}
+                          className="w-full rounded-xl border border-gray-200 px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-navy"
+                          placeholder="e.g. (347) 725-3142"
+                        />
+                      </div>
                       <div>
                         <label className="text-sm font-medium text-gray-700 mb-1.5 block">License Number (NY)</label>
-                        <input defaultValue={user.licenseNumber} className="w-full rounded-xl border border-gray-200 px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-navy" />
+                        <input
+                          value={profileLicenseNumber}
+                          onChange={(e) => setProfileLicenseNumber(e.target.value)}
+                          className="w-full rounded-xl border border-gray-200 px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-navy"
+                          placeholder="e.g. 10401234567"
+                        />
                       </div>
-                    )}
-                  </div>
+                    </div>
 
-                  <button className="mt-2 px-5 py-2.5 rounded-xl bg-brand-navy text-white text-sm font-semibold hover:bg-brand-navy-light transition-colors">
-                    Save Profile
-                  </button>
+                    <button
+                      onClick={saveProfile}
+                      disabled={profileSaving}
+                      className="mt-2 px-5 py-2.5 rounded-xl bg-brand-navy text-white text-sm font-semibold hover:bg-brand-navy-light transition-colors flex items-center gap-2"
+                    >
+                      {profileSaved ? <><CheckCircle2 className="h-4 w-4" /> Saved!</> : profileSaving ? 'Saving...' : 'Save Profile'}
+                    </button>
+                  </div>
+                ) : (
+                  <p className="text-gray-500 text-sm">Please <a href="/login" className="text-brand-navy font-semibold hover:underline">sign in</a> to manage your profile.</p>
+                )}
+              </div>
+              {/* Operational Mode Card */}
+              <div className="bg-white rounded-2xl shadow-card border border-gray-100 p-6">
+                <h3 className="font-bold text-gray-800 text-base mb-1">Operational Mode & Workflow Focus</h3>
+                <p className="text-xs text-gray-500 mb-4">Choose your primary daily workflow focus to prioritize workspace dashboards and tools without cluttering your main views.</p>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                  {[
+                    { id: 'prospecting', title: 'Prospecting Mode', desc: 'Focus on new lead intake, call lists, and overdue follow-up queues.' },
+                    { id: 'listing', title: 'Listing Agent Mode', desc: 'Focus on seller client updates, active listings, and marketing assets.' },
+                    { id: 'buyer', title: 'Buyer Agent Mode', desc: 'Focus on MLS searches, saved buyer criteria, showings, and offer drafting.' },
+                    { id: 'transaction', title: 'Transaction Mode', desc: 'Focus on deals pipeline milestones, contract tasks, and attorney contacts.' },
+                    { id: 'compliance', title: 'Compliance Focus', desc: 'Focus on audit logs, document signatures, and NY Article 12-A compliance.' },
+                  ].map((m) => (
+                    <button
+                      key={m.id}
+                      type="button"
+                      onClick={() => setOperationalMode(m.id as any)}
+                      className={`p-4 rounded-xl border text-left transition-all ${
+                        operationalMode === m.id
+                          ? 'border-brand-navy ring-2 ring-brand-navy/20 bg-brand-navy/5'
+                          : 'border-gray-200 hover:border-gray-300 bg-white'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between mb-1">
+                        <p className="font-bold text-xs text-gray-900">{m.title}</p>
+                        {operationalMode === m.id && <span className="h-2 w-2 rounded-full bg-brand-navy" />}
+                      </div>
+                      <p className="text-[11px] text-gray-500 leading-snug">{m.desc}</p>
+                    </button>
+                  ))}
                 </div>
-              ) : (
-                <p className="text-gray-500 text-sm">Please <a href="/login" className="text-brand-navy font-semibold hover:underline">sign in</a> to manage your profile.</p>
-              )}
+              </div>
             </div>
           )}
 

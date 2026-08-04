@@ -1,0 +1,25 @@
+name = "re-transactions"
+main = "index.ts"
+compatibility_date = "2024-06-01"
+
+# Binds to the SAME shared D1 database as the gateway
+[[d1_databases]]
+binding = "DB"
+database_name = "re-workspace-db"
+database_id = "c5532a8c-2d69-4474-8f42-58d2f96354cd"
+
+[vars]
+# Used to fetch listing details from the standalone inventory app
+INVENTORY_WORKER_URL = "https://listing-input.lama-4db.workers.dev"
+
+[[durable_objects.bindings]]
+name = "OUTCOMES_ROOM"
+class_name = "OutcomesRoom"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["OutcomesRoom"]
+
+[[send_email]]
+name = "EMAIL"
+

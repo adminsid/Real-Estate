@@ -1,29 +1,59 @@
 <!doctype html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#0F2040" />
-    <meta
-      name="description"
-      content="RE Workspace — Your Real Estate Command Center. Manage Transactions, Inventory, Marketing, Learning and Networking all in one place."
-    />
-    <meta name="apple-mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-    <meta name="apple-mobile-web-app-title" content="RE Workspace" />
-    <link rel="apple-touch-icon" href="/icons/icon-192.png" />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <link rel="manifest" href="/manifest.json" />
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap"
-      rel="stylesheet"
-    />
-    <title>RE Workspace</title>
-  </head>
-  <body>
-    <div id="root"></div>
-    <script type="module" src="/src/main.tsx"></script>
-  </body>
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#0F2040" />
+  <meta name="description"
+    content="RE Workspace — Your Real Estate Command Center. Manage Transactions, Inventory, Marketing, Learning and Networking all in one place." />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="RE Workspace" />
+  <link rel="apple-touch-icon" href="/icons/icon-192.png" />
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  <link rel="manifest" href="/manifest.webmanifest" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap"
+    rel="stylesheet" />
+  <script>
+    (function () {
+      try {
+        const cached = localStorage.getItem('workspace_branding');
+        if (cached) {
+          const branding = JSON.parse(cached);
+          if (branding.logoUrl) {
+            const favicon = document.querySelector('link[rel="icon"]');
+            if (favicon) favicon.setAttribute('href', branding.logoUrl);
+
+            const apple = document.querySelector('link[rel="apple-touch-icon"]');
+            if (apple) apple.setAttribute('href', branding.logoUrl);
+          }
+          const primary = branding.primaryColor || '#0F2040';
+          const accent = branding.accentColor || '#C9A84C';
+          const style = document.createElement('style');
+          style.innerHTML = `
+              :root {
+                --brand-primary: ${primary} !important;
+                --brand-primary-light: color-mix(in srgb, ${primary} 85%, white) !important;
+                --brand-primary-muted: color-mix(in srgb, ${primary} 70%, white) !important;
+                --brand-accent: ${accent} !important;
+                --brand-accent-light: color-mix(in srgb, ${accent} 85%, white) !important;
+                --brand-accent-dark: color-mix(in srgb, ${accent} 85%, black) !important;
+              }
+            `;
+          document.head.appendChild(style);
+        }
+      } catch (e) { }
+    })();
+  </script>
+  <title>RE Workspace</title>
+</head>
+
+<body>
+  <div id="root"></div>
+  <script type="module" src="/src/main.tsx"></script>
+</body>
+
 </html>

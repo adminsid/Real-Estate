@@ -1,11 +1,10 @@
 import { useState } from 'react'
-import { useNavigate, Link } from 'react-router-dom'
+import { Link } from 'react-router-dom'
 import { Eye, EyeOff, LogIn, AlertCircle } from 'lucide-react'
 import { useAuth } from '@/context/AuthContext'
 
 export function LoginPage() {
-  const { login, isLoading } = useAuth()
-  const navigate = useNavigate()
+  const { login, isLoading, branding } = useAuth()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
@@ -16,11 +15,14 @@ export function LoginPage() {
     setError('')
     try {
       await login(email, password)
-      navigate('/')
+      // Navigation after login is handled entirely by LoginRouteWrapper
+      // which watches isAuthenticated and redirects via useEffect.
     } catch (err) {
       setError((err as Error).message || 'Login failed. Please try again.')
     }
   }
+
+  const companyName = branding?.companyName || 'Prime America Realty'
 
   return (
     <div className="min-h-screen bg-brand-navy flex items-center justify-center px-4">
@@ -28,13 +30,23 @@ export function LoginPage() {
       <div className="absolute inset-0 opacity-10 bg-[radial-gradient(circle_at_50%_0%,#C9A84C_0%,transparent_60%)]" />
 
       <div className="relative w-full max-w-md">
-        {/* Logo */}
+        {/* Logo / Branding */}
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center h-16 w-16 rounded-2xl bg-brand-gold mb-4">
-            <span className="text-brand-navy font-bold text-2xl">RE</span>
-          </div>
+          {branding?.logoUrl ? (
+            <img
+              src={branding.logoUrl}
+              alt={companyName}
+              className="h-16 w-auto mx-auto mb-4 object-contain"
+            />
+          ) : (
+            <div className="inline-flex items-center justify-center h-16 w-16 rounded-2xl bg-brand-gold mb-4">
+              <span className="text-brand-navy font-bold text-2xl">RE</span>
+            </div>
+          )}
           <h1 className="text-2xl font-bold text-white">Welcome back</h1>
-          <p className="text-white/50 mt-1 text-sm">Sign in to your workspace</p>
+          <p className="text-white/50 mt-1 text-sm">
+            Sign in to {companyName}
+          </p>
         </div>
 
         {/* Card */}
@@ -59,13 +71,22 @@ export function LoginPage() {
                 onChange={(e) => setEmail(e.target.value)}
                 className="w-full rounded-xl border border-gray-200 px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-navy focus:border-transparent"
                 placeholder="you@example.com"
+                autoComplete="username"
               />
             </div>
 
             <div>
-              <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-1.5">
-                Password
-              </label>
+              <div className="flex items-center justify-between mb-1.5">
+                <label htmlFor="password" className="block text-sm font-medium text-gray-700">
+                  Password
+                </label>
+                <Link
+                  to="/forgot-password"
+                  className="text-xs text-brand-navy hover:underline font-medium"
+                >
+                  Forgot password?
+                </Link>
+              </div>
               <div className="relative">
                 <input
                   id="password"
@@ -75,11 +96,13 @@ export function LoginPage() {
                   onChange={(e) => setPassword(e.target.value)}
                   className="w-full rounded-xl border border-gray-200 px-4 py-2.5 text-sm pr-10 focus:outline-none focus:ring-2 focus:ring-brand-navy focus:border-transparent"
                   placeholder="••••••••"
+                  autoComplete="current-password"
                 />
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
                   className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                  aria-label={showPassword ? 'Hide password' : 'Show password'}
                 >
                   {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                 </button>
@@ -88,6 +111,7 @@ export function LoginPage() {
 
             <button
               type="submit"
+              id="login-submit"
               disabled={isLoading}
               className="flex items-center justify-center gap-2 w-full rounded-xl bg-brand-navy text-white font-semibold py-3 hover:bg-brand-navy-light transition-colors disabled:opacity-60"
             >
@@ -99,13 +123,6 @@ export function LoginPage() {
               {isLoading ? 'Signing in…' : 'Sign In'}
             </button>
           </form>
-
-          <p className="mt-6 text-center text-sm text-gray-500">
-            Don't have an account?{' '}
-            <Link to="/signup" className="font-semibold text-brand-navy hover:underline">
-              Create one
-            </Link>
-          </p>
         </div>
 
         <p className="text-center text-white/30 text-xs mt-6">

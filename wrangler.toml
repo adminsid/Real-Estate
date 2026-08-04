@@ -3,31 +3,88 @@ main = "worker/index.ts"
 compatibility_date = "2024-06-01"
 compatibility_flags = ["nodejs_compat"]
 
-# Cloudflare Pages site output
+# Static frontend assets (Workers Sites)
 [site]
 bucket = "./dist"
 
-# Environment variables (non-secret)
+# ── Environment variables (non-secret) ───────────────────────────────────────
 [vars]
-APP_NAME = "RE Workspace"
-APP_ENV = "production"
+APP_NAME    = "RE Workspace"
+APP_ENV     = "production"
 
-# KV Namespaces — bind after creating with: wrangler kv:namespace create WORKSPACE_KV
-# [[kv_namespaces]]
-# binding = "WORKSPACE_KV"
-# id = "<YOUR_KV_ID>"
+# PLATFORM_HOSTNAME: The canonical workers.dev URL — used as internal fallback.
+# This is NOT the tenant identity hostname. workspace.primeamericany.com is the
+# first tenant hostname, stored in the tenant_hostnames table.
+PLATFORM_HOSTNAME = "re-workspace.lama-4db.workers.dev"
 
-# D1 Database — bind after creating with: wrangler d1 create re-workspace-db
-# [[d1_databases]]
-# binding = "DB"
-# database_name = "re-workspace-db"
-# database_id = "<YOUR_D1_ID>"
+# FROM_EMAIL: The "from" address for all platform emails.
+FROM_EMAIL  = "noreply@primeamericarealestate.com"
 
-# R2 Storage — bind after creating with: wrangler r2 bucket create re-workspace-assets
-# [[r2_buckets]]
-# binding = "ASSETS"
-# bucket_name = "re-workspace-assets"
+# INVENTORY_WORKER_URL: URL of the listing inventory Worker.
+INVENTORY_WORKER_URL = "https://listing-input.lama-4db.workers.dev"
 
+# OPENHOUSE_WORKER_URL: URL of the open house Worker.
+# workspace.primeamericany.com/openhouse was the old URL — this points to the actual Worker.
+OPENHOUSE_WORKER_URL = "https://openhouse.primeamericarealestate.com"
+
+# ── D1 Database — re-workspace-db ────────────────────────────────────────────
+[[d1_databases]]
+binding = "DB"
+database_name = "re-workspace-db"
+database_id = "c5532a8c-2d69-4474-8f42-58d2f96354cd"
+migrations_dir = "worker/db/migrations"
+
+# ── KV — email verification / password reset / invite tokens ─────────────────
+[[kv_namespaces]]
+binding = "EMAIL_TOKENS_KV"
+id = "d932bf6f7c1f4f24a0c9a27914cb9249"
+
+# ── Service Bindings — module workers (private, no public URL) ────────────────
+[[services]]
+binding = "CRM"
+service = "re-crm"
+[[services]]
+binding = "TRANSACTIONS"
+service = "re-transactions"
+
+# ── R2 — file storage ─────────────────────────────────────────────────────────
+[[r2_buckets]]
+binding = "ASSETS_BUCKET"
+bucket_name = "re-workspace-assets"
+
+# ── Email Service — native Cloudflare email binding ───────────────────────────
+[[send_email]]
+name = "EMAIL"
+
+# ── Custom Domains ────────────────────────────────────────────────────────────
+# workspace.primeamericany.com is the first tenant's primary hostname.
+# It is NOT the permanent global identity of the platform — it is tenant data.
+# Future white-label tenant hostnames are registered in the tenant_hostnames table.
+#
+# Cloudflare Worker custom domains are attached via the Dashboard or:
+#   wrangler deploy --name re-workspace
+# then add the custom domain in: Workers & Pages → re-workspace → Settings → Custom Domains
+#
+# NOTE: Cloudflare for SaaS (custom hostname onboarding) is a separate product
+# needed if CUSTOMERS bring their own domains. For our own domains (primeamericany.com,
+# primeamericarealestate.com) — use Worker Custom Domains or routes, NOT SaaS.
+[[routes]]
+pattern = "app.primeamericarealestate.com/*"
+zone_name = "primeamericarealestate.com"
+
+[[routes]]
+pattern = "workspace.primeamericany.com/*"
+zone_name = "primeamericany.com"
+
+[[routes]]
+pattern = "prime.searchtolive.com/*"
+zone_name = "searchtolive.com"
+# ── Secrets (set via: wrangler secret put <NAME>) ─────────────────────────────
+# JWT_SECRET          — random 64+ char string; signs all session JWTs
+# INTERNAL_API_SECRET — shared secret for inter-worker calls
+# INVENTORY_SYNC_SECRET — secret for inventory sync operations
+
+# ── Staging environment ───────────────────────────────────────────────────────
 [env.staging]
 name = "re-workspace-staging"
-vars = { APP_ENV = "staging" }
+vars = { APP_ENV = "staging", PLATFORM_HOSTNAME = "re-workspace-staging.lama-4db.workers.dev" }

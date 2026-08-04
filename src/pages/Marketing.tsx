@@ -1,12 +1,33 @@
-import { Megaphone, ExternalLink } from 'lucide-react'
+import { Megaphone } from 'lucide-react'
 import { Layout } from '@/components/layout/Layout'
 import { AppTile } from '@/components/apps/AppTile'
-import { APP_MODULES } from '@/utils/constants'
+import { APP_MODULES, isSubitemVisible } from '@/utils/constants'
 import { useAuth } from '@/context/AuthContext'
+import type { AppModule } from '@/types'
+
+interface CustomModuleInfo {
+  category: string
+  visibility?: 'all' | 'admin' | 'broker' | 'admin_broker'
+  adminOnly?: boolean
+}
 
 export function MarketingPage() {
-  const modules = APP_MODULES.filter((m) => m.category === 'marketing')
-  const { branding } = useAuth()
+  const { branding, user, can } = useAuth()
+  const customModules = branding.dashboardSettings ? JSON.parse(branding.dashboardSettings).customModules || [] : []
+  const visibleCustomModules = (customModules as CustomModuleInfo[]).filter((m) => {
+    if (m.category !== 'marketing' || !user) return false
+    const visibility = m.visibility || (m.adminOnly ? 'admin' : 'all')
+    if (visibility === 'all') return true
+    if (visibility === 'admin') return user.role === 'admin'
+    if (visibility === 'broker') return user.role === 'broker'
+    if (visibility === 'admin_broker') return user.role === 'admin' || user.role === 'broker'
+    return false
+  })
+
+  const modules = [
+    ...APP_MODULES.filter((m) => m.category === 'marketing'),
+    ...(visibleCustomModules as unknown as AppModule[])
+  ].filter(m => isSubitemVisible(m.id, m.category, user, can))
 
   return (
     <Layout title="Marketing">
@@ -24,35 +45,6 @@ export function MarketingPage() {
         {modules.map((mod) => (
           <AppTile key={mod.id} module={mod} size="lg" />
         ))}
-      </div>
-
-      {/* Website preview card */}
-      <div className="bg-white rounded-2xl shadow-card border border-gray-100 p-5 mb-4">
-        <div className="flex items-center justify-between mb-3">
-          <div>
-            <p className="font-bold text-gray-800">Your Website</p>
-            <a
-              href={branding.websiteUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-sm text-brand-navy hover:underline flex items-center gap-1 mt-0.5"
-            >
-              {branding.websiteUrl} <ExternalLink className="h-3 w-3" />
-            </a>
-          </div>
-          <a
-            href={branding.websiteUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center gap-2 px-4 py-2 rounded-xl bg-pink-50 text-pink-700 text-sm font-medium hover:bg-pink-100 transition-colors"
-          >
-            <ExternalLink className="h-4 w-4" />
-            Visit
-          </a>
-        </div>
-        <div className="h-32 bg-gradient-to-br from-brand-navy to-brand-navy-light rounded-xl flex items-center justify-center">
-          <span className="text-white/30 text-sm">Website Preview</span>
-        </div>
       </div>
     </Layout>
   )

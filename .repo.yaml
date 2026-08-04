@@ -1,0 +1,5 @@
+name: real-estate
+local: /Users/siddharthalama/dev/real-estate
+remote: https://github.com/adminsid/Real-Estate.git
+source: both
+branch: main

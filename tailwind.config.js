@@ -6,12 +6,12 @@ export default {
     extend: {
       colors: {
         brand: {
-          navy: '#0F2040',
-          'navy-light': '#1B3A6B',
-          'navy-muted': '#243B55',
-          gold: '#C9A84C',
-          'gold-light': '#E8C56A',
-          'gold-dark': '#A8872C',
+          navy: 'var(--brand-primary)',
+          'navy-light': 'var(--brand-primary-light)',
+          'navy-muted': 'var(--brand-primary-muted)',
+          gold: 'var(--brand-accent)',
+          'gold-light': 'var(--brand-accent-light)',
+          'gold-dark': 'var(--brand-accent-dark)',
         },
       },
       fontFamily: {

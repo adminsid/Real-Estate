@@ -4,6 +4,7 @@ import { Layout } from '@/components/layout/Layout'
 import { AppTile } from '@/components/apps/AppTile'
 import { useAuth } from '@/context/AuthContext'
 import { APP_MODULES, NAV_CATEGORIES, isCategoryVisible, isSubitemVisible } from '@/utils/constants'
+import { DailyFocusSummary } from '@/components/layout/DailyFocusSummary'
 import type { AppModule, UserRole } from '@/types'
 import * as Icons from 'lucide-react'
 
@@ -118,6 +119,20 @@ export function DashboardPage() {
   const [isLoading, setIsLoading] = useState(true)
   const [isEditing, setIsEditing] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
+
+  const [agentIntent, setAgentIntent] = useState<'listing_agent' | 'buyer_agent' | 'dual_agent' | 'managing_broker'>(() => {
+    const saved = localStorage.getItem('dashboard_agent_intent')
+    if (saved && ['listing_agent', 'buyer_agent', 'dual_agent', 'managing_broker'].includes(saved)) {
+      return saved as any
+    }
+    return user && ['admin', 'broker'].includes(user.role) ? 'managing_broker' : 'dual_agent'
+  })
+
+  const changeAgentIntent = (intent: 'listing_agent' | 'buyer_agent' | 'dual_agent' | 'managing_broker') => {
+    setAgentIntent(intent)
+    localStorage.setItem('dashboard_agent_intent', intent)
+  }
+
   
   const sanitizeSettings = (raw: DashboardSettings): DashboardSettings => {
     return {
@@ -565,6 +580,69 @@ export function DashboardPage() {
         )}
       </div>
 
+      <DailyFocusSummary />
+
+      {/* ── Role-Based Dynamic Intent Selector ──────────────────────── */}
+
+      <div className="mb-6 bg-white border border-gray-200 rounded-2xl p-3.5 shadow-2xs">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <div className="p-1.5 rounded-lg bg-brand-gold/20 text-brand-navy">
+              <Icons.LayoutGrid className="h-4 w-4 text-brand-navy" />
+            </div>
+            <div>
+              <span className="text-xs font-bold uppercase tracking-wider text-gray-500 block">Workspace Grid Layout Engine</span>
+              <span className="text-xs font-medium text-gray-700">Filter cards & tiles by your current operational intent</span>
+            </div>
+          </div>
+          <div className="flex items-center gap-1.5 overflow-x-auto pb-1 md:pb-0">
+            <button
+              onClick={() => changeAgentIntent('listing_agent')}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all ${
+                agentIntent === 'listing_agent'
+                  ? 'bg-emerald-600 text-white shadow-sm ring-2 ring-emerald-600/20'
+                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+              }`}
+            >
+              <Icons.Home className="h-3.5 w-3.5" /> Listing Agent
+            </button>
+            <button
+              onClick={() => changeAgentIntent('buyer_agent')}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all ${
+                agentIntent === 'buyer_agent'
+                  ? 'bg-sky-600 text-white shadow-sm ring-2 ring-sky-600/20'
+                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+              }`}
+            >
+              <Icons.Key className="h-3.5 w-3.5" /> Buyer Agent
+            </button>
+            <button
+              onClick={() => changeAgentIntent('dual_agent')}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all ${
+                agentIntent === 'dual_agent'
+                  ? 'bg-brand-navy text-white shadow-sm ring-2 ring-brand-navy/20'
+                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+              }`}
+            >
+              <Icons.Layers className="h-3.5 w-3.5" /> Dual / Full Hub
+            </button>
+            {user && ['admin', 'broker'].includes(user.role) && (
+              <button
+                onClick={() => changeAgentIntent('managing_broker')}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all ${
+                  agentIntent === 'managing_broker'
+                    ? 'bg-purple-600 text-white shadow-sm ring-2 ring-purple-600/20'
+                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                }`}
+              >
+                <Icons.Briefcase className="h-3.5 w-3.5" /> Managing Broker
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+
+
       {/* ── Daily Briefing Card ────────────────────────────────────────── */}
       <div className="rounded-2xl bg-white border border-gray-200 p-6 mb-6 shadow-sm">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-4 border-b border-gray-100 pb-4">
@@ -804,6 +882,19 @@ export function DashboardPage() {
                     <span className="text-xs font-bold bg-blue-100 text-blue-800 px-2.5 py-1 rounded-full">
                       {deal.target_close_date ? `Close: ${deal.target_close_date}` : 'Target TBD'}
                     </span>
+                    {deal.status === 'under_contract' && (
+                      <div className="mt-1.5">
+                        {!deal.escrow_date || !deal.inspection_deadline || !deal.appraisal_date ? (
+                          <span className="text-[10px] font-bold bg-amber-100 text-amber-800 px-2 py-0.5 rounded-full border border-amber-200">
+                            Missing Milestones
+                          </span>
+                        ) : (
+                          <span className="text-[10px] font-bold bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-full border border-emerald-200">
+                            Compliance OK
+                          </span>
+                        )}
+                      </div>
+                    )}
                   </div>
                 </div>
               ))}

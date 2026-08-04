@@ -1,10 +1,33 @@
 import { Building2 } from 'lucide-react'
 import { Layout } from '@/components/layout/Layout'
 import { AppTile } from '@/components/apps/AppTile'
-import { APP_MODULES } from '@/utils/constants'
+import { useAuth } from '@/context/AuthContext'
+import { APP_MODULES, isSubitemVisible } from '@/utils/constants'
+import type { AppModule } from '@/types'
+
+interface CustomModuleInfo {
+  category: string
+  visibility?: 'all' | 'admin' | 'broker' | 'admin_broker'
+  adminOnly?: boolean
+}
 
 export function InventoryPage() {
-  const modules = APP_MODULES.filter((m) => m.category === 'inventory')
+  const { branding, user, can } = useAuth()
+  const customModules = branding.dashboardSettings ? JSON.parse(branding.dashboardSettings).customModules || [] : []
+  const visibleCustomModules = (customModules as CustomModuleInfo[]).filter((m) => {
+    if (m.category !== 'inventory' || !user) return false
+    const visibility = m.visibility || (m.adminOnly ? 'admin' : 'all')
+    if (visibility === 'all') return true
+    if (visibility === 'admin') return user.role === 'admin'
+    if (visibility === 'broker') return user.role === 'broker'
+    if (visibility === 'admin_broker') return user.role === 'admin' || user.role === 'broker'
+    return false
+  })
+
+  const modules = [
+    ...APP_MODULES.filter((m) => m.category === 'inventory'),
+    ...(visibleCustomModules as unknown as AppModule[])
+  ].filter(m => isSubitemVisible(m.id, m.category, user, can))
 
   return (
     <Layout title="Inventory">
@@ -22,22 +45,11 @@ export function InventoryPage() {
         {modules.map((mod) => (
           <AppTile key={mod.id} module={mod} size="lg" />
         ))}
+        {user && ['admin', 'broker'].includes(user.role) && (
+          <AppTile module={{ id: 'inventory-reporting', name: 'Reporting', description: 'Showing logs, lead activity and export', icon: 'BarChart3', path: '/inventory/reporting', category: 'inventory', status: 'active', color: 'emerald' } as AppModule} size="lg" />
+        )}
       </div>
 
-      <div className="bg-emerald-50 rounded-2xl p-6 border border-emerald-100">
-        <h3 className="font-bold text-emerald-800 mb-2">MLS & Listing Resources</h3>
-        <ul className="space-y-2 text-sm text-emerald-700">
-          <li>
-            <a href="https://inventory.primeamericany.com" target="_blank" rel="noopener noreferrer" className="hover:underline font-medium">→ Open Full MLS Portal (inventory.primeamericany.com)</a>
-          </li>
-          <li>
-            <a href="https://www.rebny.com/" target="_blank" rel="noopener noreferrer" className="hover:underline">→ REBNY — Real Estate Board of New York</a>
-          </li>
-          <li>
-            <a href="https://www.onekey-mls.com/" target="_blank" rel="noopener noreferrer" className="hover:underline">→ OneKey MLS — Greater New York</a>
-          </li>
-        </ul>
-      </div>
     </Layout>
   )
 }
