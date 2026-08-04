@@ -15,7 +15,8 @@ export function NotificationBell() {
       const res = await fetch('/api/notifications')
       const data = await res.json()
       if (data.success || Array.isArray(data)) {
-        const notifs = data.notifications || data.data || data || []
+        const raw = data.notifications || data.data || data || []
+        const notifs = Array.isArray(raw) ? raw : (raw.notifications || [])
         setNotifications(notifs)
         setUnreadCount(notifs.filter((n: any) => !n.is_read).length)
       }

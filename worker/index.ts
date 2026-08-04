@@ -2267,45 +2267,6 @@ async function handleApi(request: Request, env: Env, path: string, url: URL, hos
       return ok({ message: 'NY DOS Dataset sync completed', licenseSync, tenant: updatedTenant })
     }
 
-    // GET /api/user/quick-links — get personal quick links
-    if (path === '/api/user/quick-links' && method === 'GET') {
-      const row = await env.DB
-        .prepare('SELECT display_prefs FROM user_settings WHERE user_id = ?')
-        .bind(session.userId)
-        .first<{ display_prefs: string }>()
-      let quickLinks = null
-      if (row?.display_prefs) {
-        try {
-          const parsed = JSON.parse(row.display_prefs)
-          quickLinks = parsed.quickLinks || null
-        } catch {}
-      }
-      return ok({ quickLinks })
-    }
-
-    // PUT /api/user/quick-links — update personal quick links
-    if (path === '/api/user/quick-links' && method === 'PUT') {
-      const body = await request.json<{ quickLinks: any[] }>()
-      const row = await env.DB
-        .prepare('SELECT display_prefs FROM user_settings WHERE user_id = ?')
-        .bind(session.userId)
-        .first<{ display_prefs: string }>()
-      let currentPrefs: any = {}
-      if (row?.display_prefs) {
-        try { currentPrefs = JSON.parse(row.display_prefs) } catch {}
-      }
-      currentPrefs.quickLinks = body.quickLinks || []
-      await env.DB
-        .prepare(`
-          INSERT INTO user_settings (user_id, display_prefs, updated_at)
-          VALUES (?, ?, datetime('now'))
-          ON CONFLICT(user_id) DO UPDATE SET display_prefs = excluded.display_prefs, updated_at = datetime('now')
-        `)
-        .bind(session.userId, JSON.stringify(currentPrefs))
-        .run()
-      return ok({ message: 'Quick links updated', quickLinks: currentPrefs.quickLinks })
-    }
-
     // PUT /api/tenant/dashboard-settings
     if (path === '/api/tenant/dashboard-settings' && method === 'PUT') {
       if (session.role !== 'admin') {
@@ -2404,6 +2365,47 @@ async function handleApi(request: Request, env: Env, path: string, url: URL, hos
     }
 
     return err('Tenant endpoint not found', 404)
+  }
+
+  // GET /api/user/quick-links — get personal quick links
+  if (path === '/api/user/quick-links' && method === 'GET') {
+    const session = await requireAuth(request, env.JWT_SECRET)
+    const row = await env.DB
+      .prepare('SELECT display_prefs FROM user_settings WHERE user_id = ?')
+      .bind(session.userId)
+      .first<{ display_prefs: string }>()
+    let quickLinks = null
+    if (row?.display_prefs) {
+      try {
+        const parsed = JSON.parse(row.display_prefs)
+        quickLinks = parsed.quickLinks || null
+      } catch {}
+    }
+    return ok({ quickLinks })
+  }
+
+  // PUT /api/user/quick-links — update personal quick links
+  if (path === '/api/user/quick-links' && method === 'PUT') {
+    const session = await requireAuth(request, env.JWT_SECRET)
+    const body = await request.json<{ quickLinks: any[] }>()
+    const row = await env.DB
+      .prepare('SELECT display_prefs FROM user_settings WHERE user_id = ?')
+      .bind(session.userId)
+      .first<{ display_prefs: string }>()
+    let currentPrefs: any = {}
+    if (row?.display_prefs) {
+      try { currentPrefs = JSON.parse(row.display_prefs) } catch {}
+    }
+    currentPrefs.quickLinks = body.quickLinks || []
+    await env.DB
+      .prepare(`
+        INSERT INTO user_settings (user_id, display_prefs, updated_at)
+        VALUES (?, ?, datetime('now'))
+        ON CONFLICT(user_id) DO UPDATE SET display_prefs = excluded.display_prefs, updated_at = datetime('now')
+      `)
+      .bind(session.userId, JSON.stringify(currentPrefs))
+      .run()
+    return ok({ message: 'Quick links updated', quickLinks: currentPrefs.quickLinks })
   }
 
   // ── CRM proxy — /api/contacts/* ─────────────────────────────────────────────
