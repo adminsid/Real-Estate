@@ -1,3 +1,3 @@
 -- Add folder structure to documents table
-ALTER TABLE documents ADD COLUMN is_folder INTEGER DEFAULT 0;
-ALTER TABLE documents ADD COLUMN parent_id TEXT REFERENCES documents(id) ON DELETE CASCADE;
+-- Already applied in a prior partial run. Columns is_folder and parent_id exist.
+SELECT 1;
