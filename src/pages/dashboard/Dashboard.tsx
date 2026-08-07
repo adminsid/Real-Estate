@@ -8,6 +8,7 @@ import { APP_MODULES, NAV_CATEGORIES, isCategoryVisible, isSubitemVisible } from
 import { TodayActions } from '@/components/layout/TodayActions'
 import { WorkflowHabitEngine } from '@/components/dashboard/WorkflowHabitEngine'
 import { SalespersonDashboard } from '@/components/dashboard/roles/SalespersonDashboard'
+import { BrokerDashboard } from '@/components/dashboard/roles/BrokerDashboard'
 import type { AppModule, UserRole } from '@/types'
 import * as Icons from 'lucide-react'
 
@@ -370,6 +371,7 @@ export function DashboardPage() {
 
   const isAdmin = user && user.role === 'admin'
   const isSalesperson = user && user.role === 'salesperson'
+  const isBroker = user && user.role === 'broker'
 
   // Build Analytics stats config
   const analyticsConfig = (isEditing ? editSettings.analytics : dbSettings.analytics) || DEFAULT_DASHBOARD_SETTINGS.analytics
@@ -582,6 +584,13 @@ export function DashboardPage() {
           isLoading={isLoading}
           can={can}
           visibleQuickLinks={visibleQuickLinks}
+          allowedAppModules={combinedAppModules.filter(m => isSubitemVisible(m.id, m.category, user, can))}
+        />
+      ) : isBroker ? (
+        <BrokerDashboard
+          stats={stats}
+          can={can}
+          user={user || undefined}
           allowedAppModules={combinedAppModules.filter(m => isSubitemVisible(m.id, m.category, user, can))}
         />
       ) : (
