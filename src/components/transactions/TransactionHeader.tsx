@@ -5,6 +5,7 @@ import { useTransactionDetail } from './TransactionContext'
 import {
   ArrowLeft, Lock, ChevronDown, ChevronRight, Printer, Mail, Edit3, CheckCircle2, ExternalLink
 } from 'lucide-react'
+import { STATUS_SELECT_OPTIONS, getStatusBadgeClass } from '@/constants/pipeline'
 import clsx from 'clsx'
 import { DealFailureModal } from './TransactionModals'
 
@@ -36,16 +37,25 @@ export function TransactionHeader({
   const isLocked = tx.is_locked === 1
   const canEdit = !isLocked || isBrokerOrAdmin
 
+  // Stepper bar display labels — "Inspection" is a visual sub-stage with no API status
   const DEAL_STAGES = ['New Lead', 'Listed', 'Offer Received', 'Under Contract', 'Inspection', 'Closed'] as const
   type DealStage = typeof DEAL_STAGES[number]
 
   const getStageFromStatus = (status: string): DealStage => {
-    if (status === 'closed') return 'Closed'
-    if (status === 'under_contract') return 'Under Contract'
-    if (status === 'offer_received') return 'Offer Received'
-    if (status === 'active') return 'Listed'
-    if (status === 'lead') return 'New Lead'
-    return 'New Lead'
+    switch (status) {
+      case 'lead':
+        return 'New Lead'
+      case 'active':
+        return 'Listed'
+      case 'offer_received':
+        return 'Offer Received'
+      case 'under_contract':
+        return 'Under Contract'
+      case 'closed':
+        return 'Closed'
+      default:
+        return 'New Lead'
+    }
   }
 
   // Close export dropdown on outside click
@@ -117,20 +127,12 @@ export function TransactionHeader({
                   }}
                   className={clsx(
                     "px-2.5 py-1 rounded-full text-xs font-bold border focus:outline-none focus:ring-1 focus:ring-blue-500 cursor-pointer",
-                    tx.status === 'active' ? "bg-blue-100 text-blue-700 border-blue-200" :
-                    tx.status === 'offer_received' ? "bg-purple-100 text-purple-700 border-purple-200" :
-                    tx.status === 'under_contract' ? "bg-amber-100 text-amber-700 border-amber-200" :
-                    tx.status === 'closed' ? "bg-emerald-100 text-emerald-700 border-emerald-200" :
-                    tx.status === 'fallen_through' ? "bg-red-100 text-red-700 border-red-200" :
-                    "bg-gray-100 text-gray-700 border-gray-200"
+                    getStatusBadgeClass(tx.status)
                   )}
                 >
-                  <option value="lead">Lead</option>
-                  <option value="active">Active</option>
-                  <option value="offer_received">Offer Received</option>
-                  <option value="under_contract">Under Contract</option>
-                  <option value="closed">Closed</option>
-                  <option value="fallen_through">Fallen Through</option>
+                  {STATUS_SELECT_OPTIONS.map(s => (
+                    <option key={s.value} value={s.value}>{s.label}</option>
+                  ))}
                 </select>
                 {/* Type badge */}
                 <span className="px-2.5 py-1 rounded-full text-xs font-bold uppercase bg-slate-100 text-slate-600 border border-slate-200">
