@@ -10,3 +10,12 @@ dist/
 Thumbs.db
 .vscode/
 *.tsbuildinfo
+
+# Local-only Cloudflare secrets
+.dev.vars
+
+.agents/
+
+dev-dist/
+
+skills-lock.json

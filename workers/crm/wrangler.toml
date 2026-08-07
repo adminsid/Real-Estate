@@ -1,0 +1,13 @@
+name = "re-crm"
+main = "index.ts"
+compatibility_date = "2024-06-01"
+workers_dev = false
+
+# Binds to the SAME shared D1 database as the gateway
+[[d1_databases]]
+binding = "DB"
+database_name = "re-workspace-db"
+database_id = "c5532a8c-2d69-4474-8f42-58d2f96354cd"
+
+# Secrets (same as gateway — set via: wrangler secret put <NAME> --config workers/crm/wrangler.toml)
+# JWT_SECRET (not needed — gateway validates auth and passes context in headers)

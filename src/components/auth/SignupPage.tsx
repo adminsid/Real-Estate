@@ -1,6 +1,6 @@
 import { useState } from 'react'
-import { useNavigate, Link } from 'react-router-dom'
-import { UserPlus, Eye, EyeOff, AlertCircle } from 'lucide-react'
+import { Link } from 'react-router-dom'
+import { UserPlus, Eye, EyeOff, AlertCircle, Mail } from 'lucide-react'
 import { useAuth, type SignupData } from '@/context/AuthContext'
 import type { User } from '@/types'
 
@@ -13,8 +13,7 @@ const ROLES: { value: User['role']; label: string }[] = [
 ]
 
 export function SignupPage() {
-  const { signup, isLoading } = useAuth()
-  const navigate = useNavigate()
+  const { signup, isLoading, branding } = useAuth()
 
   const [form, setForm] = useState<SignupData>({
     name: '',
@@ -26,6 +25,7 @@ export function SignupPage() {
   })
   const [showPassword, setShowPassword] = useState(false)
   const [error, setError] = useState('')
+  const [successMsg, setSuccessMsg] = useState('')
 
   function update(field: keyof SignupData, value: string) {
     setForm((prev) => ({ ...prev, [field]: value }))
@@ -39,8 +39,8 @@ export function SignupPage() {
       return
     }
     try {
-      await signup(form)
-      navigate('/')
+      const { message } = await signup(form)
+      setSuccessMsg(message)
     } catch (err) {
       setError((err as Error).message || 'Registration failed. Please try again.')
     }
@@ -48,19 +48,37 @@ export function SignupPage() {
 
   return (
     <div className="min-h-screen bg-brand-navy flex items-center justify-center px-4 py-8">
-      <div className="absolute inset-0 opacity-10 bg-[radial-gradient(circle_at_50%_0%,#C9A84C_0%,transparent_60%)]" />
+      <div className="absolute inset-0 opacity-10" style={{ backgroundImage: 'radial-gradient(circle at 50% 0%, var(--brand-accent) 0%, transparent 60%)' }} />
 
       <div className="relative w-full max-w-lg">
         {/* Logo */}
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center h-16 w-16 rounded-2xl bg-brand-gold mb-4">
-            <span className="text-brand-navy font-bold text-2xl">RE</span>
+          <div className="inline-flex items-center justify-center h-16 w-16 rounded-2xl mb-4 overflow-hidden bg-brand-gold">
+            {branding.logoUrl ? (
+              <img src={branding.logoUrl} alt="Brand Logo" className="h-full w-full object-cover" />
+            ) : (
+              <span className="text-brand-navy font-bold text-2xl">RE</span>
+            )}
           </div>
           <h1 className="text-2xl font-bold text-white">Create your workspace</h1>
           <p className="text-white/50 mt-1 text-sm">Start managing your real estate business</p>
         </div>
 
         <div className="bg-white rounded-2xl p-8 shadow-2xl">
+          {successMsg ? (
+            <div className="text-center py-4">
+              <div className="inline-flex h-14 w-14 items-center justify-center rounded-2xl bg-teal-50 mb-4">
+                <Mail className="h-7 w-7 text-teal-600" />
+              </div>
+              <h2 className="font-bold text-gray-900 text-lg mb-2">Check your inbox!</h2>
+              <p className="text-gray-500 text-sm">{successMsg}</p>
+              <p className="text-gray-400 text-xs mt-3">Click the link in the email to activate your account.</p>
+              <Link to="/login" className="inline-block mt-6 text-sm font-semibold text-brand-navy hover:underline">
+                Back to sign in
+              </Link>
+            </div>
+          ) : (
+            <>
           {error && (
             <div className="flex items-center gap-2 rounded-xl bg-red-50 border border-red-100 p-3 mb-5 text-red-700 text-sm">
               <AlertCircle className="h-4 w-4 flex-shrink-0" />
@@ -180,7 +198,10 @@ export function SignupPage() {
               Sign in
             </Link>
           </p>
+            </>
+          )}
         </div>
+
 
         <p className="text-center text-white/30 text-xs mt-6">
           By creating an account, you agree to our Terms of Service and Privacy Policy.

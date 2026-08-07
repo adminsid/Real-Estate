@@ -40,6 +40,7 @@ export default defineConfig({
       },
       workbox: {
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
+        navigateFallbackDenylist: [/^\/api/],
         runtimeCaching: [
           {
             urlPattern: /^https:\/\/api\./i,
@@ -54,6 +55,14 @@ export default defineConfig({
       devOptions: { enabled: true },
     }),
   ],
+  server: {
+    proxy: {
+      '/api': {
+        target: 'http://localhost:8123',
+        changeOrigin: true,
+      },
+    },
+  },
   build: {
     outDir: 'dist',
     sourcemap: false,

@@ -2,7 +2,6 @@ import { ExternalLink, Lock } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import clsx from 'clsx'
 import type { AppModule } from '@/types'
-import { StatusBadge } from '@/components/common/Badge'
 import * as Icons from 'lucide-react'
 
 interface AppTileProps {
@@ -11,8 +10,9 @@ interface AppTileProps {
 }
 
 export function AppTile({ module, size = 'md' }: AppTileProps) {
+  const displayStatus = module.externalUrl && module.status === 'active' ? 'external' : module.status
   const isLocked = module.status === 'coming_soon'
-  const isExternal = !!module.externalUrl && module.status === 'active'
+  const isExternal = displayStatus === 'external'
 
   // Dynamically resolve lucide icon
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -56,8 +56,7 @@ export function AppTile({ module, size = 'md' }: AppTileProps) {
       )}
 
       {/* Footer */}
-      <div className="mt-3 flex items-center justify-between">
-        <StatusBadge status={module.status} />
+      <div className="mt-3 flex items-center justify-end">
         <div className="flex items-center gap-1">
           {isLocked && <Lock className="h-3.5 w-3.5 text-gray-400" />}
           {isExternal && <ExternalLink className="h-3.5 w-3.5 text-gray-400 group-hover:text-gray-600" />}

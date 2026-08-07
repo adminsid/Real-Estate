@@ -6,29 +6,41 @@ export interface User {
   role: UserRole
   licenseNumber?: string
   licenseState?: string
+  license_expiration_date?: string | null
+  tenantId?: string
   avatarUrl?: string
+  phone?: string
+  title?: string
   branding?: WorkspaceBranding
+  mfa_enabled?: number
   createdAt: string
 }
 
-export type UserRole =
-  | 'admin'
-  | 'broker'
-  | 'salesperson'
-  | 'assistant'
-  | 'vendor'
-  | 'partner'
+import type { UserRole } from './roles'
+export type { UserRole }
+export { ROLE_HIERARCHY, roleAtLeast, assertRole } from './roles'
 
-// ─── Workspace Branding ────────────────────────────────────────────────────
+
 export interface WorkspaceBranding {
   companyName: string
+  companyAddress?: string
+  companyTelephone?: string
+  companyFax?: string
   logoUrl?: string
   primaryColor: string
   accentColor: string
   tagline?: string
   websiteUrl?: string
+  dashboardSettings?: string
+  companyLicenseNumber?: string
+  companyLicenseHolderName?: string
+  companyLicenseType?: string
+  companyLicenseExpirationDate?: string | null
+  companyLicenseSyncedAt?: string | null
+  companyAgentsData?: string
+  leadAppDomain?: string
+  customWorkspaceDomain?: string
 }
-
 // ─── App Module ────────────────────────────────────────────────────────────
 export type AppStatus = 'active' | 'under_construction' | 'external' | 'coming_soon'
 
@@ -65,12 +77,17 @@ export interface MLSListing {
   bathrooms: number
   sqft: number
   status: ListingStatus
+  approval_status?: string
   type: PropertyType
+  propertyType?: string
+  propertySubtype?: string
   description?: string
   images?: string[]
   listedDate: string
   agentId?: string
+  heroMediaUrl?: string
 }
+
 
 export type ListingStatus = 'active' | 'pending' | 'sold' | 'expired' | 'withdrawn'
 export type PropertyType = 'residential' | 'condo' | 'co-op' | 'multi-family' | 'commercial' | 'land'
@@ -91,33 +108,40 @@ export interface CRMContact {
   updatedAt: string
 }
 
-export type ContactType = 'buyer' | 'seller' | 'both' | 'referral' | 'vendor' | 'other'
+export type ContactType = 'buyer' | 'seller' | 'both' | 'referral' | 'vendor' | 'landlord' | 'tenant' | 'agent' | 'other'
 export type ContactStatus = 'active' | 'prospect' | 'closed' | 'inactive'
 
 // ─── Transaction ───────────────────────────────────────────────────────────
 export interface Transaction {
   id: string
-  address: string
-  type: 'purchase' | 'sale' | 'rental'
+  name: string
+  type: 'sale' | 'lease' | 'rental'
   status: TransactionStatus
-  price: number
-  closingDate?: string
-  buyerId?: string
-  sellerId?: string
-  agentId: string
-  coAgentId?: string
+  price?: number
+  commissionAmount?: number
+  commissionRate?: number
+  targetCloseDate?: string
+  actualCloseDate?: string
+  escrowDate?: string
+  inspectionDeadline?: string
+  appraisalDate?: string
+  possessionDate?: string
+  agreementType?: string
+  assignedTo?: string
+  isLocked?: boolean
+  notes?: string
   createdAt: string
   updatedAt: string
 }
 
+// Backend status values — must match workers/transactions/index.ts
 export type TransactionStatus =
-  | 'prospect'
-  | 'contract'
-  | 'inspection'
-  | 'financing'
-  | 'closing'
+  | 'lead'
+  | 'active'
+  | 'offer_received'
+  | 'under_contract'
   | 'closed'
-  | 'cancelled'
+  | 'fallen_through'
 
 // ─── Network ───────────────────────────────────────────────────────────────
 export interface NetworkConnection {

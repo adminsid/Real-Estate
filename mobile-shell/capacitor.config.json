@@ -1,0 +1,10 @@
+{
+  "appId": "com.primeamerica.workspace",
+  "appName": "Prime America Workspace",
+  "webDir": "../dist",
+  "bundledWebRuntime": false,
+  "server": {
+    "url": "https://workspace.primeamericany.com",
+    "cleartext": true
+  }
+}
