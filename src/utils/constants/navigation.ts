@@ -144,7 +144,7 @@ export interface NavItem {
 export const NAV_CATEGORIES: NavCategory[] = [
   {
     id: 'transactions',
-    label: 'Transactions',
+    label: 'Deals & Transactions',
     icon: 'ArrowLeftRight',
     path: '/transactions',
     color: '#3B82F6',
@@ -157,7 +157,7 @@ export const NAV_CATEGORIES: NavCategory[] = [
   },
   {
     id: 'inventory',
-    label: 'Inventory',
+    label: 'Listings & Inventory',
     icon: 'Building2',
     path: '/inventory',
     color: '#10B981',
@@ -167,7 +167,7 @@ export const NAV_CATEGORIES: NavCategory[] = [
   },
   {
     id: 'marketing',
-    label: 'Marketing',
+    label: 'Clients & Growth',
     icon: 'Megaphone',
     path: '/marketing',
     color: '#EC4899',
@@ -179,7 +179,7 @@ export const NAV_CATEGORIES: NavCategory[] = [
   },
   {
     id: 'learning',
-    label: 'Learning',
+    label: 'Learning & Compliance',
     icon: 'GraduationCap',
     path: '/learning',
     color: '#6366F1',

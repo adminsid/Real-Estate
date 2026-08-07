@@ -55,6 +55,7 @@ export function Sidebar({ collapsed = false, onClose }: SidebarProps) {
     })
 
     return NAV_CATEGORIES.map((cat) => {
+      const builtInChildren = (cat.children || []).filter((child) => !child.externalUrl)
       const customChildren = visibleNavModules
         .filter((m) => m.category === cat.id)
         .map((m) => ({
@@ -67,10 +68,27 @@ export function Sidebar({ collapsed = false, onClose }: SidebarProps) {
 
       return {
         ...cat,
-        children: [...(cat.children || []), ...customChildren],
+        children: [...builtInChildren, ...customChildren],
       }
     })
   }, [branding.dashboardSettings, user])
+
+  const externalTools = useMemo(() => {
+    const tools: ExternalTool[] = []
+    for (const cat of NAV_CATEGORIES) {
+      for (const child of cat.children || []) {
+        if (child.externalUrl) {
+          tools.push({ id: child.id, label: child.label, externalUrl: child.externalUrl, categoryId: cat.id })
+        }
+      }
+    }
+    return tools
+  }, [])
+
+  const visibleExternalTools = useMemo(
+    () => externalTools.filter((tool) => isSubitemVisible(tool.id, tool.categoryId, user, can)),
+    [externalTools, user, can],
+  )
 
   async function handleLogout() {
     await logout()
@@ -146,6 +164,22 @@ export function Sidebar({ collapsed = false, onClose }: SidebarProps) {
             collapsed={collapsed}
           />
         ))}
+
+        {/* ── External Tools ─────────────────────────────────────────── */}
+        {visibleExternalTools.length > 0 && (
+          <div className={clsx('pt-3', collapsed && 'lg:pt-4')}>
+            {!collapsed && (
+              <p className="px-3 pb-1 text-[10px] font-bold uppercase tracking-wider text-white/40">
+                External Tools
+              </p>
+            )}
+            <div className="space-y-0.5">
+              {visibleExternalTools.map((tool) => (
+                <ExternalToolItem key={tool.id} tool={tool} collapsed={collapsed} />
+              ))}
+            </div>
+          </div>
+        )}
       </nav>
 
       {/* ── Bottom Actions ────────────────────────────────────────────── */}
@@ -201,7 +235,38 @@ export function Sidebar({ collapsed = false, onClose }: SidebarProps) {
   )
 }
 
-// ── Sub-components ──────────────────────────────────────────────────────────
+interface ExternalTool {
+  id: string
+  label: string
+  externalUrl: string
+  categoryId: string
+}
+
+function ExternalToolItem({ tool, collapsed }: { tool: ExternalTool; collapsed?: boolean }) {
+  return (
+    <button
+      type="button"
+      title={tool.label}
+      onClick={() => window.open(tool.externalUrl, '_blank', 'noopener,noreferrer')}
+      className={clsx(
+        'flex items-center w-full rounded-lg text-xs font-medium transition-colors cursor-pointer',
+        collapsed ? 'gap-0 lg:justify-center' : 'gap-2 px-3 py-1.5',
+        'text-white/50 hover:text-white hover:bg-white/5',
+      )}
+    >
+      {collapsed ? (
+        <Icons.ExternalLink className="h-4 w-4 flex-shrink-0" />
+      ) : (
+        <>
+          <span className="truncate flex-1">{tool.label}</span>
+          <span className="flex items-center gap-1 text-[9px] font-bold text-amber-400 bg-amber-400/10 px-1 py-0.5 rounded border border-amber-400/20">
+            EXT <Icons.ExternalLink className="h-2.5 w-2.5" />
+          </span>
+        </>
+      )}
+    </button>
+  )
+}
 
 function NavLink({ to, icon, label, active, collapsed }: { to: string; icon: string; label: string; active: boolean; collapsed?: boolean }) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
