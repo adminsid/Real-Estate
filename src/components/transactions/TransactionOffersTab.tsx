@@ -114,7 +114,7 @@ export function TransactionOffersTab() {
           const pi = json.data.transaction.parties_involved
           if (pi.startsWith('{')) setOutlineFields(JSON.parse(pi))
         }
-      } catch (e) {}
+      } catch { /* Ignore unavailable outline data. */ }
     }
     loadOutline()
   }, [id])
@@ -296,20 +296,20 @@ export function TransactionOffersTab() {
               .w-40 { width: 160px !important; }
               .w-48 { width: 192px !important; }
               .w-96 { width: 384px !important; }
-              .w-\[60\%\] { width: 60% !important; }
-              .w-3\/5 { width: 60% !important; }
-              .w-4\/5 { width: 80% !important; }
-              .w-1\/2 { width: 50% !important; }
-              .min-h-\[16px\] { min-height: 16px !important; }
+              .w-\\[60\\%\\] { width: 60% !important; }
+              .w-3\\/5 { width: 60% !important; }
+              .w-4\\/5 { width: 80% !important; }
+              .w-1\\/2 { width: 50% !important; }
+              .min-h-\\[16px\\] { min-height: 16px !important; }
 
               /* Typography */
               .text-xs { font-size: 11px !important; }
               .text-sm { font-size: 13px !important; }
               .text-lg { font-size: 18px !important; }
               .text-xl { font-size: 20px !important; }
-              .text-\[9px\] { font-size: 9px !important; }
-              .text-\[10px\] { font-size: 10px !important; }
-              .text-\[11px\] { font-size: 11px !important; }
+              .text-\\[9px\\] { font-size: 9px !important; }
+              .text-\\[10px\\] { font-size: 10px !important; }
+              .text-\\[11px\\] { font-size: 11px !important; }
               .font-serif { font-family: "Times New Roman", Georgia, serif !important; }
               .font-sans { font-family: "Inter", system-ui, -apple-system, sans-serif !important; }
               .font-mono { font-family: monospace !important; }

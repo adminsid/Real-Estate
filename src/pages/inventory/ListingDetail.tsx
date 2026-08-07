@@ -430,13 +430,13 @@ export function ListingDetailPage() {
     if (rawTourUrl && typeof rawTourUrl === 'string' && rawTourUrl.startsWith('http')) {
       const url = rawTourUrl.trim()
       if (url.includes('youtube.com/watch') || url.includes('youtube.com/v/')) {
-        try { const urlObj = new URL(url); const v = urlObj.searchParams.get('v'); if (v) return `https://www.youtube.com/embed/${v}` } catch (e) {}
+        try { const urlObj = new URL(url); const v = urlObj.searchParams.get('v'); if (v) return `https://www.youtube.com/embed/${v}` } catch { /* Ignore malformed tour URLs and continue fallback handling. */ }
       }
       if (url.includes('youtu.be/')) {
-        try { const parts = url.split('youtu.be/'); const id = parts[parts.length - 1].split('?')[0]; return `https://www.youtube.com/embed/${id}` } catch (e) {}
+        try { const parts = url.split('youtu.be/'); const id = parts[parts.length - 1].split('?')[0]; return `https://www.youtube.com/embed/${id}` } catch { /* Ignore malformed tour URLs and continue fallback handling. */ }
       }
       if (url.includes('vimeo.com/')) {
-        try { const parts = url.split('vimeo.com/'); const id = parts[parts.length - 1].split('?')[0]; return `https://player.vimeo.com/video/${id}` } catch (e) {}
+        try { const parts = url.split('vimeo.com/'); const id = parts[parts.length - 1].split('?')[0]; return `https://player.vimeo.com/video/${id}` } catch { /* Ignore malformed tour URLs and continue fallback handling. */ }
       }
       if (url.includes('matterport.com/show/') && !url.includes('?m=')) {
         return url.replace('/show/', '/show/?m=')
@@ -459,21 +459,21 @@ export function ListingDetailPage() {
         const urlObj = new URL(tourUrl)
         const v = urlObj.searchParams.get('v')
         if (v) return `https://www.youtube.com/embed/${v}`
-      } catch (e) {}
+      } catch { /* Ignore malformed tour URLs and continue fallback handling. */ }
     }
     if (tourUrl.includes('youtu.be/')) {
       try {
         const parts = tourUrl.split('youtu.be/')
         const id = parts[parts.length - 1].split('?')[0]
         return `https://www.youtube.com/embed/${id}`
-      } catch (e) {}
+      } catch { /* Ignore malformed tour URLs and continue fallback handling. */ }
     }
     if (tourUrl.includes('vimeo.com/')) {
       try {
         const parts = tourUrl.split('vimeo.com/')
         const id = parts[parts.length - 1].split('?')[0]
         return `https://player.vimeo.com/video/${id}`
-      } catch (e) {}
+      } catch { /* Ignore malformed tour URLs and continue fallback handling. */ }
     }
     if (tourUrl.includes('matterport.com/show/') && !tourUrl.includes('?m=')) {
       return tourUrl.replace('/show/', '/show/?m=')
@@ -769,7 +769,7 @@ export function ListingDetailPage() {
       try {
         const res = await fetch(`/api/public/listings/${id}`)
         const data = await res.json()
-        let listObj = data.data
+        const listObj = data.data
         if (data.success && listObj) {
           setListing(listObj)
           if (listObj.heroMediaUrl) {
@@ -3043,14 +3043,9 @@ function ListingStoryView({
   agent,
   listingAgent,
   isSharedLeadView,
-  complianceDisclaimer: _complianceDisclaimer,
   mapSettings,
   effectiveMapCoords,
   mediaList,
-  activeIndex: _activeIndex,
-  handleNextPhoto: _handleNextPhoto,
-  handlePrevPhoto: _handlePrevPhoto,
-  embedUrl: _embedUrl,
   isStoryPaused,
   setIsStoryPaused,
   activeStorySlide,

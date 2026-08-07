@@ -54,7 +54,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       if (saved && ['prospecting', 'listing', 'buyer', 'transaction', 'compliance'].includes(saved)) {
         return saved as OperationalMode
       }
-    } catch {}
+    } catch { console.warn('Unable to access browser storage') }
     return null
   })
 
@@ -81,7 +81,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       const next = !v
       try {
         localStorage.setItem('sidebarCollapsed', next ? '1' : '0')
-      } catch {}
+      } catch { console.warn('Unable to access browser storage') }
       return next
     })
   }, [])
@@ -108,7 +108,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       const next = new Set([...prev, id])
       try {
         localStorage.setItem('expandedCategories', JSON.stringify(Array.from(next)))
-      } catch (e) {}
+      } catch { /* Ignore browser storage failures. */ }
       return next
     })
   }, [])

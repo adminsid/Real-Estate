@@ -23,7 +23,7 @@ export function TransactionLeftPanel({ setIsOutlineEditOpen }: TransactionLeftPa
         if (tx.parties_involved.startsWith('{')) {
           return JSON.parse(tx.parties_involved)
         }
-      } catch (e) {}
+      } catch { /* Ignore malformed saved party data. */ }
     }
     return {}
   })()

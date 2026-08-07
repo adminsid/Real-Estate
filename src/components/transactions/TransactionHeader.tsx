@@ -70,7 +70,7 @@ export function TransactionHeader({
         if (outline.sellerName && outline.sellerEmail) {
           list.push({ name: outline.sellerName, email: outline.sellerEmail, role: 'Seller' })
         }
-      } catch (e) {}
+      } catch { /* Ignore malformed saved party data. */ }
     }
     return list
   }

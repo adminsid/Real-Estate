@@ -109,7 +109,7 @@ export function WorkflowHabitEngine({ activePipelineVolume = 0 }: { activePipeli
     setCompletedIds(next)
     try {
       localStorage.setItem(todayKey, JSON.stringify(next))
-    } catch {}
+    } catch { /* Ignore browser storage write failures. */ }
   }
 
   const modeInfo = HABITS_BY_MODE[currentMode]
