@@ -27,6 +27,9 @@ interface AuthContextValue {
   stopImpersonating: () => Promise<void>
   updateBranding: (b: Partial<WorkspaceBranding>) => Promise<void>
   refreshUser: () => Promise<void>
+  updateProfile: (
+    profile: Partial<Pick<User, 'name' | 'title' | 'phone' | 'licenseNumber'>>
+  ) => Promise<void>
 }
 
 export const AuthContext = createContext<AuthContextValue | null>(null)
@@ -218,6 +221,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
+  const updateProfile = useCallback(async (
+
+    partial: Partial<Pick<User, 'name' | 'title' | 'phone' | 'licenseNumber'>>
+
+  ) => {
+
+    await apiFetch('/api/auth/me', {
+
+      method: 'PUT',
+
+      body: JSON.stringify(partial),
+
+    })
+
+
+    setUser((current) => current ? { ...current, ...partial } : current)
+
+  }, [])
+
+
   return (
     <AuthContext.Provider
       value={{
@@ -233,6 +256,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         logout,
         stopImpersonating,
         updateBranding,
+        updateProfile,
         refreshUser,
       }}
     >
