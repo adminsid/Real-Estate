@@ -1877,6 +1877,8 @@ async function handleApi(request: Request, env: Env, path: string, url: URL): Pr
       throw forbiddenError(`No ${action} access to Transactions`)
     }
 
+    const txnBody = ['GET','HEAD'].includes(request.method) ? undefined : await request.arrayBuffer()
+
     const txnRequest = new Request(request.url, {
       method: request.method,
       headers: {
@@ -1886,9 +1888,7 @@ async function handleApi(request: Request, env: Env, path: string, url: URL): Pr
         'X-User-Role': session.role,
         'Cookie': '',
       },
-      body: ['GET','HEAD'].includes(request.method) ? undefined : request.body,
-      // @ts-ignore duplex needed for streaming
-      duplex: 'half',
+      body: txnBody,
     })
 
     return env.TRANSACTIONS.fetch(txnRequest)
