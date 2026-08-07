@@ -17,7 +17,7 @@ if [ $? -eq 0 ]; then
 
   # Upload backup SQL to R2 assets bucket (under backups/ prefix)
   echo "Uploading backup to R2 bucket (${BUCKET_NAME})..."
-  npx wrangler r2 object put ${BUCKET_NAME}/backups/${BACKUP_FILE} --file ./${BACKUP_FILE}
+  npx wrangler r2 object put ${BUCKET_NAME}/backups/${BACKUP_FILE} --file ./${BACKUP_FILE} --remote
 
   if [ $? -eq 0 ]; then
     echo "Backup uploaded to R2 successfully: backups/${BACKUP_FILE}"
