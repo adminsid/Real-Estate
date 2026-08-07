@@ -178,3 +178,59 @@ export async function sendManualUserWelcomeEmail(
     )
   })
 }
+
+export async function sendComplianceNotificationEmail(
+  email: EmailBinding,
+  brokerEmail: string,
+  brokerName: string,
+  agentName: string,
+  dealName: string,
+  taskTitle: string,
+  documentKey: string,
+  baseUrl: string
+): Promise<void> {
+  const deskLink = `${baseUrl}/transactions/desk`
+  await email.send({
+    to: [{ email: brokerEmail, name: brokerName }],
+    from: FROM,
+    subject: `[Compliance Review] New document submitted for ${dealName}`,
+    text: `Hi ${brokerName},\n\nAgent ${agentName} has uploaded a compliance document for task "${taskTitle}" on deal "${dealName}".\n\nPlease review it at the compliance desk:\n${deskLink}\n\n— Prime America Real Estate`,
+    html: baseHtml(
+      'Compliance Review Request',
+      `<p>Hi ${brokerName},</p>
+       <p>Agent <strong>${agentName}</strong> has uploaded a compliance document for task "<strong>${taskTitle}</strong>" on deal "<strong>${dealName}</strong>".</p>
+       <p>Please review and approve or reject the document at the Transaction Compliance Desk:</p>
+       <a href="${deskLink}" class="btn">Open Compliance Desk</a>
+       <p class="note"><strong>Document File:</strong> ${documentKey}</p>`
+    )
+  })
+}
+
+export async function sendDeadlineWarningEmail(
+  email: EmailBinding,
+  agentEmail: string,
+  agentName: string,
+  dealName: string,
+  taskTitle: string,
+  dueDate: string,
+  baseUrl: string
+): Promise<void> {
+  const dealLink = `${baseUrl}/transactions`
+  await email.send({
+    to: [{ email: agentEmail, name: agentName }],
+    from: FROM,
+    subject: `🚨 [Reminder] Upcoming Deadline: "${taskTitle}" for ${dealName}`,
+    text: `Hi ${agentName},\n\nThis is an automated reminder that the task "${taskTitle}" for deal "${dealName}" is due on ${dueDate}.\n\nPlease complete it here: ${dealLink}\n\n— Prime America Real Estate`,
+    html: baseHtml(
+      'Upcoming Deadline Alert',
+      `<p>Hi ${agentName},</p>
+       <p>This is an automated reminder that the task "<strong>${taskTitle}</strong>" for deal "<strong>${dealName}</strong>" is approaching its deadline.</p>
+       <div style="background: #FFFBEB; border: 1px solid #FDE68A; color: #78350F; padding: 16px; border-radius: 8px; margin: 16px 0;">
+         <strong>Task:</strong> ${taskTitle}<br/>
+         <strong>Due Date:</strong> ${dueDate} (Within 48 hours)
+       </div>
+       <p>Please complete this task and attach any required compliance files:</p>
+       <a href="${dealLink}" class="btn">View Checklist</a>`
+    )
+  })
+}

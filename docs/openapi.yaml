@@ -1,0 +1,287 @@
+openapi: 3.0.3
+info:
+  title: Prime America Real Estate Workspace API
+  description: API contract for authentication, HR administration, CRM connections, and transactions in the multi-tenant real estate workspace.
+  version: 1.0.0
+servers:
+  - url: https://workspace.primeamericany.com
+    description: Production Environment
+  - url: http://localhost:5173
+    description: Local Dev Environment
+
+paths:
+  /api/auth/signup:
+    post:
+      summary: Sign Up User / Onboard Tenant
+      description: Registers a new user. If a companyName is supplied, creates a new white-labeled tenant and maps its custom subdomain.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - name
+                - email
+                - password
+              properties:
+                name:
+                  type: string
+                  example: Jane Doe
+                email:
+                  type: string
+                  example: jane@domain.com
+                password:
+                  type: string
+                  minLength: 8
+                  example: superSecret123
+                role:
+                  type: string
+                  enum: [salesperson, broker, assistant, vendor, partner]
+                  default: salesperson
+                companyName:
+                  type: string
+                  example: Massapequa Realty LLC
+                licenseNumber:
+                  type: string
+                  example: 10401234567
+      responses:
+        '200':
+          description: Signed up successfully. Verification email sent.
+        '400':
+          description: Missing or invalid parameters.
+        '409':
+          description: User email already exists.
+
+  /api/auth/login:
+    post:
+      summary: User Log In
+      description: Validates email/password credentials and sets a secure httpOnly session cookie.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - email
+                - password
+              properties:
+                email:
+                  type: string
+                  example: jane@domain.com
+                password:
+                  type: string
+                  example: superSecret123
+      responses:
+        '200':
+          description: Logged in successfully. Session cookie set.
+        '401':
+          description: Invalid email or password.
+        '429':
+          description: Too many login attempts. Rate limited.
+
+  /api/auth/logout:
+    post:
+      summary: User Log Out
+      description: Revokes current session and clears the secure httpOnly session cookie.
+      responses:
+        '200':
+          description: Logged out successfully.
+
+  /api/auth/me:
+    get:
+      summary: Get Current Profile
+      description: Returns the user record and permission rules associated with the active session.
+      responses:
+        '200':
+          description: Returns user profile and permissions map.
+        '401':
+          description: Unauthorized. Session missing or expired.
+
+  /api/hr/users:
+    get:
+      summary: List Workspace Members
+      description: Broker or Admin role required. Lists all registered users within the tenant.
+      responses:
+        '200':
+          description: List of team members.
+        '403':
+          description: Forbidden. Insufficient permissions.
+
+  /api/hr/invitations:
+    post:
+      summary: Invite Workspace Member
+      description: Sends an email invitation token to a new team member.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - email
+                - role
+              properties:
+                email:
+                  type: string
+                  example: agent@company.com
+                name:
+                  type: string
+                  example: Bob Vance
+                role:
+                  type: string
+                  enum: [salesperson, broker, assistant]
+      responses:
+        '201':
+          description: Invitation sent successfully.
+        '403':
+          description: Plan limits exceeded or forbidden.
+
+  /api/contacts:
+    get:
+      summary: Search CRM Contacts
+      description: Searches or lists contacts within the tenant.
+      parameters:
+        - name: query
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: page
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 1
+      responses:
+        '200':
+          description: Paginated contact list.
+
+    post:
+      summary: Create CRM Contact
+      description: Creates a new client profile.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - first_name
+                - last_name
+              properties:
+                first_name:
+                  type: string
+                  example: John
+                last_name:
+                  type: string
+                  example: Adams
+                email:
+                  type: string
+                phone:
+                  type: string
+                type:
+                  type: string
+                  enum: [buyer, seller, both, referral, partner, other]
+      responses:
+        '200':
+          description: Contact created successfully.
+
+  /api/transactions:
+    get:
+      summary: List Transactions
+      description: Retrieves transaction deals visible to the user's role.
+      responses:
+        '200':
+          description: List of deals.
+
+    post:
+      summary: Create Deal
+      description: Spawns a new transaction deal folder.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - name
+                - type
+              properties:
+                name:
+                  type: string
+                  example: 123 Main St Deal
+                type:
+                  type: string
+                  enum: [sale, lease]
+      responses:
+        '200':
+          description: Transaction created.
+        '403':
+          description: Plan limit exceeded.
+
+  /api/transactions/{id}:
+    put:
+      summary: Update Transaction Details
+      description: Updates deal details, financial splits, EMD ledger, attorney review dates, or post-occupancy deadlines.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                status:
+                  type: string
+                  enum: [lead, active, offer_received, under_contract, closed, fallen_through]
+                price:
+                  type: number
+                commission_rate:
+                  type: number
+                commission_amount:
+                  type: number
+                earnest_money_amount:
+                  type: number
+                earnest_money_status:
+                  type: string
+                  enum: [pending, deposited, returned, released]
+                earnest_money_notes:
+                  type: string
+                commission_split_buyer_percent:
+                  type: number
+                commission_split_co_broker_percent:
+                  type: number
+                commission_split_referral_percent:
+                  type: number
+                repair_credit:
+                  type: number
+                attorney_review_start_date:
+                  type: string
+                  format: date
+                attorney_review_status:
+                  type: string
+                  enum: [pending, active, completed, waived]
+                deal_failure_reason:
+                  type: string
+                  enum: [financing, inspection, title, seller_cold_feet, buyer_cold_feet, other]
+                deal_failure_notes:
+                  type: string
+                post_occupancy_deadline:
+                  type: string
+                  format: date
+                post_occupancy_daily_rate:
+                  type: number
+                post_occupancy_escrow_held:
+                  type: number
+      responses:
+        '200':
+          description: Deal updated successfully.
+        '403':
+          description: Stage regression forbidden.

@@ -26,7 +26,6 @@ interface AuthContextValue {
   logout: () => Promise<void>
   stopImpersonating: () => Promise<void>
   updateBranding: (b: Partial<WorkspaceBranding>) => Promise<void>
-  updateProfile: (partial: { name?: string; phone?: string; title?: string; licenseNumber?: string }) => Promise<void>
   refreshUser: () => Promise<void>
 }
 
@@ -50,6 +49,7 @@ function normalizeUser(raw: any): User {
   const avatarUrl = typeof avatarRaw === 'string' && avatarRaw.length > 0
     ? (avatarRaw.startsWith('/') ? avatarRaw : `/api/auth/avatar/${encodeURIComponent(avatarRaw)}`)
     : undefined
+
   return {
     id: raw.id,
     email: raw.email,
@@ -69,9 +69,6 @@ function normalizeUser(raw: any): User {
 function mapTenantToBranding(tenant: any): WorkspaceBranding {
   return {
     companyName: tenant.name,
-    companyAddress: tenant.company_address ?? undefined,
-    companyTelephone: tenant.company_telephone ?? undefined,
-    companyFax: tenant.company_fax ?? undefined,
     logoUrl: tenant.logo_url ?? undefined,
     primaryColor: tenant.primary_color ?? '#0F2040',
     accentColor: tenant.accent_color ?? '#C9A84C',
@@ -84,24 +81,17 @@ function mapTenantToBranding(tenant: any): WorkspaceBranding {
     companyLicenseExpirationDate: tenant.company_license_expiration_date ?? null,
     companyLicenseSyncedAt: tenant.company_license_synced_at ?? null,
     companyAgentsData: tenant.company_agents_json ?? undefined,
-    leadAppDomain: tenant.lead_app_domain ?? undefined,
-    customWorkspaceDomain: tenant.custom_workspace_domain ?? undefined,
   }
 }
+
 // ── Provider ──────────────────────────────────────────────────────────────────
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const cachedBranding = (() => {
-    try {
-      const raw = localStorage.getItem('workspace_branding')
-      return raw ? { ...DEFAULT_BRANDING, ...JSON.parse(raw) } : DEFAULT_BRANDING
-    } catch { return DEFAULT_BRANDING }
-  })()
   const [user, setUser] = useState<User | null>(null)
   const [permissions, setPermissions] = useState<Record<string, boolean>>({})
   const [impersonating, setImpersonating] = useState<{ impersonatedBy: string; logId: string } | null>(null)
   const [isLoading, setIsLoading] = useState(true) // starts loading while we check session
-  const [branding, setBranding] = useState<WorkspaceBranding>(cachedBranding)
+  const [branding, setBranding] = useState<WorkspaceBranding>(DEFAULT_BRANDING)
 
 
   useEffect(() => {
@@ -154,16 +144,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUser(null)
       setPermissions({})
       setImpersonating(null)
-      try {
-        const publicBranding = await apiFetch('/api/public/tenant/branding')
-        if (publicBranding?.data?.tenant) {
-          const brandObj = mapTenantToBranding(publicBranding.data.tenant)
-          setBranding(brandObj)
-          localStorage.setItem('workspace_branding', JSON.stringify(brandObj))
-        }
-      } catch (e) {
-        console.warn('Failed to load public branding:', e)
-      }
     } finally {
       setIsLoading(false)
     }
@@ -182,15 +162,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUser(normalizeUser(data.data.user))
       setPermissions(data.data.permissions ?? {})
       setImpersonating(null)
-      // Fetch and cache tenant branding immediately after login
-      try {
-        const meData = await apiFetch('/api/auth/me')
-        if (meData?.data?.tenant) {
-          const brandObj = mapTenantToBranding(meData.data.tenant)
-          setBranding(brandObj)
-          localStorage.setItem('workspace_branding', JSON.stringify(brandObj))
-        }
-      } catch { /* use cached */ }
     } finally {
       setIsLoading(false)
     }
@@ -247,14 +218,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
-  const updateProfile = useCallback(async (partial: { name?: string; phone?: string; title?: string; licenseNumber?: string }) => {
-    await apiFetch('/api/auth/me', {
-      method: 'PUT',
-      body: JSON.stringify(partial),
-    })
-    await refreshUser()
-  }, [refreshUser])
-
   return (
     <AuthContext.Provider
       value={{
@@ -270,7 +233,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         logout,
         stopImpersonating,
         updateBranding,
-        updateProfile,
         refreshUser,
       }}
     >

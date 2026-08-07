@@ -219,6 +219,14 @@ export default {
         )
         .run()
 
+      if (body.notes) {
+        const activityId = `act_${newId().replace(/-/g, '').slice(0, 12)}`
+        await env.DB.prepare(`
+          INSERT INTO contact_activities (id, contact_id, tenant_id, user_id, type, title, body, occurred_at)
+          VALUES (?, ?, ?, ?, 'note', 'Initial Note', ?, datetime('now'))
+        `).bind(activityId, id, ctx.tenantId, ctx.userId, body.notes).run()
+      }
+
       const contact = await env.DB
         .prepare('SELECT * FROM contacts WHERE id = ?')
         .bind(id)
@@ -654,9 +662,9 @@ export default {
     // PUT /api/contacts/:id
     if (contactMatch && method === 'PUT') {
       const existing = await env.DB
-        .prepare('SELECT id, assigned_to FROM contacts WHERE id = ? AND tenant_id = ? AND is_active = 1')
+        .prepare('SELECT id, assigned_to, notes FROM contacts WHERE id = ? AND tenant_id = ? AND is_active = 1')
         .bind(contactMatch[1], ctx.tenantId)
-        .first<{ id: string; assigned_to: string | null }>()
+        .first<{ id: string; assigned_to: string | null; notes: string | null }>()
       if (!existing) return err('Contact not found', 404)
       if (!['admin','broker'].includes(ctx.role) && existing.assigned_to !== ctx.userId) {
         return err('Contact not found', 404)
@@ -707,6 +715,14 @@ export default {
           contactMatch[1], ctx.tenantId,
         )
         .run()
+
+      if (body.notes !== undefined && body.notes !== existing.notes && body.notes) {
+        const activityId = `act_${newId().replace(/-/g, '').slice(0, 12)}`
+        await env.DB.prepare(`
+          INSERT INTO contact_activities (id, contact_id, tenant_id, user_id, type, title, body, occurred_at)
+          VALUES (?, ?, ?, ?, 'note', 'Note Updated', ?, datetime('now'))
+        `).bind(activityId, contactMatch[1], ctx.tenantId, ctx.userId, body.notes).run()
+      }
 
       const updated = await env.DB
         .prepare('SELECT * FROM contacts WHERE id = ?')

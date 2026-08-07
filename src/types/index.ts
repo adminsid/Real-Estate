@@ -12,6 +12,7 @@ export interface User {
   phone?: string
   title?: string
   branding?: WorkspaceBranding
+  mfa_enabled?: number
   createdAt: string
 }
 
@@ -113,27 +114,34 @@ export type ContactStatus = 'active' | 'prospect' | 'closed' | 'inactive'
 // ─── Transaction ───────────────────────────────────────────────────────────
 export interface Transaction {
   id: string
-  address: string
-  type: 'purchase' | 'sale' | 'rental'
+  name: string
+  type: 'sale' | 'lease' | 'rental'
   status: TransactionStatus
-  price: number
-  closingDate?: string
-  buyerId?: string
-  sellerId?: string
-  agentId: string
-  coAgentId?: string
+  price?: number
+  commissionAmount?: number
+  commissionRate?: number
+  targetCloseDate?: string
+  actualCloseDate?: string
+  escrowDate?: string
+  inspectionDeadline?: string
+  appraisalDate?: string
+  possessionDate?: string
+  agreementType?: string
+  assignedTo?: string
+  isLocked?: boolean
+  notes?: string
   createdAt: string
   updatedAt: string
 }
 
+// Backend status values — must match workers/transactions/index.ts
 export type TransactionStatus =
-  | 'prospect'
-  | 'contract'
-  | 'inspection'
-  | 'financing'
-  | 'closing'
+  | 'lead'
+  | 'active'
+  | 'offer_received'
+  | 'under_contract'
   | 'closed'
-  | 'cancelled'
+  | 'fallen_through'
 
 // ─── Network ───────────────────────────────────────────────────────────────
 export interface NetworkConnection {

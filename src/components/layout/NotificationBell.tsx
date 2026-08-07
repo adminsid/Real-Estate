@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
-import { Bell, Check } from 'lucide-react'
+import { Bell, Check, X } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import clsx from 'clsx'
 
@@ -27,8 +27,44 @@ export function NotificationBell() {
 
   useEffect(() => {
     fetchNotifications()
-    const interval = setInterval(fetchNotifications, 60000)
-    return () => clearInterval(interval)
+
+    let eventSource: EventSource | null = null
+    let reconnectTimeout: any = null
+
+    const connectSSE = () => {
+      eventSource = new EventSource('/api/notifications/stream', { withCredentials: true })
+
+      eventSource.onmessage = (event) => {
+        try {
+          const row = JSON.parse(event.data)
+          if (row && row.id) {
+            setNotifications((prev) => {
+              if (prev.some((n) => n.id === row.id)) return prev
+              const next = [row, ...prev]
+              setUnreadCount(next.filter((n: any) => !n.is_read).length)
+              return next
+            })
+          }
+        } catch (e) {
+          // Ignore parse errors
+        }
+      }
+
+      eventSource.onerror = () => {
+        if (eventSource) {
+          eventSource.close()
+          eventSource = null
+        }
+        reconnectTimeout = setTimeout(connectSSE, 10000)
+      }
+    }
+
+    connectSSE()
+
+    return () => {
+      if (eventSource) eventSource.close()
+      if (reconnectTimeout) clearTimeout(reconnectTimeout)
+    }
   }, [])
 
   useEffect(() => {
@@ -46,6 +82,15 @@ export function NotificationBell() {
       await fetch(`/api/notifications/${id}/read`, { method: 'POST' })
       setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, is_read: 1 } : n)))
       setUnreadCount((prev) => Math.max(0, prev - 1))
+    } catch (e) {
+      console.error(e)
+    }
+  }
+
+  const dismissNotification = async (id: string) => {
+    setNotifications((prev) => prev.filter((n) => n.id !== id))
+    try {
+      await fetch(`/api/notifications/${id}`, { method: 'DELETE' })
     } catch (e) {
       console.error(e)
     }
@@ -150,15 +195,24 @@ export function NotificationBell() {
                         )}
                       </div>
 
-                      {!notif.is_read && (
+                      <div className="flex items-center gap-1">
+                        {!notif.is_read && (
+                          <button
+                            onClick={() => markAsRead(notif.id)}
+                            className="p-1 text-gray-400 hover:text-blue-600 transition-colors"
+                            title="Mark as read"
+                          >
+                            <Check className="h-3.5 w-3.5" />
+                          </button>
+                        )}
                         <button
-                          onClick={() => markAsRead(notif.id)}
-                          className="p-1 text-gray-400 hover:text-blue-600 transition-colors"
-                          title="Mark as read"
+                          onClick={() => dismissNotification(notif.id)}
+                          className="p-1 text-gray-400 hover:text-red-600 transition-colors"
+                          title="Dismiss"
                         >
-                          <Check className="h-3.5 w-3.5" />
+                          <X className="h-3.5 w-3.5" />
                         </button>
-                      )}
+                      </div>
                     </div>
                   </li>
                 ))}

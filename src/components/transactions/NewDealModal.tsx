@@ -20,6 +20,10 @@ export function NewDealModal({ onClose, onSuccess }: NewDealModalProps) {
     type: 'sale',
     price: '',
     commission_amount: '',
+    commission_rate: '',
+    commission_split_buyer_percent: '',
+    commission_split_co_broker_percent: '',
+    commission_split_referral_percent: '',
     target_close_date: '',
   })
 
@@ -74,6 +78,10 @@ export function NewDealModal({ onClose, onSuccess }: NewDealModalProps) {
         type: formData.type,
         price: formData.price ? parseFloat(formData.price) : null,
         commission_amount: formData.commission_amount ? parseFloat(formData.commission_amount) : null,
+        commission_rate: formData.commission_rate ? parseFloat(formData.commission_rate) : null,
+        commission_split_buyer_percent: formData.commission_split_buyer_percent ? parseFloat(formData.commission_split_buyer_percent) : null,
+        commission_split_co_broker_percent: formData.commission_split_co_broker_percent ? parseFloat(formData.commission_split_co_broker_percent) : null,
+        commission_split_referral_percent: formData.commission_split_referral_percent ? parseFloat(formData.commission_split_referral_percent) : null,
         target_close_date: formData.target_close_date || null,
         inventory_listing_id: selectedListingId || null,
         parties: []
@@ -199,33 +207,93 @@ export function NewDealModal({ onClose, onSuccess }: NewDealModalProps) {
 
               {/* Financials */}
               <div>
-                <h3 className="text-sm font-semibold text-gray-900 mb-4">Financials</h3>
+                <h3 className="text-sm font-semibold text-gray-900 mb-4">Financials & Commission Splits</h3>
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <div>
-                    <label className="mb-1.5 block text-sm font-medium text-gray-700">Target Price</label>
+                    <label className="mb-1.5 block text-sm font-medium text-gray-700">Target Price ($)</label>
                     <div className="relative">
                       <DollarSign className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
                       <input
                         type="number"
                         placeholder="0.00"
-                        className="w-full rounded-lg border border-gray-300 pl-9 pr-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                        className="w-full rounded-lg border border-gray-300 pl-9 pr-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white"
                         value={formData.price}
-                        onChange={e => setFormData({ ...formData, price: e.target.value })}
+                        onChange={e => {
+                          const val = e.target.value
+                          setFormData(prev => {
+                            const priceVal = val ? parseFloat(val) : 0
+                            const rateVal = prev.commission_rate ? parseFloat(prev.commission_rate) : 0
+                            const commAmt = priceVal && rateVal ? String((priceVal * (rateVal / 100)).toFixed(2)) : prev.commission_amount
+                            return { ...prev, price: val, commission_amount: commAmt }
+                          })
+                        }}
                       />
                     </div>
                   </div>
                   <div>
-                    <label className="mb-1.5 block text-sm font-medium text-gray-700">Projected Commission</label>
+                    <label className="mb-1.5 block text-sm font-medium text-gray-700">Commission Rate (%)</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      placeholder="e.g. 5"
+                      className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white"
+                      value={formData.commission_rate}
+                      onChange={e => {
+                        const val = e.target.value
+                        setFormData(prev => {
+                          const rateVal = val ? parseFloat(val) : 0
+                          const priceVal = prev.price ? parseFloat(prev.price) : 0
+                          const commAmt = priceVal && rateVal ? String((priceVal * (rateVal / 100)).toFixed(2)) : prev.commission_amount
+                          return { ...prev, commission_rate: val, commission_amount: commAmt }
+                        })
+                      }}
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-1.5 block text-sm font-medium text-gray-700">Projected Commission ($)</label>
                     <div className="relative">
                       <DollarSign className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
                       <input
                         type="number"
                         placeholder="0.00"
-                        className="w-full rounded-lg border border-gray-300 pl-9 pr-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                        className="w-full rounded-lg border border-gray-300 pl-9 pr-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white"
                         value={formData.commission_amount}
                         onChange={e => setFormData({ ...formData, commission_amount: e.target.value })}
                       />
                     </div>
+                  </div>
+                  <div>
+                    <label className="mb-1.5 block text-sm font-medium text-gray-700">Buyer Agent Split (%)</label>
+                    <input
+                      type="number"
+                      step="0.1"
+                      placeholder="e.g. 50"
+                      className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white"
+                      value={formData.commission_split_buyer_percent}
+                      onChange={e => setFormData({ ...formData, commission_split_buyer_percent: e.target.value })}
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-1.5 block text-sm font-medium text-gray-700">Co-Broker Split (%)</label>
+                    <input
+                      type="number"
+                      step="0.1"
+                      placeholder="e.g. 50"
+                      className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white"
+                      value={formData.commission_split_co_broker_percent}
+                      onChange={e => setFormData({ ...formData, commission_split_co_broker_percent: e.target.value })}
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-1.5 block text-sm font-medium text-gray-700">Referral Split (%)</label>
+                    <input
+                      type="number"
+                      step="0.1"
+                      placeholder="e.g. 10"
+                      className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white"
+                      value={formData.commission_split_referral_percent}
+                      onChange={e => setFormData({ ...formData, commission_split_referral_percent: e.target.value })}
+                    />
                   </div>
                 </div>
               </div>

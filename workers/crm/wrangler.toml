@@ -1,6 +1,7 @@
 name = "re-crm"
 main = "index.ts"
 compatibility_date = "2024-06-01"
+workers_dev = false
 
 # Binds to the SAME shared D1 database as the gateway
 [[d1_databases]]

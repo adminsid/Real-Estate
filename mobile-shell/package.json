@@ -1,0 +1,14 @@
+{
+  "name": "prime-america-mobile-shell",
+  "version": "1.0.0",
+  "description": "Capacitor Mobile Shell wrapper for Prime America Workspace PWA",
+  "main": "index.js",
+  "dependencies": {
+    "@capacitor/core": "^6.1.2",
+    "@capacitor/ios": "^6.1.2",
+    "@capacitor/android": "^6.1.2"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^6.1.2"
+  }
+}

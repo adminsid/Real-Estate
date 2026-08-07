@@ -17,7 +17,7 @@ export type { JWTPayload }
 
 const COOKIE_NAME = 're_session'
 export const SESSION_TTL = 60 * 60 * 24 * 7  // 7 days
-const IMPERSONATION_TTL = 60 * 60 * 8         // 8 hours max
+const IMPERSONATION_TTL = 60 * 60 * 2         // 2 hours max (session time limit enforcement)
 
 // ── Cookie Domain Detection ──────────────────────────────────────────────────
 
@@ -46,12 +46,12 @@ export function cookieDomainForHost(hostname: string): string {
 
 export function setSessionCookie(jwt: string, ttl = SESSION_TTL, hostname = ''): string {
   const domain = cookieDomainForHost(hostname)
-  return `${COOKIE_NAME}=${jwt}; HttpOnly; Secure; SameSite=Lax; Path=/${domain}; Max-Age=${ttl}`
+  return `${COOKIE_NAME}=${jwt}; HttpOnly; Secure; SameSite=None; Path=/${domain}; Max-Age=${ttl}`
 }
 
 export function clearSessionCookie(hostname = ''): string {
   const domain = cookieDomainForHost(hostname)
-  return `${COOKIE_NAME}=; HttpOnly; Secure; SameSite=Lax; Path=/${domain}; Max-Age=0`
+  return `${COOKIE_NAME}=; HttpOnly; Secure; SameSite=None; Path=/${domain}; Max-Age=0`
 }
 
 function getCookieValue(request: Request, name: string): string | null {

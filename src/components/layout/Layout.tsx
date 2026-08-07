@@ -24,6 +24,12 @@ export function Layout({ children, title }: LayoutProps) {
 
   return (
     <div className="flex flex-col h-screen overflow-hidden bg-gray-50">
+      <a
+        href="#main-content"
+        className="sr-only focus:not-sr-only focus:fixed focus:top-4 focus:left-4 focus:z-50 focus:bg-brand-navy focus:text-white focus:px-4 focus:py-2.5 focus:rounded-xl focus:font-bold focus:shadow-lg focus:border focus:border-brand-gold"
+      >
+        Skip to main content
+      </a>
       <ImpersonationBanner />
       <div className="flex flex-1 overflow-hidden min-h-0">
         {/* ── Sidebar overlay (mobile) ────────────────────────────────── */}
@@ -49,7 +55,7 @@ export function Layout({ children, title }: LayoutProps) {
         {/* ── Main area ──────────────────────────────────────────────── */}
         <div className="flex-1 flex flex-col overflow-hidden min-w-0">
           <Header title={title} />
-          <main className="flex-1 overflow-y-auto">
+          <main id="main-content" className="flex-1 overflow-y-auto" tabIndex={-1}>
             <div className="mx-auto max-w-7xl px-4 sm:px-6 py-6">{children}</div>
           </main>
         </div>

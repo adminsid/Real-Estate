@@ -2,6 +2,7 @@ name = "re-workspace"
 main = "worker/index.ts"
 compatibility_date = "2024-06-01"
 compatibility_flags = ["nodejs_compat"]
+workers_dev = false
 
 # Static frontend assets (Workers Sites)
 [site]
@@ -55,6 +56,10 @@ bucket_name = "re-workspace-assets"
 # ── Email Service — native Cloudflare email binding ───────────────────────────
 [[send_email]]
 name = "EMAIL"
+
+[[analytics_engine_datasets]]
+binding = "ANALYTICS"
+dataset = "re_business_metrics"
 
 # ── Custom Domains ────────────────────────────────────────────────────────────
 # workspace.primeamericany.com is the first tenant's primary hostname.

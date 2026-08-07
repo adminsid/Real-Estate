@@ -12,7 +12,7 @@ interface WorkspaceState {
   sidebarCollapsed: boolean
   activeCategoryId: string | null
   expandedCategories: Set<string>
-  operationalMode: OperationalMode
+  operationalMode: OperationalMode | null
   setOperationalMode: (mode: OperationalMode) => void
   toggleSidebar: () => void
   toggleSidebarCollapsed: () => void
@@ -47,12 +47,15 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     return new Set(['transactions', 'inventory', 'marketing', 'learning'])
   })
 
-  const [operationalMode, setOperationalModeState] = useState<OperationalMode>(() => {
+  // null = never explicitly set → triggers "My Workflow Mode" banner on dashboard
+  const [operationalMode, setOperationalModeState] = useState<OperationalMode | null>(() => {
     try {
-      return (localStorage.getItem('workspace_operational_mode') as OperationalMode) || 'prospecting'
-    } catch {
-      return 'prospecting'
-    }
+      const saved = localStorage.getItem('workspace_operational_mode')
+      if (saved && ['prospecting', 'listing', 'buyer', 'transaction', 'compliance'].includes(saved)) {
+        return saved as OperationalMode
+      }
+    } catch {}
+    return null
   })
 
   const setOperationalMode = useCallback((mode: OperationalMode) => {
@@ -62,6 +65,13 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     } catch (e) {
       console.error(e)
     }
+    // Best-effort server persist (non-blocking)
+    fetch('/api/user/preferences', {
+      method: 'PUT',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ operationalMode: mode }),
+    }).catch(() => {})
   }, [])
 
   const toggleSidebar = useCallback(() => setSidebarOpen((v) => !v), [])

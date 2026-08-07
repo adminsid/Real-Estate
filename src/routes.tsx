@@ -7,31 +7,32 @@ import { VerifyEmailPage } from '@/components/auth/VerifyEmailPage'
 import { ResetPasswordPage } from '@/components/auth/ResetPasswordPage'
 import { AcceptInvitePage } from '@/components/auth/AcceptInvitePage'
 import { ForgotPasswordPage } from '@/components/auth/ForgotPasswordPage'
-import { DashboardPage } from '@/pages/Dashboard'
-import { TransactionsPage } from '@/pages/Transactions'
-import { TransactionsOverviewPage } from '@/pages/TransactionsOverview'
-import { TransactionDetailPage } from '@/pages/TransactionDetail'
-import { CMAPage } from '@/pages/CMA'
-import { InventoryPage } from '@/pages/Inventory'
-import { MLSPage } from '@/pages/MLS'
-import { MarketingPage } from '@/pages/Marketing'
-import { CRMPage } from '@/pages/CRM'
-import { CRMContactDetailPage } from '@/pages/CRMContactDetail'
-import { CRMMailingListsPage } from '@/pages/CRMMailingLists'
-import { LearningPage } from '@/pages/Learning'
-import { OpenHousesPage } from '@/pages/OpenHouses'
-import { NetworkPage } from '@/pages/Network'
-import { NetworkContactDetailPage } from '@/pages/NetworkContactDetail'
-import { SettingsPage } from '@/pages/Settings'
-import { HRPage } from '@/pages/HR'
-import { UserManagementPage } from '@/pages/UserManagement'
-import { ListingDetailPage } from '@/pages/ListingDetail'
-import { InventoryReportingPage } from '@/pages/InventoryReporting'
-import { FormFillerPage } from '@/pages/FormFiller'
+import { DashboardPage } from '@/pages/dashboard/Dashboard'
+import { TransactionsPage } from '@/pages/transactions/Transactions'
+import { TransactionsOverviewPage } from '@/pages/transactions/TransactionsOverview'
+import { TransactionDetailPage } from '@/pages/transactions/TransactionDetail'
+import { CMAPage } from '@/pages/transactions/CMA'
+import { InventoryPage } from '@/pages/inventory/Inventory'
+import { MLSPage } from '@/pages/inventory/MLS'
+import { MarketingPage } from '@/pages/marketing/Marketing'
+import { CRMPage } from '@/pages/marketing/CRM'
+import { CRMContactDetailPage } from '@/pages/marketing/CRMContactDetail'
+import { CRMMailingListsPage } from '@/pages/marketing/CRMMailingLists'
+import { LearningPage } from '@/pages/learning/Learning'
+import { OpenHousesPage } from '@/pages/marketing/OpenHouses'
+import { NetworkPage } from '@/pages/network/Network'
+import { NetworkContactDetailPage } from '@/pages/network/NetworkContactDetail'
+import { SettingsPage } from '@/pages/settings/Settings'
+import { HRPage } from '@/pages/hr/HR'
+import { UserManagementPage } from '@/pages/hr/UserManagement'
+import { ListingDetailPage } from '@/pages/inventory/ListingDetail'
+import { InventoryReportingPage } from '@/pages/inventory/InventoryReporting'
+import { FormFillerPage } from '@/pages/tools/FormFiller'
+import { TransactionDeskPage } from '@/pages/transactions/TransactionDesk'
 import {
-  TransactionDeskPage,
   BrokerCoursePage,
-} from '@/pages/UnderConstruction'
+} from '@/pages/misc/UnderConstruction'
+import AppIframeShell from '@/components/AppIframeShell'
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, isLoading } = useAuth()
@@ -86,18 +87,10 @@ function LoginRouteWrapper() {
   const navigate = useNavigate()
 
   useEffect(() => {
-    console.log('[LoginRouteWrapper] effect fired:', JSON.stringify({
-      isAuthenticated,
-      locationSearch: location.search,
-      windowSearch: window.location.search,
-      href: window.location.href,
-    }))
     if (isAuthenticated) {
       const params = new URLSearchParams(location.search)
       const redirectUrl = params.get('redirect')
       const safeUrl = getSafeRedirectUrl(redirectUrl)
-
-      console.log('[LoginRouteWrapper] redirect decision:', JSON.stringify({ redirectUrl, safeUrl }))
 
       if (safeUrl) {
         window.location.replace(safeUrl)
@@ -172,10 +165,10 @@ export function AppRoutes() {
       <Route path="/marketing/crm/lists" element={<ProtectedRoute><CRMMailingListsPage /></ProtectedRoute>} />
       <Route path="/marketing/crm/:id" element={<ProtectedRoute><CRMContactDetailPage /></ProtectedRoute>} />
       <Route path="/marketing/openhouses" element={<ProtectedRoute><OpenHousesPage /></ProtectedRoute>} />
-      <Route path="/marketing/brand-marketing-hub" element={<ExternalRedirect url="https://inside.primeamericarealestate.com/" />} />
+      <Route path="/marketing/brand-marketing-hub" element={<ProtectedRoute><MarketingPage /></ProtectedRoute>} />
 
       <Route path="/learning" element={<ProtectedRoute><LearningPage /></ProtectedRoute>} />
-      <Route path="/learning/academy" element={<ExternalRedirect url="https://primeamerica.theceshop.com/real-estate/" />} />
+      <Route path="/learning/academy" element={<ProtectedRoute><LearningPage /></ProtectedRoute>} />
       <Route path="/learning/license-law" element={<ProtectedRoute><LearningPage /></ProtectedRoute>} />
       <Route path="/learning/broker" element={<ProtectedRoute><BrokerCoursePage /></ProtectedRoute>} />
 
@@ -185,24 +178,10 @@ export function AppRoutes() {
       <Route path="/hr" element={<ProtectedRoute><HRPage /></ProtectedRoute>} />
       <Route path="/user-management" element={<ProtectedRoute><UserManagementPage /></ProtectedRoute>} />
       <Route path="/tools/form-filler" element={<ProtectedRoute><FormFillerPage /></ProtectedRoute>} />
+      <Route path="/apps/:appId" element={<ProtectedRoute><AppIframeShell /></ProtectedRoute>} />
 
       {/* 404 fallback */}
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
-  )
-}
-
-function ExternalRedirect({ url }: { url: string }) {
-  useEffect(() => {
-    window.location.replace(url)
-  }, [url])
-
-  return (
-    <div className="flex h-screen items-center justify-center bg-gray-50">
-      <div className="text-center">
-        <div className="h-8 w-8 animate-spin rounded-full border-4 border-blue-600 border-t-transparent mx-auto"></div>
-        <p className="mt-4 text-sm text-gray-500">Redirecting to external portal...</p>
-      </div>
-    </div>
   )
 }

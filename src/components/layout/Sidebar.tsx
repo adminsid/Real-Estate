@@ -144,7 +144,6 @@ export function Sidebar({ collapsed = false, onClose }: SidebarProps) {
             hovered={hoveredId === cat.id}
             onHover={setHoveredId}
             collapsed={collapsed}
-            onSelectExternal={(name, url) => setBridgeTarget({ name, url })}
           />
         ))}
       </nav>
@@ -233,10 +232,9 @@ interface CategoryItemProps {
   hovered: boolean
   onHover: (id: string | null) => void
   collapsed?: boolean
-  onSelectExternal?: (name: string, url: string) => void
 }
 
-function CategoryItem({ category, expanded, onToggle, currentPath, onHover, collapsed, onSelectExternal }: CategoryItemProps) {
+function CategoryItem({ category, expanded, onToggle, currentPath, onHover, collapsed }: CategoryItemProps) {
   const { user, can } = useAuth()
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const Icon = (Icons as Record<string, any>)[category.icon] as React.ComponentType<{ className?: string }>
@@ -276,6 +274,8 @@ function CategoryItem({ category, expanded, onToggle, currentPath, onHover, coll
               e.stopPropagation()
               onToggle()
             }}
+            aria-label={expanded ? `Collapse ${category.label}` : `Expand ${category.label}`}
+            aria-expanded={expanded}
             className="p-2 mr-1 rounded-lg hover:bg-white/10 text-white/40 hover:text-white transition-colors"
           >
             {expanded ? (
@@ -304,7 +304,7 @@ function CategoryItem({ category, expanded, onToggle, currentPath, onHover, coll
                 <button
                   key={child.id}
                   type="button"
-                  onClick={() => onSelectExternal && onSelectExternal(child.label, child.externalUrl!)}
+                  onClick={() => window.open(child.externalUrl!, '_blank', 'noopener,noreferrer')}
                   className={classNames}
                 >
                   <span className="truncate">{child.label}</span>
