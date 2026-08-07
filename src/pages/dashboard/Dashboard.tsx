@@ -7,6 +7,7 @@ import { useAuth } from '@/context/AuthContext'
 import { APP_MODULES, NAV_CATEGORIES, isCategoryVisible, isSubitemVisible } from '@/utils/constants'
 import { TodayActions } from '@/components/layout/TodayActions'
 import { WorkflowHabitEngine } from '@/components/dashboard/WorkflowHabitEngine'
+import { SalespersonDashboard } from '@/components/dashboard/roles/SalespersonDashboard'
 import type { AppModule, UserRole } from '@/types'
 import * as Icons from 'lucide-react'
 
@@ -368,6 +369,7 @@ export function DashboardPage() {
   }
 
   const isAdmin = user && user.role === 'admin'
+  const isSalesperson = user && user.role === 'salesperson'
 
   // Build Analytics stats config
   const analyticsConfig = (isEditing ? editSettings.analytics : dbSettings.analytics) || DEFAULT_DASHBOARD_SETTINGS.analytics
@@ -571,6 +573,19 @@ export function DashboardPage() {
           </div>
         )}
       </div>
+
+      {isSalesperson ? (
+        <SalespersonDashboard
+          user={user}
+          stats={stats}
+          upcomingDeals={upcomingDeals}
+          isLoading={isLoading}
+          can={can}
+          visibleQuickLinks={visibleQuickLinks}
+          allowedAppModules={combinedAppModules.filter(m => isSubitemVisible(m.id, m.category, user, can))}
+        />
+      ) : (
+        <>
 
       {/* ── Interactive Realtor Habit & Workflow Operating System ($175K Target) ────── */}
       <WorkflowHabitEngine activePipelineVolume={stats.company.commissionVolume} />
@@ -1116,6 +1131,8 @@ export function DashboardPage() {
           )}
         </div>
       </section>
+        </>
+      )}
 
       {/* ── EDIT DIALOG: CUSTOM APP MODULE ───────────────────────────── */}
       {editModuleModal && (
