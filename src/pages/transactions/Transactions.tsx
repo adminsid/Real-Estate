@@ -11,6 +11,7 @@ import { NewDealModal } from '@/components/transactions/NewDealModal'
 import { StageGateModal } from '@/components/transactions/StageGateModal'
 import { ListingDetailDrawer } from '@/components/transactions/ListingDetailDrawer'
 import { Pagination } from '@/components/common/Pagination'
+import { KANBAN_STAGES, STATUS_FILTER_OPTIONS, STATUS_SELECT_OPTIONS, getStatusBadgeClass, getStatusDotClass } from '@/constants/pipeline'
 import clsx from 'clsx'
 import { useAuth } from '@/context/AuthContext'
 
@@ -85,6 +86,26 @@ export function TransactionsPage() {
   const [editingValue, setEditingValue] = useState('')
   const navigate = useNavigate()
   const [pageSize] = useState(20)
+
+  // Sorting state for list view
+  type SortField = 'name' | 'status' | 'price' | 'party_count' | 'target_close_date'
+  type SortDir = 'asc' | 'desc'
+  const [sortField, setSortField] = useState<SortField | null>(null)
+  const [sortDir, setSortDir] = useState<SortDir>('asc')
+
+  const handleSort = (field: SortField) => {
+    if (sortField === field) {
+      setSortDir(d => d === 'asc' ? 'desc' : 'asc')
+    } else {
+      setSortField(field)
+      setSortDir('asc')
+    }
+  }
+
+  const sortIndicator = (field: SortField) => {
+    if (sortField !== field) return <span className="ml-1 text-gray-300">&#x25B4;&#x25BE;</span>
+    return <span className="ml-1 text-blue-600">{sortDir === 'asc' ? '&#x25B4;' : '&#x25BE;'}</span>
+  }
 
   // Stage-Gate Modal state
   const [stageGateDeal, setStageGateDeal] = useState<{ id: string; name: string; targetStage: string; escrow_date?: string | null; inspection_deadline?: string | null; appraisal_date?: string | null } | null>(null)
@@ -201,15 +222,65 @@ export function TransactionsPage() {
     })
   }, [transactions, search, typeFilter, statusFilter])
 
+  const sorted = useMemo(() => {
+    if (!sortField) return filtered
+    return [...filtered].sort((a, b) => {
+      let cmp = 0
+      switch (sortField) {
+        case 'name':
+          cmp = a.name.localeCompare(b.name)
+          break
+        case 'status': {
+          const orderA = KANBAN_STAGES.findIndex(s => s.value === a.status)
+          const orderB = KANBAN_STAGES.findIndex(s => s.value === b.status)
+          const aIdx = orderA >= 0 ? orderA : KANBAN_STAGES.length
+          const bIdx = orderB >= 0 ? orderB : KANBAN_STAGES.length
+          cmp = aIdx - bIdx
+          break
+        }
+        case 'price': {
+          const aVal = a.price
+          const bVal = b.price
+          const aValid = typeof aVal === 'number' && !Number.isNaN(aVal)
+          const bValid = typeof bVal === 'number' && !Number.isNaN(bVal)
+          if (!aValid || !bValid) {
+            if (aValid) return -1
+            if (bValid) return 1
+            return 0
+          }
+          cmp = aVal - bVal
+          break
+        }
+        case 'party_count':
+          cmp = (a.party_count ?? 0) - (b.party_count ?? 0)
+          break
+        case 'target_close_date': {
+          const aVal = a.target_close_date
+          const bVal = b.target_close_date
+          const aValid = aVal && !Number.isNaN(new Date(aVal).getTime())
+          const bValid = bVal && !Number.isNaN(new Date(bVal).getTime())
+          if (!aValid || !bValid) {
+            if (aValid) return -1
+            if (bValid) return 1
+            return 0
+          }
+          cmp = new Date(aVal).getTime() - new Date(bVal).getTime()
+          break
+        }
+      }
+      return sortDir === 'asc' ? cmp : -cmp
+    })
+  }, [filtered, sortField, sortDir])
+
   useEffect(() => {
     setPage(1)
   }, [search, view, createdByFilter, typeFilter, statusFilter])
 
-  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize))
+  const totalPages = Math.max(1, Math.ceil(sorted.length / pageSize))
   const pagedList = useMemo(() => {
     const start = (page - 1) * pageSize
-    return filtered.slice(start, start + pageSize)
-  }, [filtered, page, pageSize])
+    return sorted.slice(start, start + pageSize)
+  }, [sorted, page, pageSize])
 
   const getMetrics = () => {
     const active = transactions.filter(t => t.status === 'active' || t.status === 'offer_received' || t.status === 'under_contract').length
@@ -405,11 +476,9 @@ export function TransactionsPage() {
               className="rounded-lg border border-gray-300 px-3 py-2 text-xs font-semibold focus:border-blue-500 focus:outline-none bg-white text-gray-700"
             >
               <option value="all">All Statuses</option>
-              <option value="lead">Lead</option>
-              <option value="active">Active</option>
-              <option value="offer_received">Offer Received</option>
-              <option value="under_contract">Under Contract</option>
-              <option value="closed">Closed</option>
+              {STATUS_FILTER_OPTIONS.map(s => (
+                <option key={s.value} value={s.value}>{s.label}</option>
+              ))}
             </select>
             <select
               value={typeFilter}
@@ -544,11 +613,31 @@ export function TransactionsPage() {
                 <table className="w-full text-left text-sm min-w-[750px]">
                 <thead className="bg-gray-50 text-gray-500">
                   <tr>
-                    <th className="px-6 py-3 font-medium">Deal Name</th>
-                    <th className="px-6 py-3 font-medium">Status</th>
-                    <th className="px-6 py-3 font-medium">Price</th>
-                    <th className="px-6 py-3 font-medium">Parties</th>
-                    <th className="px-6 py-3 font-medium">Target Close & Urgency</th>
+                    <th className="px-6 py-3 font-medium">
+                      <button type="button" onClick={() => handleSort('name')} className="inline-flex items-center gap-0.5 hover:text-gray-900 focus:outline-none focus:underline">
+                        Deal Name{sortIndicator('name')}
+                      </button>
+                    </th>
+                    <th className="px-6 py-3 font-medium">
+                      <button type="button" onClick={() => handleSort('status')} className="inline-flex items-center gap-0.5 hover:text-gray-900 focus:outline-none focus:underline">
+                        Status{sortIndicator('status')}
+                      </button>
+                    </th>
+                    <th className="px-6 py-3 font-medium">
+                      <button type="button" onClick={() => handleSort('price')} className="inline-flex items-center gap-0.5 hover:text-gray-900 focus:outline-none focus:underline">
+                        Price{sortIndicator('price')}
+                      </button>
+                    </th>
+                    <th className="px-6 py-3 font-medium">
+                      <button type="button" onClick={() => handleSort('party_count')} className="inline-flex items-center gap-0.5 hover:text-gray-900 focus:outline-none focus:underline">
+                        Parties{sortIndicator('party_count')}
+                      </button>
+                    </th>
+                    <th className="px-6 py-3 font-medium">
+                      <button type="button" onClick={() => handleSort('target_close_date')} className="inline-flex items-center gap-0.5 hover:text-gray-900 focus:outline-none focus:underline">
+                        Target Close & Urgency{sortIndicator('target_close_date')}
+                      </button>
+                    </th>
                     <th className="px-6 py-3"></th>
                   </tr>
                 </thead>
@@ -599,18 +688,12 @@ export function TransactionsPage() {
                               onChange={(e) => requestStageChange(t, e.target.value)}
                               className={clsx(
                                 "rounded-full px-2.5 py-1 text-xs font-bold border focus:outline-none cursor-pointer",
-                                t.status === 'active' ? "bg-blue-100 text-blue-800 border-blue-200" :
-                                t.status === 'offer_received' ? "bg-purple-100 text-purple-800 border-purple-200" :
-                                t.status === 'under_contract' ? "bg-amber-100 text-amber-800 border-amber-200" :
-                                t.status === 'closed' ? "bg-emerald-100 text-emerald-800 border-emerald-200" :
-                                "bg-gray-100 text-gray-700 border-gray-200"
+                                getStatusBadgeClass(t.status)
                               )}
                             >
-                              <option value="lead">Lead</option>
-                              <option value="active">Active</option>
-                              <option value="offer_received">Offer Received</option>
-                              <option value="under_contract">Under Contract</option>
-                              <option value="closed">Closed</option>
+                              {STATUS_SELECT_OPTIONS.map(s => (
+                                <option key={s.value} value={s.value}>{s.label}</option>
+                              ))}
                             </select>
                           </td>
                           <td className="px-6 py-4 text-gray-900 font-bold">
@@ -645,26 +728,20 @@ export function TransactionsPage() {
             ) : (
               /* Draggable Kanban View */
               <div className="p-6 bg-gray-50 flex gap-4 overflow-x-auto min-h-[520px]">
-                {([
-                  { status: 'lead', label: 'Leads' },
-                  { status: 'active', label: 'Active' },
-                  { status: 'offer_received', label: 'Offer Received' },
-                  { status: 'under_contract', label: 'Under Contract' },
-                  { status: 'closed', label: 'Closed' }
-                ] as const).map((col) => {
-                  const colDeals = filtered.filter(t => t.status === col.status)
-                  const isColumnTarget = dragOverCol === col.status
+                {KANBAN_STAGES.map((col) => {
+                  const colDeals = filtered.filter(t => t.status === col.value)
+                  const isColumnTarget = dragOverCol === col.value
 
                   return (
                     <div
-                      key={col.status}
+                      key={col.value}
                       onDragOver={(e) => {
                         e.preventDefault()
                         e.dataTransfer.dropEffect = 'move'
-                        setDragOverCol(col.status)
+                        setDragOverCol(col.value)
                       }}
                       onDragLeave={() => {
-                        if (dragOverCol === col.status) setDragOverCol(null)
+                        if (dragOverCol === col.value) setDragOverCol(null)
                       }}
                       onDrop={(e) => {
                         e.preventDefault()
@@ -672,8 +749,8 @@ export function TransactionsPage() {
                         const dealId = e.dataTransfer.getData('dealId') || draggedDealId
                         if (dealId) {
                           const deal = transactions.find(t => t.id === dealId)
-                          if (deal && deal.status !== col.status) {
-                            requestStageChange(deal, col.status)
+                          if (deal && deal.status !== col.value) {
+                            requestStageChange(deal, col.value)
                           }
                         }
                         setDraggedDealId(null)
@@ -685,12 +762,7 @@ export function TransactionsPage() {
                     >
                       <div className="flex items-center justify-between mb-4 border-b border-gray-100 pb-2">
                         <span className="font-bold text-gray-800 text-sm flex items-center gap-1.5">
-                          <span className={clsx("h-2.5 w-2.5 rounded-full",
-                            col.status === 'lead' ? 'bg-gray-400' :
-                            col.status === 'active' ? 'bg-indigo-500' :
-                            col.status === 'offer_received' ? 'bg-purple-500' :
-                            col.status === 'under_contract' ? 'bg-amber-500' : 'bg-emerald-500'
-                          )} />
+                          <span className={clsx("h-2.5 w-2.5 rounded-full", getStatusDotClass(col.value))} />
                           {col.label}
                         </span>
                         <span className="text-xs font-semibold px-2 py-0.5 bg-gray-100 text-gray-500 rounded-full">
@@ -767,11 +839,9 @@ export function TransactionsPage() {
                                   onChange={(e) => requestStageChange(t, e.target.value)}
                                   className="bg-gray-50 border border-gray-200 rounded px-1.5 py-0.5 font-bold text-gray-700 focus:outline-none"
                                 >
-                                  <option value="lead">Lead</option>
-                                  <option value="active">Active</option>
-                                  <option value="offer_received">Offer Received</option>
-                                  <option value="under_contract">Under Contract</option>
-                                  <option value="closed">Closed</option>
+                                  {STATUS_SELECT_OPTIONS.map(s => (
+                                    <option key={s.value} value={s.value}>{s.label}</option>
+                                  ))}
                                 </select>
                               </div>
                             </div>
