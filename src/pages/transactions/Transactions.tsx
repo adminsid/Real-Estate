@@ -2,8 +2,9 @@ import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import {
   Briefcase, Plus, Search, DollarSign,
-  ChevronRight, CalendarDays, User, Pencil, Check, X, Building2,
-  Save, X as XIcon
+  CalendarDays, User, Pencil, Check, X, Building2,
+  Save, X as XIcon,
+  AlertTriangle, Clock, FileText, ExternalLink, Flag
 } from 'lucide-react'
 
 import { Layout } from '@/components/layout/Layout'
@@ -61,6 +62,88 @@ function getUrgencyCue(targetCloseDate: string | null): { color: string; label: 
   return { color: 'bg-emerald-100 text-emerald-800 border-emerald-200 font-semibold', label: 'On Track' }
 }
 
+// ── Risk Signal Helpers ──────────────────────────────────────────────────────
+interface RiskSignal {
+  type: 'closing_soon' | 'overdue_milestone' | 'missing_stage_gate'
+  label: string
+  color: string
+  icon: any
+}
+
+function computeRiskSignals(t: Transaction): RiskSignal[] {
+  const signals: RiskSignal[] = []
+  const now = Date.now()
+
+  // Closing soon (target close within 7 days)
+  if (t.target_close_date) {
+    const targetTime = new Date(t.target_close_date).getTime()
+    const diffDays = Math.ceil((targetTime - now) / (1000 * 60 * 60 * 24))
+    if (diffDays >= 0 && diffDays <= 7) {
+      signals.push({
+        type: 'closing_soon',
+        label: diffDays === 0 ? 'Closes today' : `${diffDays}d until close`,
+        color: 'bg-amber-100 text-amber-800 border-amber-200',
+        icon: Clock
+      })
+    }
+  }
+
+  // Overdue milestones
+  const milestones = [
+    { date: t.escrow_date, label: 'Escrow overdue' },
+    { date: t.inspection_deadline, label: 'Inspection overdue' },
+    { date: t.appraisal_date, label: 'Appraisal overdue' }
+  ]
+  for (const m of milestones) {
+    if (m.date) {
+      const milestoneTime = new Date(m.date).getTime()
+      if (milestoneTime < now) {
+        signals.push({
+          type: 'overdue_milestone',
+          label: m.label,
+          color: 'bg-red-100 text-red-700 border-red-200',
+          icon: AlertTriangle
+        })
+      }
+    }
+  }
+
+  // Missing required stage-gate items (under_contract or closed)
+  if (t.status === 'under_contract' || t.status === 'closed') {
+    const missing: string[] = []
+    if (!t.escrow_date) missing.push('Escrow date')
+    if (!t.inspection_deadline) missing.push('Inspection deadline')
+    if (!t.appraisal_date) missing.push('Appraisal date')
+    if (missing.length > 0) {
+      signals.push({
+        type: 'missing_stage_gate',
+        label: `Missing: ${missing.join(', ')}`,
+        color: 'bg-red-100 text-red-700 border-red-200',
+        icon: FileText
+      })
+    }
+  }
+  return signals
+}
+
+function getDaysUntilTargetClose(targetCloseDate: string | null): number | null {
+  if (!targetCloseDate) return null
+  const targetTime = new Date(targetCloseDate).getTime()
+  const now = Date.now()
+  return Math.ceil((targetTime - now) / (1000 * 60 * 60 * 24))
+}
+
+// ── Built-in Views ───────────────────────────────────────────────────────────
+type BuiltInView = 'all' | 'my_deals' | 'needs_attention' | 'missing_docs' | 'closing_soon'
+
+const BUILT_IN_VIEWS: { value: BuiltInView; label: string; icon: any }[] = [
+  { value: 'all', label: 'All Deals', icon: Briefcase },
+  { value: 'my_deals', label: 'My Deals', icon: User },
+  { value: 'needs_attention', label: 'Needs Attention', icon: Flag },
+  { value: 'missing_docs', label: 'Missing Docs', icon: FileText },
+  { value: 'closing_soon', label: 'Closing Soon', icon: Clock },
+]
+
 // ── Component ────────────────────────────────────────────────────────────────
 export function TransactionsPage() {
   const { user } = useAuth()
@@ -79,6 +162,7 @@ export function TransactionsPage() {
   const [typeFilter, setTypeFilter] = useState<'all' | 'sale' | 'lease'>('all')
   const [statusFilter, setStatusFilter] = useState<string>('all')
   const [createdByFilter, setCreatedByFilter] = useState<'all' | 'me' | string>('all')
+  const [builtInView, setBuiltInView] = useState<BuiltInView>('all')
   const [users, setUsers] = useState<UserTarget[]>([])
   const [page, setPage] = useState(1)
   const [listings, setListings] = useState<any[]>([])
@@ -242,6 +326,42 @@ export function TransactionsPage() {
     loadListings()
   }, [])
 
+  // Built-in view handler
+  const applyBuiltInView = (view: BuiltInView) => {
+    switch (view) {
+      case 'my_deals':
+        setCreatedByFilter('me')
+        setStatusFilter('all')
+        setTypeFilter('all')
+        setSearch('')
+        break
+      case 'needs_attention':
+        setStatusFilter('all')
+        setTypeFilter('all')
+        setCreatedByFilter('all')
+        setSearch('')
+        break
+      case 'missing_docs':
+        setStatusFilter('all')
+        setTypeFilter('all')
+        setCreatedByFilter('all')
+        setSearch('')
+        break
+      case 'closing_soon':
+        setStatusFilter('all')
+        setTypeFilter('all')
+        setCreatedByFilter('all')
+        setSearch('')
+        break
+      default:
+        setCreatedByFilter('all')
+        setStatusFilter('all')
+        setTypeFilter('all')
+        setSearch('')
+    }
+    setActivePresetId(null)
+  }
+
   // Preset handlers
   const savePreset = () => {
     const trimmedName = presetName.trim()
@@ -289,6 +409,7 @@ export function TransactionsPage() {
     setStatusFilter('all')
     setTypeFilter('all')
     setCreatedByFilter('all')
+    setBuiltInView('all')
     setActivePresetId(null)
   }
 
@@ -311,13 +432,38 @@ export function TransactionsPage() {
   }, [goalTargets])
 
   const filtered = useMemo(() => {
-    return transactions.filter(t => {
+    let result = transactions.filter(t => {
       const matchSearch = t.name.toLowerCase().includes(search.toLowerCase())
       const matchType = typeFilter === 'all' || t.type === typeFilter
       const matchStatus = statusFilter === 'all' || t.status === statusFilter
       return matchSearch && matchType && matchStatus
     })
-  }, [transactions, search, typeFilter, statusFilter])
+
+    // Apply built-in view filters
+    if (builtInView !== 'all') {
+      const now = Date.now()
+      result = result.filter(t => {
+        switch (builtInView) {
+          case 'my_deals':
+            return createdByFilter === 'me' || t.assigned_to === user?.id
+          case 'needs_attention':
+            return computeRiskSignals(t).length > 0
+          case 'missing_docs':
+            if (t.status !== 'under_contract' && t.status !== 'closed') return false
+            return !t.escrow_date || !t.inspection_deadline || !t.appraisal_date
+          case 'closing_soon':
+            if (!t.target_close_date) return false
+            const targetTime = new Date(t.target_close_date).getTime()
+            const diffDays = Math.ceil((targetTime - now) / (1000 * 60 * 60 * 24))
+            return diffDays >= 0 && diffDays <= 7
+          default:
+            return true
+        }
+      })
+    }
+
+    return result
+  }, [transactions, search, typeFilter, statusFilter, createdByFilter, builtInView, user?.id])
 
   const sorted = useMemo(() => {
     if (!sortField) return filtered
@@ -380,7 +526,7 @@ export function TransactionsPage() {
       setActivePresetId(null)
     }
     applyingPresetRef.current = false
-  }, [statusFilter, typeFilter, createdByFilter, search, activePresetId])
+  }, [statusFilter, typeFilter, createdByFilter, search, builtInView, activePresetId])
 
   // Clear active preset when user changes
   useEffect(() => {
@@ -599,6 +745,20 @@ export function TransactionsPage() {
               <option value="all">All Types</option>
               <option value="sale">Sale</option>
               <option value="lease">Lease</option>
+            </select>
+            {/* Built-in Views */}
+            <select
+              value={builtInView}
+              onChange={(e) => {
+                const view = e.target.value as BuiltInView
+                setBuiltInView(view)
+                applyBuiltInView(view)
+              }}
+              className="rounded-lg border border-gray-300 px-3 py-2 text-xs font-semibold focus:border-blue-500 focus:outline-none bg-white text-gray-700"
+            >
+              {BUILT_IN_VIEWS.map(v => (
+                <option key={v.value} value={v.value}>{v.label}</option>
+              ))}
             </select>
           </div>
 
@@ -825,7 +985,8 @@ export function TransactionsPage() {
                         Target Close & Urgency{sortIndicator('target_close_date')}
                       </button>
                     </th>
-                    <th className="px-6 py-3"></th>
+                    <th className="px-6 py-3 font-medium">Risk Signals</th>
+                    <th className="px-6 py-3 font-medium">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
@@ -854,6 +1015,8 @@ export function TransactionsPage() {
                   ) : (
                     pagedList.map((t) => {
                       const urgency = getUrgencyCue(t.target_close_date)
+                      const riskSignals = computeRiskSignals(t)
+                      const daysUntilClose = getDaysUntilTargetClose(t.target_close_date)
 
                       return (
                         <tr
@@ -915,10 +1078,43 @@ export function TransactionsPage() {
                                   {urgency.label}
                                 </span>
                               )}
+                              {daysUntilClose !== null && daysUntilClose >= 0 && daysUntilClose <= 7 && (
+                                <span className="px-2 py-0.5 rounded-full text-[10px] bg-amber-100 text-amber-800 border-amber-200">
+                                  {daysUntilClose === 0 ? 'Today' : `${daysUntilClose}d`}
+                                </span>
+                              )}
                             </div>
                           </td>
-                          <td className="px-6 py-4 text-right">
-                            <ChevronRight className="h-4 w-4 text-gray-400 group-hover:text-gray-600 inline" />
+                          <td className="px-6 py-4">
+                            <div className="flex flex-wrap gap-1.5">
+                              {riskSignals.map((signal, idx) => (
+                                <span
+                                  key={idx}
+                                  className={clsx("px-2 py-0.5 rounded-full text-[10px] font-medium border flex items-center gap-1", signal.color)}
+                                >
+                                  <signal.icon className="h-3 w-3" />
+                                  {signal.label}
+                                </span>
+                              ))}
+                              {riskSignals.length === 0 && (
+                                <span className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-emerald-100 text-emerald-800 border-emerald-200 flex items-center gap-1">
+                                  <Check className="h-3 w-3" />
+                                  On track
+                                </span>
+                              )}
+                            </div>
+                          </td>
+                          <td className="px-6 py-4">
+                            <div className="flex items-center justify-end gap-2">
+                              <button
+                                type="button"
+                                onClick={(e) => { e.stopPropagation(); navigate(`/transactions/${t.id}`) }}
+                                className="px-2 py-1 text-xs font-medium text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded transition-colors"
+                                title="Open Deal"
+                              >
+                                <ExternalLink className="h-3.5 w-3.5" />
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       )
@@ -995,9 +1191,11 @@ export function TransactionsPage() {
                         </span>
                       </div>
 
-                      <div className="space-y-3 overflow-y-auto flex-1 max-h-[600px] pr-1">
+<div className="space-y-3 overflow-y-auto flex-1 max-h-[600px] pr-1">
                         {colDeals.map((t) => {
                           const urgency = getUrgencyCue(t.target_close_date)
+                          const riskSignals = computeRiskSignals(t)
+                          const daysUntilClose = getDaysUntilTargetClose(t.target_close_date)
                           const isBeingDragged = draggedDealId === t.id
 
                           return (
@@ -1040,6 +1238,34 @@ export function TransactionsPage() {
                                 </button>
                               )}
 
+                              {/* Risk Signals */}
+                              <div className="mt-3 flex flex-wrap gap-1.5">
+                                {riskSignals.map((signal, idx) => (
+                                  <span
+                                    key={idx}
+                                    className={clsx("px-1.5 py-0.5 rounded-full text-[9px] font-medium border flex items-center gap-1", signal.color)}
+                                  >
+                                    <signal.icon className="h-2.5 w-2.5" />
+                                    {signal.label}
+                                  </span>
+                                ))}
+                                {riskSignals.length === 0 && (
+                                  <span className="px-1.5 py-0.5 rounded-full text-[9px] font-medium bg-emerald-100 text-emerald-800 border-emerald-200 flex items-center gap-1">
+                                    <Check className="h-2.5 w-2.5" />
+                                    On track
+                                  </span>
+                                )}
+                              </div>
+
+                              {daysUntilClose !== null && daysUntilClose >= 0 && daysUntilClose <= 7 && (
+                                <div className="mt-2 px-2 py-1 rounded bg-amber-50 border border-amber-200">
+                                  <div className="flex items-center gap-1 text-[10px] font-medium text-amber-800">
+                                    <Clock className="h-3 w-3" />
+                                    {daysUntilClose === 0 ? 'Closes today' : `${daysUntilClose}d until close`}
+                                  </div>
+                                </div>
+                              )}
+
                               <div className="mt-4 flex items-end justify-between">
                                 <div>
                                   <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Target Close</p>
@@ -1055,8 +1281,20 @@ export function TransactionsPage() {
                                 <p className="font-extrabold text-gray-900 text-sm">{t.price ? `$${t.price.toLocaleString()}` : '—'}</p>
                               </div>
 
+                              {/* Action Buttons */}
+                              <div className="mt-3 pt-2 border-t border-gray-100 flex items-center justify-between gap-2">
+                                <button
+                                  type="button"
+                                  onClick={(e) => { e.stopPropagation(); navigate(`/transactions/${t.id}`) }}
+                                  className="px-2 py-1 text-[10px] font-medium text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded transition-colors"
+                                  title="Open Deal"
+                                >
+                                  <ExternalLink className="h-3.5 w-3.5" />
+                                </button>
+                              </div>
+
                               {/* Stage Change Controls */}
-                              <div className="mt-3 pt-2 border-t border-gray-100 flex items-center justify-between text-[10px] text-gray-400">
+                              <div className="mt-2 pt-2 border-t border-gray-100 flex items-center justify-between text-[10px] text-gray-400">
                                 <span className="text-[9px] font-medium text-gray-400">Drag or Move:</span>
                                 <select
                                   value={t.status}
