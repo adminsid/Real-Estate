@@ -38,6 +38,12 @@ interface Ctx {
   userId: string
   tenantId: string
   role: string
+  // Assistant delegation context
+  isAssistant: boolean
+  principalId: string | null
+  assignmentId: string | null
+  canAccessTransactions: boolean
+  canAccessContacts: boolean
 }
 
 function getCtx(request: Request): Ctx | null {
@@ -45,7 +51,18 @@ function getCtx(request: Request): Ctx | null {
   const tenantId = request.headers.get('X-Tenant-Id')
   const role     = request.headers.get('X-User-Role')
   if (!userId || !tenantId || !role) return null
-  return { userId, tenantId, role }
+
+  const isAssistant = role === 'assistant'
+  const principalId = isAssistant ? request.headers.get('X-Internal-Principal-Id') : null
+  const assignmentId = isAssistant ? request.headers.get('X-Internal-Assignment-Id') : null
+  const canAccessTransactions = isAssistant ? request.headers.get('X-Internal-Can-Transactions') === '1' : true
+  const canAccessContacts = isAssistant ? request.headers.get('X-Internal-Can-Contacts') === '1' : true
+
+  if (isAssistant) {
+    if (!principalId || !assignmentId) return null
+  }
+
+  return { userId, tenantId, role, isAssistant, principalId, assignmentId, canAccessTransactions, canAccessContacts }
 }
 
 // ── Contact row type ──────────────────────────────────────────────────────────
@@ -115,6 +132,18 @@ export default {
     const path = url.pathname
     const method = request.method
 
+    // Assistant scope check
+    if (ctx.isAssistant && !ctx.canAccessContacts) {
+      return err('Forbidden: assistant has no contacts scope', 403)
+    }
+
+    // For assistant, use principalId for data ownership
+    const effectiveUserId = ctx.isAssistant ? ctx.principalId : ctx.userId
+
+    const url  = new URL(request.url)
+    const path = url.pathname
+    const method = request.method
+
     // ── List contacts ─────────────────────────────────────────────────────
     // GET /api/contacts
     if (path === '/api/contacts' && method === 'GET') {
@@ -143,8 +172,11 @@ export default {
           params.push(leadStage)
         }
       }
-      // Agents only see their own contacts unless they're broker/admin
-      if (!['admin','broker'].includes(ctx.role) || assignedTo) {
+      // Assistant: filter to principal's contacts only
+      if (ctx.isAssistant) {
+        query += ' AND assigned_to = ?'
+        params.push(ctx.principalId!)
+      } else if (!['admin','broker'].includes(ctx.role) || assignedTo) {
         query += ' AND assigned_to = ?'
         params.push(assignedTo || ctx.userId)
       }
@@ -170,7 +202,10 @@ export default {
           countParams.push(leadStage)
         }
       }
-      if (!['admin','broker'].includes(ctx.role) || assignedTo) {
+      if (ctx.isAssistant) {
+        countQuery += ' AND assigned_to = ?'
+        countParams.push(ctx.principalId!)
+      } else if (!['admin','broker'].includes(ctx.role) || assignedTo) {
         countQuery += ' AND assigned_to = ?'
         countParams.push(assignedTo || ctx.userId)
       }
@@ -194,16 +229,20 @@ export default {
 
       if (!body.firstName || !body.lastName) return err('First name and last name are required')
 
-      const id = `con_${newId().replace(/-/g, '').slice(0, 12)}`
-      const assignedTo = body.assignedTo ?? ctx.userId
+      // Assistant: force assigned_to to principal_id
+      const effectiveUserId = ctx.isAssistant ? ctx.principalId! : ctx.userId
+      const assignedTo = ctx.isAssistant ? ctx.principalId! : (body.assignedTo ?? ctx.userId)
       const leadStage = body.leadStage ?? (body.nextFollowUpDate ? 'needs_follow_up' : 'new')
+      const createdByAssistant = ctx.isAssistant ? 1 : 0
 
+      const id = `con_${newId().replace(/-/g, '').slice(0, 12)}`
       await env.DB
         .prepare(`INSERT INTO contacts
           (id, tenant_id, assigned_to, first_name, last_name, email, phone, type, status, source, notes, tags, address,
            timeline, budget_min, budget_max, financing_readiness, move_date, seller_motivation, representation_status,
-           urgency, preferred_contact_method, language, next_follow_up_date, next_action, lead_stage)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+           urgency, preferred_contact_method, language, next_follow_up_date, next_action, lead_stage,
+           created_by_assistant, assistant_assignment_id)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
         .bind(
           id, ctx.tenantId, assignedTo,
           body.firstName.trim(), body.lastName.trim(),
@@ -215,16 +254,26 @@ export default {
           body.timeline ?? null, body.budgetMin ?? null, body.budgetMax ?? null,
           body.financingReadiness ?? null, body.moveDate ?? null, body.sellerMotivation ?? null,
           body.representationStatus ?? null, body.urgency ?? null, body.preferredContactMethod ?? null,
-          body.language ?? null, body.nextFollowUpDate ?? null, body.nextAction ?? null, leadStage
+          body.language ?? null, body.nextFollowUpDate ?? null, body.nextAction ?? null, leadStage,
+          createdByAssistant, ctx.isAssistant ? ctx.assignmentId : null
         )
         .run()
+
+      // Audit log for delegated creation
+      if (ctx.isAssistant) {
+        const auditId = `aud_${newId().replace(/-/g, '').slice(0, 12)}`
+        await env.DB.prepare(`
+          INSERT INTO contact_audit_log (id, contact_id, tenant_id, user_id, acted_as_assistant_for, assistant_assignment_id, action, field_changes, created_at)
+          VALUES (?, ?, ?, ?, ?, ?, 'create', ?, datetime('now'))
+        `).bind(newId(), id, ctx.tenantId, ctx.userId, ctx.principalId!, ctx.assignmentId!, JSON.stringify({ created: { new: { firstName: body.firstName, lastName: body.lastName, email: body.email } } })).run()
+      }
 
       if (body.notes) {
         const activityId = `act_${newId().replace(/-/g, '').slice(0, 12)}`
         await env.DB.prepare(`
           INSERT INTO contact_activities (id, contact_id, tenant_id, user_id, type, title, body, occurred_at)
           VALUES (?, ?, ?, ?, 'note', 'Initial Note', ?, datetime('now'))
-        `).bind(activityId, id, ctx.tenantId, ctx.userId, body.notes).run()
+        `).bind(activityId, id, ctx.tenantId, ctx.isAssistant ? ctx.principalId! : ctx.userId, body.notes).run()
       }
 
       const contact = await env.DB
@@ -626,6 +675,7 @@ export default {
     // GET /api/contacts/:id
     const contactMatch = path.match(/^\/api\/contacts\/([^/]+)$/)
     if (contactMatch && method === 'GET') {
+      const effectiveUserId = ctx.isAssistant ? ctx.principalId! : ctx.userId
       const contact = await env.DB
         .prepare('SELECT * FROM contacts WHERE id = ? AND tenant_id = ? AND is_active = 1')
         .bind(contactMatch[1], ctx.tenantId)
@@ -633,7 +683,7 @@ export default {
       if (!contact) return err('Contact not found', 404)
 
       // Agents can only view their own unless broker/admin
-      if (!['admin','broker'].includes(ctx.role) && contact.assigned_to !== ctx.userId) {
+      if (!['admin','broker'].includes(ctx.role) && contact.assigned_to !== effectiveUserId) {
         return err('Contact not found', 404)
       }
 
@@ -666,11 +716,32 @@ export default {
         .bind(contactMatch[1], ctx.tenantId)
         .first<{ id: string; assigned_to: string | null; notes: string | null }>()
       if (!existing) return err('Contact not found', 404)
-      if (!['admin','broker'].includes(ctx.role) && existing.assigned_to !== ctx.userId) {
+      // Assistant: enforce principal ownership
+      const effectiveUserId = ctx.isAssistant ? ctx.principalId! : ctx.userId
+      if (!['admin','broker'].includes(ctx.role) && existing.assigned_to !== effectiveUserId) {
         return err('Contact not found', 404)
       }
 
       const body = await request.json<Record<string, any>>()
+
+      // Build field changes for audit
+      const fieldChanges: Record<string, { old: any; new: any }> = {}
+      const fields = [
+        'firstName', 'lastName', 'email', 'phone', 'type', 'status', 'source', 'notes', 'tags', 'address',
+        'assignedTo', 'timeline', 'budgetMin', 'budgetMax', 'financingReadiness', 'moveDate',
+        'sellerMotivation', 'representationStatus', 'urgency', 'preferredContactMethod', 'language',
+        'nextFollowUpDate', 'nextAction', 'leadStage'
+      ]
+      for (const f of fields) {
+        const bodyKey = f.replace(/([A-Z])/g, '_$1').toLowerCase()
+        if (body[f] !== undefined && body[f] !== existing[bodyKey]) {
+          fieldChanges[f] = { old: existing[bodyKey], new: body[f] }
+        }
+      }
+
+      // Assistant: force assigned_to to principal_id (ignore body value)
+      const assignedToValue = ctx.isAssistant ? ctx.principalId! : (body.assignedTo ?? existing.assigned_to)
+      const updatedByAssistant = ctx.isAssistant ? 1 : 0
 
       await env.DB
         .prepare(`UPDATE contacts SET
@@ -698,6 +769,8 @@ export default {
           next_follow_up_date      = COALESCE(?, next_follow_up_date),
           next_action              = COALESCE(?, next_action),
           lead_stage               = COALESCE(?, lead_stage),
+          updated_by_assistant     = ?,
+          assistant_assignment_id  = ?,
           updated_at               = datetime('now')
           WHERE id = ? AND tenant_id = ?`)
         .bind(
@@ -707,21 +780,31 @@ export default {
           body.source ?? null, body.notes ?? null,
           body.tags ? JSON.stringify(body.tags) : null,
           body.address ?? null,
-          body.assignedTo ?? null,
+          assignedToValue,
           body.timeline ?? null, body.budgetMin ?? null, body.budgetMax ?? null,
           body.financingReadiness ?? null, body.moveDate ?? null, body.sellerMotivation ?? null,
           body.representationStatus ?? null, body.urgency ?? null, body.preferredContactMethod ?? null,
           body.language ?? null, body.nextFollowUpDate ?? null, body.nextAction ?? null, body.leadStage ?? null,
+          updatedByAssistant, ctx.isAssistant ? ctx.assignmentId : null,
           contactMatch[1], ctx.tenantId,
         )
         .run()
+
+      // Audit log for delegated update
+      if (ctx.isAssistant && Object.keys(fieldChanges).length > 0) {
+        const auditId = newId()
+        await env.DB.prepare(`
+          INSERT INTO contact_audit_log (id, contact_id, tenant_id, user_id, acted_as_assistant_for, assistant_assignment_id, action, field_changes, created_at)
+          VALUES (?, ?, ?, ?, ?, ?, 'update', ?, datetime('now'))
+        `).bind(auditId, contactMatch[1], ctx.tenantId, ctx.userId, ctx.principalId!, ctx.assignmentId!, JSON.stringify(fieldChanges)).run()
+      }
 
       if (body.notes !== undefined && body.notes !== existing.notes && body.notes) {
         const activityId = `act_${newId().replace(/-/g, '').slice(0, 12)}`
         await env.DB.prepare(`
           INSERT INTO contact_activities (id, contact_id, tenant_id, user_id, type, title, body, occurred_at)
           VALUES (?, ?, ?, ?, 'note', 'Note Updated', ?, datetime('now'))
-        `).bind(activityId, contactMatch[1], ctx.tenantId, ctx.userId, body.notes).run()
+        `).bind(activityId, contactMatch[1], ctx.tenantId, ctx.isAssistant ? ctx.principalId! : ctx.userId, body.notes).run()
       }
 
       const updated = await env.DB
@@ -834,6 +917,9 @@ export default {
     // ── Delete contact (soft) ─────────────────────────────────────────────
     // DELETE /api/contacts/:id
     if (contactMatch && method === 'DELETE') {
+      if (ctx.isAssistant) {
+        return err('Forbidden: assistants cannot delete contacts', 403)
+      }
       const existing = await env.DB
         .prepare('SELECT id, assigned_to FROM contacts WHERE id = ? AND tenant_id = ? AND is_active = 1')
         .bind(contactMatch[1], ctx.tenantId)

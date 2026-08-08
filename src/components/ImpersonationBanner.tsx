@@ -1,10 +1,10 @@
 import { useState, useEffect } from 'react'
-import { AlertTriangle, UserX } from 'lucide-react'
+import { AlertTriangle, UserX, UserCheck } from 'lucide-react'
 import { useAuth } from '@/context/AuthContext'
 import clsx from 'clsx'
 
 export function ImpersonationBanner() {
-  const { impersonating, stopImpersonating, user } = useAuth()
+  const { impersonating, stopImpersonating, user, isActingAsAssistant, principal } = useAuth()
   const [timeLeft, setTimeLeft] = useState(7200)
 
   useEffect(() => {
@@ -31,6 +31,22 @@ export function ImpersonationBanner() {
 
     return () => clearInterval(interval)
   }, [impersonating, stopImpersonating])
+
+  // Assistant banner
+  if (isActingAsAssistant && principal) {
+    return (
+      <div className="w-full flex-shrink-0 transition-colors duration-300 bg-blue-500 text-white">
+        <div className="flex items-center justify-between px-4 py-2 max-w-screen-xl mx-auto">
+          <div className="flex items-center gap-2 text-sm font-semibold">
+            <UserCheck className="h-4 w-4 flex-shrink-0" />
+            <span>
+              Working for <strong>{principal.name}</strong> ({principal.email}) — Assistant delegation active.
+            </span>
+          </div>
+        </div>
+      </div>
+    )
+  }
 
   if (!impersonating) return null
 

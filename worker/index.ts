@@ -160,6 +160,77 @@ function safeUser(u: UserRow) {
   return safe
 }
 
+// ── Assistant Assignment Resolution ───────────────────────────────────────────
+// Resolves active assistant assignment and returns trusted context for workers.
+// Caller must be authenticated as role='assistant'.
+interface AssistantAssignmentResult {
+  assignmentId: string
+  principalId: string
+  canAccessTransactions: 0 | 1
+  canAccessContacts: 0 | 1
+  assistantId: string
+  principalName: string
+}
+
+async function resolveAssistantAssignment(
+  db: D1Database,
+  assistantId: string,
+  tenantId: string
+): Promise<AssistantAssignmentResult | null> {
+  const row = await db.prepare(`
+    SELECT
+      aa.id as assignment_id,
+      aa.principal_id,
+      aa.can_access_transactions,
+      aa.can_access_contacts,
+      u_assistant.id as assistant_id,
+      u_assistant.role as assistant_role,
+      u_assistant.is_active as assistant_active,
+      u_principal.id as principal_id,
+      u_principal.role as principal_role,
+      u_principal.is_active as principal_active,
+      u_principal.name as principal_name
+    FROM assistant_assignments aa
+    JOIN users u_assistant ON u_assistant.id = aa.assistant_id
+    JOIN users u_principal ON u_principal.id = aa.principal_id
+    WHERE aa.assistant_id = ?
+      AND aa.tenant_id = ?
+      AND aa.status = 'active'
+      AND (aa.expires_at IS NULL OR aa.expires_at > datetime('now'))
+      AND (aa.can_access_transactions = 1 OR aa.can_access_contacts = 1)
+      AND u_assistant.role = 'assistant'
+      AND u_assistant.is_active = 1
+      AND u_principal.role = 'salesperson'
+      AND u_principal.is_active = 1
+      AND u_assistant.tenant_id = aa.tenant_id
+      AND u_principal.tenant_id = aa.tenant_id
+    LIMIT 1
+  `).bind(assistantId, tenantId).first<{
+    assignment_id: string
+    principal_id: string
+    can_access_transactions: number
+    can_access_contacts: number
+    assistant_id: string
+    assistant_role: string
+    assistant_active: number
+    principal_id: string
+    principal_role: string
+    principal_active: number
+    principal_name: string
+  }>()
+
+  if (!row) return null
+
+  return {
+    assignmentId: row.assignment_id,
+    principalId: row.principal_id,
+    canAccessTransactions: row.can_access_transactions,
+    canAccessContacts: row.can_access_contacts,
+    assistantId: row.assistant_id,
+    principalName: row.principal_name,
+  }
+}
+
 interface NyLicenseRow {
   business_name?: string
   business_address_1?: string
@@ -899,6 +970,78 @@ async function handleApi(request: Request, env: Env, path: string, url: URL): Pr
     })
   }
 
+  // GET /api/auth/assistant-principal — resolve assistant's active assignment and principal
+  if (path === '/api/auth/assistant-principal' && method === 'GET') {
+    const session = await getSession(request, env.JWT_SECRET)
+    if (!session) return authError()
+
+    const user = await env.DB
+      .prepare('SELECT * FROM users WHERE id = ?')
+      .bind(session.userId)
+      .first<UserRow>()
+
+    if (!user || !user.is_active || user.role !== 'assistant') {
+      return ok({ success: false, data: null })
+    }
+
+    const assignment = await env.DB.prepare(`
+      SELECT
+        aa.id as assignment_id,
+        aa.principal_id,
+        aa.can_access_transactions,
+        aa.can_access_contacts,
+        u_principal.id as principal_id,
+        u_principal.role as principal_role,
+        u_principal.is_active as principal_active,
+        u_principal.name as principal_name,
+        u_principal.email as principal_email
+      FROM assistant_assignments aa
+      JOIN users u_principal ON u_principal.id = aa.principal_id
+      WHERE aa.assistant_id = ?
+        AND aa.tenant_id = ?
+        AND aa.status = 'active'
+        AND (aa.expires_at IS NULL OR aa.expires_at > datetime('now'))
+        AND (aa.can_access_transactions = 1 OR aa.can_access_contacts = 1)
+        AND u_principal.role = 'salesperson'
+        AND u_principal.is_active = 1
+        AND u_principal.tenant_id = aa.tenant_id
+      LIMIT 1
+    `).bind(session.userId, session.tenantId).first<{
+      assignment_id: string
+      principal_id: string
+      can_access_transactions: number
+      can_access_contacts: number
+      principal_id: string
+      principal_role: string
+      principal_active: number
+      principal_name: string
+      principal_email: string
+    }>()
+
+    if (!assignment) {
+      return ok({ success: false, data: null })
+    }
+
+    const principal = await env.DB
+      .prepare('SELECT * FROM users WHERE id = ?')
+      .bind(assignment.principal_id)
+      .first<UserRow>()
+
+    if (!principal) {
+      return ok({ success: false, data: null })
+    }
+
+    return ok({
+      success: true,
+      data: {
+        principal: safeUser(principal),
+        assignmentId: assignment.assignment_id,
+        canAccessTransactions: assignment.can_access_transactions === 1,
+        canAccessContacts: assignment.can_access_contacts === 1,
+      }
+    })
+  }
+
   // PUT /api/auth/me
   if (path === '/api/auth/me' && method === 'PUT') {
     const session = await getSession(request, env.JWT_SECRET)
@@ -1625,6 +1768,146 @@ async function handleApi(request: Request, env: Env, path: string, url: URL): Pr
       return ok({ entries: rows.results, page, limit })
     }
 
+    // ── Assistant Assignments (admin only) ────────────────────────────────────
+    // POST /api/hr/assistant-assignments — create assignment
+    if (path === '/api/hr/assistant-assignments' && method === 'POST') {
+      if (session.role !== 'admin') {
+        throw forbiddenError('Only admins can create assistant assignments')
+      }
+      const body = await request.json<{
+        assistant_id: string
+        principal_id: string
+        can_access_transactions?: boolean
+        can_access_contacts?: boolean
+        expires_at?: string | null
+      }>()
+
+      if (!body.assistant_id || !body.principal_id) {
+        return err('assistant_id and principal_id are required', 400)
+      }
+      const canTx = body.can_access_transactions ? 1 : 0
+      const canContacts = body.can_access_contacts ? 1 : 0
+      if (canTx === 0 && canContacts === 0) {
+        return err('At least one scope permission (transactions or contacts) is required', 400)
+      }
+
+      // Validate assistant: role=assistant, active, same tenant
+      const assistant = await env.DB
+        .prepare('SELECT id, role, tenant_id, is_active FROM users WHERE id = ?')
+        .bind(body.assistant_id)
+        .first<{ id: string; role: string; tenant_id: string; is_active: number }>()
+      if (!assistant || assistant.role !== 'assistant' || !assistant.is_active || assistant.tenant_id !== session.tenantId) {
+        return err('Invalid assistant: must be active assistant in this tenant', 400)
+      }
+
+      // Validate principal: role=salesperson, active, same tenant
+      const principal = await env.DB
+        .prepare('SELECT id, role, tenant_id, is_active, name FROM users WHERE id = ?')
+        .bind(body.principal_id)
+        .first<{ id: string; role: string; tenant_id: string; is_active: number; name: string }>()
+      if (!principal || principal.role !== 'salesperson' || !principal.is_active || principal.tenant_id !== session.tenantId) {
+        return err('Invalid principal: must be active salesperson in this tenant', 400)
+      }
+
+      // Check for existing active assignment for this assistant
+      const existing = await env.DB
+        .prepare('SELECT id FROM assistant_assignments WHERE assistant_id = ? AND status = ?')
+        .bind(body.assistant_id, 'active')
+        .first()
+      if (existing) {
+        return err('Assistant already has an active assignment', 409)
+      }
+
+      const id = crypto.randomUUID()
+      await env.DB.prepare(`
+        INSERT INTO assistant_assignments (id, tenant_id, assistant_id, principal_id, can_access_transactions, can_access_contacts, expires_at, created_by)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `).bind(id, session.tenantId, body.assistant_id, body.principal_id, canTx, canContacts, body.expires_at || null, session.userId).run()
+
+      return ok({ id, principalName: principal.name })
+    }
+
+    // GET /api/hr/assistant-assignments — list assignments
+    if (path === '/api/hr/assistant-assignments' && method === 'GET') {
+      if (session.role !== 'admin') {
+        throw forbiddenError('Only admins can view assistant assignments')
+      }
+      const page = parseInt(url.searchParams.get('page') ?? '1')
+      const limit = Math.min(parseInt(url.searchParams.get('limit') ?? '50'), 100)
+      const offset = (page - 1) * limit
+      const search = url.searchParams.get('q') ?? ''
+
+      let query = `
+        SELECT aa.*, ua.name as assistant_name, ua.email as assistant_email,
+               up.name as principal_name, up.email as principal_email
+        FROM assistant_assignments aa
+        JOIN users ua ON ua.id = aa.assistant_id
+        JOIN users up ON up.id = aa.principal_id
+        WHERE aa.tenant_id = ?
+      `
+      const params: any[] = [session.tenantId]
+      if (search) {
+        query += ' AND (ua.name LIKE ? OR ua.email LIKE ? OR up.name LIKE ? OR up.email LIKE ?)'
+        params.push(`%${search}%`, `%${search}%`, `%${search}%`, `%${search}%`)
+      }
+      query += ' ORDER BY aa.created_at DESC LIMIT ? OFFSET ?'
+      params.push(limit, offset)
+
+      const rows = await env.DB.prepare(query).bind(...params).all()
+      const { results } = await env.DB
+        .prepare('SELECT COUNT(*) as cnt FROM assistant_assignments WHERE tenant_id = ?')
+        .bind(session.tenantId)
+        .all<{ cnt: number }>()
+
+      return ok({ assignments: rows.results, total: results[0]?.cnt ?? 0, page, limit })
+    }
+
+    // PUT /api/hr/assistant-assignments/:id — update assignment (pause/revoke/expire)
+    const asstAssignMatch = path.match(/^\/api\/hr\/assistant-assignments\/([^/]+)$/)
+    if (asstAssignMatch && method === 'PUT') {
+      if (session.role !== 'admin') {
+        throw forbiddenError('Only admins can modify assistant assignments')
+      }
+      const assignId = asstAssignMatch[1]
+      const body = await request.json<{
+        status?: 'active' | 'paused' | 'revoked' | 'expired'
+        can_access_transactions?: boolean
+        can_access_contacts?: boolean
+        expires_at?: string | null
+      }>()
+
+      const existing = await env.DB
+        .prepare('SELECT * FROM assistant_assignments WHERE id = ? AND tenant_id = ?')
+        .bind(assignId, session.tenantId)
+        .first()
+      if (!existing) return err('Assignment not found', 404)
+
+      const updates: string[] = []
+      const binds: any[] = []
+      if (body.status !== undefined) { updates.push('status = ?'); binds.push(body.status) }
+      if (body.can_access_transactions !== undefined) { updates.push('can_access_transactions = ?'); binds.push(body.can_access_transactions ? 1 : 0) }
+      if (body.can_access_contacts !== undefined) { updates.push('can_access_contacts = ?'); binds.push(body.can_access_contacts ? 1 : 0) }
+      if (body.expires_at !== undefined) { updates.push('expires_at = ?'); binds.push(body.expires_at) }
+      updates.push('updated_at = datetime("now")')
+
+      if (updates.length > 1) {
+        binds.push(assignId, session.tenantId)
+        await env.DB.prepare(`UPDATE assistant_assignments SET ${updates.join(', ')} WHERE id = ? AND tenant_id = ?`).bind(...binds).run()
+      }
+
+      return ok({ success: true })
+    }
+
+    // DELETE /api/hr/assistant-assignments/:id — revoke assignment
+    if (asstAssignMatch && method === 'DELETE') {
+      if (session.role !== 'admin') {
+        throw forbiddenError('Only admins can revoke assistant assignments')
+      }
+      const assignId = asstAssignMatch[1]
+      await env.DB.prepare('UPDATE assistant_assignments SET status = ?, updated_at = datetime("now") WHERE id = ? AND tenant_id = ?').bind('revoked', asstAssignMatch[1], session.tenantId).run()
+      return ok({ success: true, message: 'Assignment revoked' })
+    }
+
     return err('HR endpoint not found', 404)
   }
 
@@ -1719,22 +2002,51 @@ async function handleApi(request: Request, env: Env, path: string, url: URL): Pr
   if (path.startsWith('/api/contacts') || path === '/api/contacts/stats') {
     const session = await requireAuth(request, env.JWT_SECRET)
 
+    // Assistant assignment resolution (if role=assistant)
+    let assistantCtx: AssistantAssignmentResult | null = null
+    if (session.role === 'assistant') {
+      assistantCtx = await resolveAssistantAssignment(env.DB, session.userId, session.tenantId)
+      if (!assistantCtx || assistantCtx.canAccessContacts === 0) {
+        throw forbiddenError('Assistant has no active assignment or no contacts scope')
+      }
+    }
+
     const action = ['GET', 'HEAD'].includes(method) ? 'read' : (method === 'DELETE' ? 'delete' : 'write')
     if (!(await can(session.userId, session.role, 'crm', action, env.DB))) {
       throw forbiddenError(`No ${action} access to CRM`)
     }
 
     // Build a new request with auth context headers (CRM worker trusts these)
+    const headers: Record<string, string> = {
+      ...Object.fromEntries(request.headers.entries()),
+      'X-User-Id':   session.userId,
+      'X-Tenant-Id': session.tenantId,
+      'X-User-Role': session.role,
+      // Strip the auth cookie so CRM never tries to re-validate
+      'Cookie': '',
+    }
+    if (assistantCtx) {
+      headers['X-Internal-Principal-Id'] = assistantCtx.principalId
+      headers['X-Internal-Assignment-Id'] = assistantCtx.assignmentId
+      headers['X-Internal-Can-Transactions'] = String(assistantCtx.canAccessTransactions)
+      headers['X-Internal-Can-Contacts'] = String(assistantCtx.canAccessContacts)
+      headers['X-Internal-Assistant-Id'] = assistantCtx.assistantId
+    }
+    // Strip any client-supplied internal headers
+    const internalHeaders = [
+      'X-Internal-Principal-Id',
+      'X-Internal-Assignment-Id',
+      'X-Internal-Can-Transactions',
+      'X-Internal-Can-Contacts',
+      'X-Internal-Assistant-Id',
+    ]
+    for (const h of internalHeaders) {
+      if (headers[h] && !assistantCtx) delete headers[h]
+    }
+
     const crmRequest = new Request(request.url, {
       method: request.method,
-      headers: {
-        ...Object.fromEntries(request.headers.entries()),
-        'X-User-Id':   session.userId,
-        'X-Tenant-Id': session.tenantId,
-        'X-User-Role': session.role,
-        // Strip the auth cookie so CRM never tries to re-validate
-        'Cookie': '',
-      },
+      headers,
       body: ['GET','HEAD'].includes(request.method) ? undefined : request.body,
       // @ts-ignore duplex needed for streaming
       duplex: 'half',
@@ -1872,6 +2184,15 @@ async function handleApi(request: Request, env: Env, path: string, url: URL): Pr
   if (path.startsWith('/api/transactions')) {
     const session = await requireAuth(request, env.JWT_SECRET)
 
+    // Assistant assignment resolution (if role=assistant)
+    let assistantCtx: AssistantAssignmentResult | null = null
+    if (session.role === 'assistant') {
+      assistantCtx = await resolveAssistantAssignment(env.DB, session.userId, session.tenantId)
+      if (!assistantCtx || assistantCtx.canAccessTransactions === 0) {
+        throw forbiddenError('Assistant has no active assignment or no transactions scope')
+      }
+    }
+
     const action = ['GET', 'HEAD'].includes(method) ? 'read' : (method === 'DELETE' ? 'delete' : 'write')
     if (!(await can(session.userId, session.role, 'transactions', action, env.DB))) {
       throw forbiddenError(`No ${action} access to Transactions`)
@@ -1879,15 +2200,35 @@ async function handleApi(request: Request, env: Env, path: string, url: URL): Pr
 
     const txnBody = ['GET','HEAD'].includes(request.method) ? undefined : await request.arrayBuffer()
 
+    const headers: Record<string, string> = {
+      ...Object.fromEntries(request.headers.entries()),
+      'X-User-Id':   session.userId,
+      'X-Tenant-Id': session.tenantId,
+      'X-User-Role': session.role,
+      'Cookie': '',
+    }
+    if (assistantCtx) {
+      headers['X-Internal-Principal-Id'] = assistantCtx.principalId
+      headers['X-Internal-Assignment-Id'] = assistantCtx.assignmentId
+      headers['X-Internal-Can-Transactions'] = String(assistantCtx.canAccessTransactions)
+      headers['X-Internal-Can-Contacts'] = String(assistantCtx.canAccessContacts)
+      headers['X-Internal-Assistant-Id'] = assistantCtx.assistantId
+    }
+    // Strip any client-supplied internal headers
+    const internalHeaders = [
+      'X-Internal-Principal-Id',
+      'X-Internal-Assignment-Id',
+      'X-Internal-Can-Transactions',
+      'X-Internal-Can-Contacts',
+      'X-Internal-Assistant-Id',
+    ]
+    for (const h of internalHeaders) {
+      if (headers[h] && !assistantCtx) delete headers[h]
+    }
+
     const txnRequest = new Request(request.url, {
       method: request.method,
-      headers: {
-        ...Object.fromEntries(request.headers.entries()),
-        'X-User-Id':   session.userId,
-        'X-Tenant-Id': session.tenantId,
-        'X-User-Role': session.role,
-        'Cookie': '',
-      },
+      headers,
       body: txnBody,
     })
 

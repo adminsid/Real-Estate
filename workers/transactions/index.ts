@@ -262,12 +262,35 @@ async function syncOutlineToCrmAndNetwork(
 }
 
 // Ensure context headers exist
-function getCtx(req: Request) {
+interface Ctx {
+  userId: string
+  tenantId: string
+  role: string
+  // Assistant delegation context (only present when X-User-Role = 'assistant' and gateway resolved assignment)
+  isAssistant: boolean
+  principalId: string | null
+  assignmentId: string | null
+  canAccessTransactions: boolean
+  canAccessContacts: boolean
+}
+
+function getCtx(req: Request): Ctx {
   const userId = req.headers.get('X-User-Id')
   const tenantId = req.headers.get('X-Tenant-Id')
   const role = req.headers.get('X-User-Role')
   if (!userId || !tenantId || !role) throw new Error('Missing auth context')
-  return { userId, tenantId, role }
+
+  const isAssistant = role === 'assistant'
+  const principalId = isAssistant ? req.headers.get('X-Internal-Principal-Id') : null
+  const assignmentId = isAssistant ? req.headers.get('X-Internal-Assignment-Id') : null
+  const canAccessTransactions = isAssistant ? req.headers.get('X-Internal-Can-Transactions') === '1' : true
+  const canAccessContacts = isAssistant ? req.headers.get('X-Internal-Can-Contacts') === '1' : true
+
+  if (isAssistant) {
+    if (!principalId || !assignmentId) throw new Error('Assistant missing assignment context')
+  }
+
+  return { userId, tenantId, role, isAssistant, principalId, assignmentId, canAccessTransactions, canAccessContacts }
 }
 
 export default {
@@ -280,7 +303,17 @@ export default {
       const url = new URL(request.url)
       const path = url.pathname
       const method = request.method
-      const { userId, tenantId, role } = getCtx(request)
+      const { userId, tenantId, role, isAssistant, principalId, assignmentId, canAccessTransactions, canAccessContacts } = getCtx(request)
+
+      // Assistant scope checks
+      if (isAssistant) {
+        if (path.startsWith('/api/transactions') && !canAccessTransactions) {
+          return err('Forbidden: assistant has no transactions scope', 403)
+        }
+      }
+
+      // For assistant, use principalId for data ownership; for others, use userId
+      const effectiveUserId = isAssistant ? principalId : userId
 
       // Proxy listings from Inventory app
       if (path === '/api/transactions/listings' && method === 'GET') {
@@ -428,7 +461,7 @@ export default {
           `
         const queryParams: Array<string> = [tenantId]
         if (assignedToFilter) {
-          if (!['admin', 'broker'].includes(role) && assignedToFilter !== userId) {
+          if (!['admin', 'broker'].includes(role) && assignedToFilter !== effectiveUserId) {
             return err('Forbidden assigned_to filter', 403)
           }
           query += ' AND t.assigned_to = ?'
@@ -438,6 +471,11 @@ export default {
           query += ' AND t.inventory_listing_id = ?'
           queryParams.push(listingIdFilter)
         }
+        // Assistant: filter to principal's transactions only
+        if (isAssistant) {
+          query += ' AND t.assigned_to = ?'
+          queryParams.push(effectiveUserId)
+        }
         query += ' ORDER BY t.created_at DESC'
 
         const { results } = await env.DB
@@ -446,12 +484,12 @@ export default {
           .all()
 
         const teamsRes = await env.DB.prepare('SELECT transaction_id, user_id FROM transaction_team WHERE tenant_id = ?').bind(tenantId).all()
-        const userTeams = new Set(teamsRes.results.filter((r: any) => r.user_id === userId).map((r: any) => r.transaction_id))
+        const userTeams = new Set(teamsRes.results.filter((r: any) => r.user_id === effectiveUserId).map((r: any) => r.transaction_id))
 
         // Filter the output: keep deals assigned to user, deals where user is in team, inventory listings where current user is agent, or admin/broker
         const filteredResults = results.filter((t: any) => {
           if (role === 'admin' || role === 'broker') return true
-          if (userId && t.assigned_to === userId) return true
+          if (effectiveUserId && t.assigned_to === effectiveUserId) return true
           if (userTeams.has(t.id)) return true
           if (t.inventory_listing_id && agentListingIds.has(t.inventory_listing_id)) return true
           return false
@@ -504,15 +542,17 @@ export default {
       if (path === '/api/transactions' && method === 'POST') {
         const body: any = await request.json()
         const id = newId()
+        const createdByAssistant = isAssistant ? 1 : 0
         await env.DB
           .prepare(`
-            INSERT INTO transactions (id, tenant_id, assigned_to, inventory_listing_id, name, type, status, price, commission_amount, target_close_date)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO transactions (id, tenant_id, assigned_to, inventory_listing_id, name, type, status, price, commission_amount, target_close_date, created_by_assistant, assistant_assignment_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           `)
           .bind(
-            id, tenantId, userId, body.inventory_listing_id || null,
+            id, tenantId, effectiveUserId, body.inventory_listing_id || null,
             body.name, body.type || 'sale', body.status || 'lead',
-            body.price || null, body.commission_amount || null, body.target_close_date || null
+            body.price || null, body.commission_amount || null, body.target_close_date || null,
+            createdByAssistant, isAssistant ? assignmentId : null
           )
           .run()
 
@@ -526,6 +566,15 @@ export default {
             stmt.bind(newId(), id, tenantId, p.contact_id, p.role, p.is_primary ? 1 : 0)
           )
           await env.DB.batch(batch)
+        }
+
+        // Audit log for delegated creation
+        if (isAssistant) {
+          const outcomeId = newId()
+          await env.DB.prepare(`
+            INSERT INTO transaction_outcomes (id, transaction_id, tenant_id, user_id, message, is_broker_advice, acted_as_assistant_for, assistant_assignment_id, created_at)
+            VALUES (?, ?, ?, ?, ?, 0, ?, ?, datetime('now'))
+          `).bind(outcomeId, id, tenantId, userId, `[Delegated Create] Deal created by assistant`, effectiveUserId, assignmentId).run()
         }
 
         // Trigger notification
@@ -554,14 +603,19 @@ export default {
         const statsParams: Array<string> = [tenantId]
 
         if (assignedToFilter) {
-          if (!['admin', 'broker'].includes(role) && assignedToFilter !== userId) {
+          if (!['admin', 'broker'].includes(role) && assignedToFilter !== effectiveUserId) {
             return err('Forbidden assigned_to filter', 403)
           }
           statsQuery += ' AND (assigned_to = ? OR id IN (SELECT transaction_id FROM transaction_team WHERE user_id = ?))'
           statsParams.push(assignedToFilter, assignedToFilter)
         } else if (!['admin', 'broker'].includes(role)) {
           statsQuery += ' AND (assigned_to = ? OR id IN (SELECT transaction_id FROM transaction_team WHERE user_id = ?))'
-          statsParams.push(userId, userId)
+          statsParams.push(effectiveUserId, effectiveUserId)
+        }
+        // Assistant: always filter to principal's transactions
+        if (isAssistant) {
+          statsQuery += ' AND assigned_to = ?'
+          statsParams.push(effectiveUserId)
         }
 
         const stats = await env.DB
@@ -578,6 +632,11 @@ export default {
 
         const tx = await env.DB.prepare('SELECT * FROM transactions WHERE id = ? AND tenant_id = ? AND is_active = 1').bind(txId, tenantId).first()
         if (!tx) return err('Not found', 404)
+
+        // Assistant ownership check
+        if (isAssistant && tx.assigned_to !== effectiveUserId) {
+          return err('Not found', 404)
+        }
 
         const parties = await env.DB.prepare(`
           SELECT tp.*, c.first_name, c.last_name, c.email, c.phone
@@ -1045,15 +1104,17 @@ export default {
             const userName = u?.name || 'Authorized User'
             const outcomeId = crypto.randomUUID()
             await env.DB.prepare(`
-              INSERT INTO transaction_outcomes (id, transaction_id, tenant_id, user_id, message, is_broker_advice, created_at)
-              VALUES (?, ?, ?, ?, ?, 1, datetime("now"))
-            `).bind(
-              outcomeId,
-              txId,
-              tenantId,
-              userId,
-              `[Audit Log] Stage regressed from ${existing.status.toUpperCase()} to ${nextStatus.toUpperCase()} by ${userName}.`,
-            ).run()
+            INSERT INTO transaction_outcomes (id, transaction_id, tenant_id, user_id, message, is_broker_advice, acted_as_assistant_for, assistant_assignment_id, created_at)
+            VALUES (?, ?, ?, ?, ?, 1, ?, ?, datetime("now"))
+          `).bind(
+            outcomeId,
+            txId,
+            tenantId,
+            userId,
+            `[Audit Log] Stage regressed from ${existing.status.toUpperCase()} to ${nextStatus.toUpperCase()} by ${userName}.`,
+            isAssistant ? effectiveUserId : null,
+            isAssistant ? assignmentId : null
+          ).run()
           }
         }
 
@@ -1113,6 +1174,7 @@ export default {
               repair_credit = ?, attorney_review_start_date = ?, attorney_review_status = ?,
               deal_failure_reason = ?, deal_failure_notes = ?,
               post_occupancy_deadline = ?, post_occupancy_daily_rate = ?, post_occupancy_escrow_held = ?,
+              updated_by_assistant = ?, assistant_assignment_id = ?,
               updated_at = datetime("now")
           WHERE id = ? AND tenant_id = ?
         `).bind(
@@ -1125,8 +1187,18 @@ export default {
           nextRepairCredit ?? null, nextAttorneyReviewStartDate ?? null, nextAttorneyReviewStatus ?? null,
           nextDealFailureReason ?? null, nextDealFailureNotes ?? null,
           nextPostOccupancyDeadline ?? null, nextPostOccupancyDailyRate ?? null, nextPostOccupancyEscrowHeld ?? null,
+          isAssistant ? 1 : 0, isAssistant ? assignmentId : null,
           txId, tenantId
         ).run()
+
+        // Audit log for delegated update
+        if (isAssistant) {
+          const outcomeId = newId()
+          await env.DB.prepare(`
+            INSERT INTO transaction_outcomes (id, transaction_id, tenant_id, user_id, message, is_broker_advice, acted_as_assistant_for, assistant_assignment_id, created_at)
+            VALUES (?, ?, ?, ?, ?, 0, ?, ?, datetime('now'))
+          `).bind(newId(), txId, tenantId, userId, `[Delegated Update] Deal updated by assistant`, effectiveUserId, assignmentId).run()
+        }
 
         if (body.parties_involved !== undefined && typeof nextPartiesInvolved === 'string') {
           try {

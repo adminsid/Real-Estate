@@ -20,6 +20,10 @@ interface AuthContextValue {
   isLoading: boolean
   permissions: Record<string, boolean>
   impersonating: { impersonatedBy: string; logId: string } | null
+  // Assistant delegation context
+  isActingAsAssistant: boolean
+  principal: User | null
+  assistantAssignmentId: string | null
   can: (module: string, action: string) => boolean
   login: (email: string, password: string) => Promise<void>
   signup: (data: SignupData) => Promise<{ message: string }>
@@ -93,8 +97,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
   const [permissions, setPermissions] = useState<Record<string, boolean>>({})
   const [impersonating, setImpersonating] = useState<{ impersonatedBy: string; logId: string } | null>(null)
-  const [isLoading, setIsLoading] = useState(true) // starts loading while we check session
+  const [isLoading, setIsLoading] = useState(true)
   const [branding, setBranding] = useState<WorkspaceBranding>(DEFAULT_BRANDING)
+  // Assistant delegation state
+  const [principal, setPrincipal] = useState<User | null>(null)
+  const [assistantAssignmentId, setAssistantAssignmentId] = useState<string | null>(null)
+  const [isActingAsAssistant, setIsActingAsAssistant] = useState(false)
 
 
   useEffect(() => {
@@ -135,7 +143,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       const data = await apiFetch('/api/auth/me')
       const { user: u, permissions: p, impersonating: imp, tenant } = data.data
-      setUser(normalizeUser(u))
+      const normalizedUser = normalizeUser(u)
+      setUser(normalizedUser)
       setPermissions(p ?? {})
       setImpersonating(imp)
       if (tenant) {
@@ -143,10 +152,36 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setBranding(brandObj)
         localStorage.setItem('workspace_branding', JSON.stringify(brandObj))
       }
+      // If user is assistant, fetch principal info
+      if (normalizedUser.role === 'assistant') {
+        try {
+          const principalData = await apiFetch('/api/auth/assistant-principal')
+          if (principalData.success && principalData.data) {
+            setPrincipal(normalizeUser(principalData.data.principal))
+            setAssistantAssignmentId(principalData.data.assignmentId)
+            setIsActingAsAssistant(true)
+          } else {
+            setPrincipal(null)
+            setAssistantAssignmentId(null)
+            setIsActingAsAssistant(false)
+          }
+        } catch {
+          setPrincipal(null)
+          setAssistantAssignmentId(null)
+          setIsActingAsAssistant(false)
+        }
+      } else {
+        setPrincipal(null)
+        setAssistantAssignmentId(null)
+        setIsActingAsAssistant(false)
+      }
     } catch {
       setUser(null)
       setPermissions({})
       setImpersonating(null)
+      setPrincipal(null)
+      setAssistantAssignmentId(null)
+      setIsActingAsAssistant(false)
     } finally {
       setIsLoading(false)
     }
@@ -162,9 +197,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         method: 'POST',
         body: JSON.stringify({ email, password }),
       })
-      setUser(normalizeUser(data.data.user))
+      const normalizedUser = normalizeUser(data.data.user)
+      setUser(normalizedUser)
       setPermissions(data.data.permissions ?? {})
       setImpersonating(null)
+      // If assistant, fetch principal
+      if (normalizedUser.role === 'assistant') {
+        try {
+          const principalData = await apiFetch('/api/auth/assistant-principal')
+          if (principalData.success && principalData.data) {
+            setPrincipal(normalizeUser(principalData.data.principal))
+            setAssistantAssignmentId(principalData.data.assignmentId)
+            setIsActingAsAssistant(true)
+          }
+        } catch {
+          setIsActingAsAssistant(false)
+        }
+      }
     } finally {
       setIsLoading(false)
     }
@@ -250,6 +299,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         isLoading,
         permissions,
         impersonating,
+        isActingAsAssistant,
+        principal,
+        assistantAssignmentId,
         can,
         login,
         signup,
