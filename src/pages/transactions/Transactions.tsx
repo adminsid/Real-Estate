@@ -1,8 +1,9 @@
-import { useState, useEffect, useMemo, useCallback } from 'react'
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import {
   Briefcase, Plus, Search, DollarSign,
-  ChevronRight, CalendarDays, User, TrendingUp, Pencil, Check, X, Building2
+  ChevronRight, CalendarDays, User, Pencil, Check, X, Building2,
+  Save, X as XIcon
 } from 'lucide-react'
 
 import { Layout } from '@/components/layout/Layout'
@@ -11,6 +12,7 @@ import { NewDealModal } from '@/components/transactions/NewDealModal'
 import { StageGateModal } from '@/components/transactions/StageGateModal'
 import { ListingDetailDrawer } from '@/components/transactions/ListingDetailDrawer'
 import { Pagination } from '@/components/common/Pagination'
+import { EmptyState } from '@/components/common/EmptyState'
 import { KANBAN_STAGES, STATUS_FILTER_OPTIONS, STATUS_SELECT_OPTIONS, getStatusBadgeClass, getStatusDotClass } from '@/constants/pipeline'
 import clsx from 'clsx'
 import { useAuth } from '@/context/AuthContext'
@@ -86,6 +88,51 @@ export function TransactionsPage() {
   const [editingValue, setEditingValue] = useState('')
   const navigate = useNavigate()
   const [pageSize] = useState(20)
+
+  // Filter presets state
+  interface Preset {
+    id: string
+    name: string
+    status: string
+    type: 'all' | 'sale' | 'lease'
+    createdBy: 'all' | 'me' | string
+  }
+
+  const [presets, setPresets] = useState<Preset[]>([])
+  const [activePresetId, setActivePresetId] = useState<string | null>(null)
+  const [presetName, setPresetName] = useState('')
+  const [showPresetInput, setShowPresetInput] = useState(false)
+
+  // Load presets from localStorage when user changes
+  useEffect(() => {
+    if (!user?.id) {
+      setPresets([])
+      return
+    }
+    try {
+      const stored = localStorage.getItem(`pipeline-filter-presets:${user.id}`)
+      if (stored) {
+        const parsed = JSON.parse(stored)
+        if (Array.isArray(parsed)) {
+          const validPresets = parsed.filter((p): p is Preset =>
+            typeof p === 'object' && p !== null &&
+            typeof p.id === 'string' &&
+            typeof p.name === 'string' &&
+            p.name.trim().length > 0 &&
+            p.name.trim().length <= 50 &&
+            typeof p.status === 'string' &&
+            ['all', 'sale', 'lease'].includes(p.type) &&
+            typeof p.createdBy === 'string'
+          )
+          setPresets(validPresets)
+          return
+        }
+      }
+      setPresets([])
+    } catch {
+      setPresets([])
+    }
+  }, [user?.id])
 
   // Sorting state for list view
   type SortField = 'name' | 'status' | 'price' | 'party_count' | 'target_close_date'
@@ -195,6 +242,56 @@ export function TransactionsPage() {
     loadListings()
   }, [])
 
+  // Preset handlers
+  const savePreset = () => {
+    const trimmedName = presetName.trim()
+    if (!trimmedName || trimmedName.length > 50 || !user?.id) return
+
+    const newPreset: Preset = {
+      id: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+      name: trimmedName,
+      status: statusFilter,
+      type: typeFilter,
+      createdBy: createdByFilter,
+    }
+
+    const updatedPresets = [...presets, newPreset]
+    setPresets(updatedPresets)
+    setActivePresetId(newPreset.id)
+    try {
+      localStorage.setItem(`pipeline-filter-presets:${user.id}`, JSON.stringify(updatedPresets))
+    } catch { /* ignore */ }
+    setPresetName('')
+    setShowPresetInput(false)
+  }
+
+  const applyPreset = (preset: Preset) => {
+    applyingPresetRef.current = true
+    setStatusFilter(preset.status)
+    setTypeFilter(preset.type)
+    setCreatedByFilter(preset.createdBy)
+    setActivePresetId(preset.id)
+  }
+
+  const deletePreset = (id: string) => {
+    const updatedPresets = presets.filter(p => p.id !== id)
+    setPresets(updatedPresets)
+    if (activePresetId === id) setActivePresetId(null)
+    if (user?.id) {
+      try {
+        localStorage.setItem(`pipeline-filter-presets:${user.id}`, JSON.stringify(updatedPresets))
+      } catch { /* ignore */ }
+    }
+  }
+
+  const clearFilters = () => {
+    setSearch('')
+    setStatusFilter('all')
+    setTypeFilter('all')
+    setCreatedByFilter('all')
+    setActivePresetId(null)
+  }
+
   const getListingName = (listingId: string | null | undefined) => {
     if (!listingId) return ''
     const listing = listings.find(l => l.id === listingId)
@@ -275,6 +372,20 @@ export function TransactionsPage() {
   useEffect(() => {
     setPage(1)
   }, [search, view, createdByFilter, typeFilter, statusFilter])
+
+  // Clear active preset indication when filters change manually
+  const applyingPresetRef = useRef(false)
+  useEffect(() => {
+    if (!applyingPresetRef.current && activePresetId !== null) {
+      setActivePresetId(null)
+    }
+    applyingPresetRef.current = false
+  }, [statusFilter, typeFilter, createdByFilter, search, activePresetId])
+
+  // Clear active preset when user changes
+  useEffect(() => {
+    setActivePresetId(null)
+  }, [user?.id])
 
   const totalPages = Math.max(1, Math.ceil(sorted.length / pageSize))
   const pagedList = useMemo(() => {
@@ -535,6 +646,82 @@ export function TransactionsPage() {
           </div>
         </div>
 
+        {/* Saved Filter Presets */}
+        {user?.id && presets.length > 0 && (
+          <div className="mb-4 flex flex-wrap items-center gap-2">
+            <span className="text-xs font-medium text-gray-500">Presets:</span>
+            {presets.map((preset) => (
+              <span key={preset.id} className="inline-flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => applyPreset(preset)}
+                  className={clsx(
+                    "inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-full border transition-colors",
+                    activePresetId === preset.id
+                      ? "bg-blue-50 border-blue-300 text-blue-800 shadow-sm"
+                      : "bg-white border-gray-200 text-gray-700 hover:bg-gray-50"
+                  )}
+                  aria-pressed={activePresetId === preset.id}
+                >
+                  {preset.name}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => deletePreset(preset.id)}
+                  className="flex items-center justify-center w-5 h-5 rounded-full text-gray-400 hover:text-red-500 hover:bg-red-50 focus:outline-none focus:ring-2 focus:ring-red-500"
+                  aria-label={`Delete preset ${preset.name}`}
+                >
+                  <XIcon className="h-3.5 w-3.5" />
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
+
+        {/* Save New Preset */}
+        {user?.id && (
+          <div className="mb-4 flex items-center gap-2">
+            {showPresetInput ? (
+              <form onSubmit={(e) => { e.preventDefault(); savePreset() }} className="flex items-center gap-2 w-full sm:w-auto">
+                <input
+                  type="text"
+                  value={presetName}
+                  onChange={(e) => setPresetName(e.target.value)}
+                  placeholder="Preset name (max 50 chars)"
+                  maxLength={50}
+                  className="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+                  autoFocus
+                />
+                <button
+                  type="submit"
+                  disabled={!presetName.trim() || presetName.trim().length > 50}
+                  className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                >
+                  <Save className="h-4 w-4" />
+                  Save
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setPresetName(''); setShowPresetInput(false) }}
+                  className="p-2 text-gray-400 hover:text-gray-600"
+                  aria-label="Cancel"
+                >
+                  <XIcon className="h-4 w-4" />
+                </button>
+              </form>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setShowPresetInput(true)}
+                className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 transition-colors"
+              >
+                <Save className="h-4 w-4" />
+                Save Current Filters as Preset
+              </button>
+            )}
+          </div>
+        )}
+
         {/* Weekly Leading Indicator Pipeline Goals */}
         <div className="mb-6 rounded-2xl border border-blue-100 bg-blue-50/50 p-4">
           <div className="mb-3 flex items-center justify-between">
@@ -644,9 +831,24 @@ export function TransactionsPage() {
                 <tbody className="divide-y divide-gray-100">
                   {filtered.length === 0 ? (
                     <tr>
-                      <td colSpan={6} className="px-6 py-16 text-center text-gray-500">
-                        <TrendingUp className="h-12 w-12 mx-auto mb-3 text-brand-navy opacity-30 animate-pulse" />
-                        <p className="font-semibold text-gray-700">No active deals found</p>
+                      <td colSpan={6} className="px-6 py-16">
+                        {transactions.length === 0 ? (
+                          <EmptyState
+                            icon={Plus}
+                            title="No deals in your pipeline"
+                            description="Create your first deal to get started."
+                            ctaLabel="Create your first deal"
+                            onCTA={() => setIsNewModalOpen(true)}
+                          />
+                        ) : (
+                          <EmptyState
+                            icon={Search}
+                            title="No matching deals found"
+                            description="Try clearing some filters or adjusting your search."
+                            ctaLabel="Clear filters"
+                            onCTA={clearFilters}
+                          />
+                        )}
                       </td>
                     </tr>
                   ) : (
@@ -727,8 +929,31 @@ export function TransactionsPage() {
             </div>
             ) : (
               /* Draggable Kanban View */
-              <div className="p-6 bg-gray-50 flex gap-4 overflow-x-auto min-h-[520px]">
-                {KANBAN_STAGES.map((col) => {
+              filtered.length === 0 ? (
+                <div className="p-6 bg-gray-50 flex gap-4 overflow-x-auto min-h-[520px]">
+                  <div className="flex-1 min-w-[270px] flex items-center justify-center">
+                    {transactions.length === 0 ? (
+                      <EmptyState
+                        icon={Plus}
+                        title="No deals in your pipeline"
+                        description="Create your first deal to get started."
+                        ctaLabel="Create your first deal"
+                        onCTA={() => setIsNewModalOpen(true)}
+                      />
+                    ) : (
+                      <EmptyState
+                        icon={Search}
+                        title="No matching deals found"
+                        description="Try clearing some filters or adjusting your search."
+                        ctaLabel="Clear filters"
+                        onCTA={clearFilters}
+                      />
+                    )}
+                  </div>
+                </div>
+              ) : (
+                <div className="p-6 bg-gray-50 flex gap-4 overflow-x-auto min-h-[520px]">
+                  {KANBAN_STAGES.map((col) => {
                   const colDeals = filtered.filter(t => t.status === col.value)
                   const isColumnTarget = dragOverCol === col.value
 
@@ -857,7 +1082,7 @@ export function TransactionsPage() {
                   )
                 })}
               </div>
-            )}
+            ))}
 
             {view === 'list' && filtered.length > 0 && (
               <Pagination
