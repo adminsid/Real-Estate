@@ -2196,13 +2196,10 @@ async function handleApi(request: Request, env: Env, path: string, url: URL): Pr
       `${env.OPENHOUSE_WORKER_URL}/api/events/list`,
       'https://openhouse.primeamericarealestate.com/api/events/list',
     ]
-    // Forward user's session cookie for upstream authentication
-    const cookieHeader = request.headers.get('Cookie')
+    // Use service-to-service authentication via INTERNAL_API_SECRET
     const fetchHeaders: Record<string, string> = {
       'Accept': 'application/json',
-    }
-    if (cookieHeader) {
-      fetchHeaders['Cookie'] = cookieHeader
+      'Authorization': `Bearer ${env.INTERNAL_API_SECRET}`,
     }
     for (const url of urls) {
       try {
@@ -2339,13 +2336,10 @@ async function handleApi(request: Request, env: Env, path: string, url: URL): Pr
     const proxyUrl = `${env.INVENTORY_WORKER_URL}${targetUrl.pathname}${targetUrl.search}`
 
     try {
-      // Forward user's session cookie for upstream SSO authentication
-      const cookieHeader = request.headers.get('Cookie')
+      // Use service-to-service authentication via INTERNAL_API_SECRET
       const proxyHeaders: Record<string, string> = {
         'Content-Type': request.headers.get('Content-Type') || 'application/json',
-      }
-      if (cookieHeader) {
-        proxyHeaders['Cookie'] = cookieHeader
+        'Authorization': `Bearer ${env.INTERNAL_API_SECRET}`,
       }
 
       const response = await fetch(proxyUrl, {
