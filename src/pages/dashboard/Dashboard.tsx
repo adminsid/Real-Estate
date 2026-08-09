@@ -10,6 +10,7 @@ import { WorkflowHabitEngine } from '@/components/dashboard/WorkflowHabitEngine'
 import { SalespersonDashboard } from '@/components/dashboard/roles/SalespersonDashboard'
 import { BrokerDashboard } from '@/components/dashboard/roles/BrokerDashboard'
 import { AssistantDashboard } from '@/components/dashboard/roles/AssistantDashboard'
+import { AdminDashboard } from '@/components/dashboard/roles/AdminDashboard'
 import type { AppModule, UserRole } from '@/types'
 import * as Icons from 'lucide-react'
 
@@ -578,7 +579,12 @@ export function DashboardPage() {
         )}
       </div>
 
-      {isSalesperson ? (
+      {isAdmin ? (
+        <AdminDashboard
+          can={can}
+          visibleQuickLinks={visibleQuickLinks}
+        />
+      ) : isSalesperson ? (
         <SalespersonDashboard
           user={user}
           stats={stats}
