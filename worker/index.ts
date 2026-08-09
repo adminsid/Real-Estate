@@ -2203,12 +2203,36 @@ async function handleApi(request: Request, env: Env, path: string, url: URL): Pr
     // 4. Fetch Active listings count from Inventory
     if (await can(session.userId, session.role, 'listings', 'read', env.DB)) {
       try {
-        const invUrl = `${env.INVENTORY_WORKER_URL}/api/projects`
-        const invRes = await fetch(invUrl, { headers: { 'Accept': 'application/json' } })
-        if (invRes.ok) {
-          const invData: any = await invRes.json()
-          const listings = invData.listings || invData.projects || invData.entries || []
-          activeListingsCount = listings.filter((l: any) => l.status === 'active' || l.status === 'published').length
+        const invRes = await fetch(`${env.INVENTORY_WORKER_URL}/api/listings`, {
+          headers: {
+            'Accept': 'application/json',
+            'Authorization': `Bearer ${env.INTERNAL_API_SECRET}`,
+          },
+        })
+
+        if (!invRes.ok) {
+          console.error(`Inventory stats: upstream returned ${invRes.status}`)
+        } else {
+          const contentType = invRes.headers.get('content-type') || ''
+          if (!contentType.includes('application/json')) {
+            const text = await invRes.text().catch(() => '')
+            console.error(`Inventory stats: upstream returned non-JSON (${contentType}): ${text.slice(0, 200)}`)
+          } else {
+            const invData: any = await invRes.json().catch(() => null)
+            if (!invData) {
+              console.error('Inventory stats: failed to parse upstream JSON')
+            } else {
+              const listings = invData.listings || invData.data || invData || []
+              // Dashboard "Active Listings" counts only records whose
+              // normalized status is 'active'. The Inventory taxonomy defines
+              // 'active' as the sole publicly visible, marketable state;
+              // 'draft', 'hold', and 'pending' are non-display statuses.
+              activeListingsCount = (Array.isArray(listings) ? listings : [])
+                .map(normalizeInventoryListing)
+                .filter((l: any) => l && l.status === 'active')
+                .length
+            }
+          }
         }
       } catch (e) {
         console.error('Failed to fetch inventory stats:', e)
