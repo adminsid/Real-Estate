@@ -2244,7 +2244,7 @@ async function handleApi(request: Request, env: Env, path: string, url: URL): Pr
       crmContacts: contactsCount,
       transactions: transactionsCount,
       network: networkCount
-    })
+    }, { 'Cache-Control': 'no-store, private, max-age=0' })
   }
 
   // ── Open Houses Proxy — /api/openhouses ──────────────────────────────────

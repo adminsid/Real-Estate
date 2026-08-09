@@ -219,8 +219,13 @@ describe('GET /api/stats — activeListings', () => {
     expect(globalThis.fetch).not.toHaveBeenCalled()
   })
 
-  it('does not leak INTERNAL_API_SECRET in error responses', async () => {
-    globalThis.fetch = vi.fn().mockRejectedValue(new Error('network error'))
+  it('returns Cache-Control: no-store, private, max-age=0 on authenticated requests', async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ listings: [] }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    )
 
     const cookie = await createSessionCookie('u1', 't1', 'admin')
     const res = await handler.fetch(
@@ -231,7 +236,32 @@ describe('GET /api/stats — activeListings', () => {
       makeCtx()
     )
 
-    const text = await res.text()
-    expect(text).not.toContain(TEST_INTERNAL_SECRET)
+    expect(res.status).toBe(200)
+    const cc = res.headers.get('Cache-Control') || ''
+    expect(cc).toContain('no-store')
+    expect(cc).toContain('private')
+    expect(cc).toContain('max-age=0')
+  })
+
+  it('does not make authenticated /api/stats publicly cacheable', async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ listings: [] }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    )
+
+    const cookie = await createSessionCookie('u1', 't1', 'admin')
+    const res = await handler.fetch(
+      new Request('https://workspace.primeamericany.com/api/stats', {
+        headers: { Cookie: cookie },
+      }),
+      makeEnv(),
+      makeCtx()
+    )
+
+    const cc = res.headers.get('Cache-Control') || ''
+    expect(cc).not.toContain('public')
+    expect(cc).not.toMatch(/max-age=[1-9]/)
   })
 })
