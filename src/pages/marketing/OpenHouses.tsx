@@ -118,7 +118,9 @@ export function OpenHousesPage() {
             className="text-sm border border-gray-200 rounded-xl px-4 py-2 bg-white w-56 focus:outline-none focus:ring-1 focus:ring-brand-navy"
           />
           <a
-            href="/apps/openhouse"
+            href="https://openhouse.primeamericarealestate.com"
+            target="_blank"
+            rel="noopener noreferrer"
             className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-pink-600 hover:bg-pink-700 text-white text-xs font-bold shadow-sm transition-colors"
           >
             <ExternalLink className="h-4 w-4" />
@@ -170,11 +172,14 @@ export function OpenHousesPage() {
           <Home className="h-12 w-12 text-gray-300 animate-pulse mb-3" />
           <p className="text-gray-700 font-bold text-base">No open houses found</p>
           <p className="text-xs text-gray-400 mt-1 max-w-sm text-center">No open house events match your filter. Create a new event using the Open House Portal.</p>
-          <a
-            href="/apps/openhouse"
+<a
+            href="https://openhouse.primeamericarealestate.com"
+            target="_blank"
+            rel="noopener noreferrer"
             className="mt-4 inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-pink-600 hover:bg-pink-700 text-white font-bold text-xs shadow-sm transition-colors"
           >
-            <ExternalLink className="h-4 w-4" /> Launch Open House Portal
+            <ExternalLink className="h-4 w-4" />
+            Launch Open House Portal
           </a>
         </div>
       ) : (
