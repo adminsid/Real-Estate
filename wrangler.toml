@@ -22,7 +22,7 @@ PLATFORM_HOSTNAME = "re-workspace.lama-4db.workers.dev"
 FROM_EMAIL  = "noreply@primeamericarealestate.com"
 
 # INVENTORY_WORKER_URL: URL of the listing inventory Worker.
-INVENTORY_WORKER_URL = "https://listing-input.lama-4db.workers.dev"
+INVENTORY_WORKER_URL = "https://inventory.primeamericarealestate.com"
 
 # OPENHOUSE_WORKER_URL: URL of the open house Worker.
 # workspace.primeamericany.com/openhouse was the old URL — this points to the actual Worker.

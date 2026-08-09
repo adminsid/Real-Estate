@@ -415,6 +415,66 @@ async function syncCompanyLicenseDataFromNY(
 }
 
 // ════════════════════════════════════════════════════════════════════════════
+// INVENTORY NORMALIZATION HELPERS
+// ════════════════════════════════════════════════════════════════════════════
+
+function normalizeInventoryListing(project: any): any {
+  if (!project) return null
+  const pdata = project.data || {}
+
+  const streetParts = [pdata.streetNumber, pdata.streetName, pdata.streetSuffix].filter(Boolean)
+  const street = streetParts.join(' ').trim()
+
+  return {
+    id: project.id || '',
+    address: project.name || street || 'Address unavailable',
+    city: pdata.city || project.city || '',
+    state: pdata.stateOrProvince || project.state || '',
+    zip: pdata.postalCode || project.zip || '',
+    price: pdata.listPrice ?? project.price ?? null,
+    status: project.status || pdata.listingStatus || 'active',
+    type: project.propertyType || pdata.propertyType || pdata.propertySubtype || '',
+    propertyType: project.propertyType || pdata.propertyType || pdata.propertySubtype || '',
+    bedrooms: pdata.bedroomsTotal ?? 0,
+    bathrooms: pdata.bathroomsTotalInteger ?? 0,
+    sqft: pdata.livingArea ?? 0,
+    description: pdata.publicRemarks || pdata.marketingHeadline || project.description || '',
+    heroMediaUrl: project.heroMediaUrl || null,
+    media: Array.isArray(project.media) ? project.media : [],
+  }
+}
+
+// ─── Public Listing DTO ───────────────────────────────────────────────────────
+// Allow-listed fields only. Strips raw upstream data and scrubs media metadata.
+
+function toPublicListingDto(normalized: any): any {
+  if (!normalized) return null
+  return {
+    id: normalized.id,
+    address: normalized.address,
+    city: normalized.city,
+    state: normalized.state,
+    zip: normalized.zip || null,
+    price: normalized.price ?? null,
+    status: normalized.status,
+    type: normalized.type,
+    propertyType: normalized.propertyType,
+    bedrooms: normalized.bedrooms ?? 0,
+    bathrooms: normalized.bathrooms ?? 0,
+    sqft: normalized.sqft ?? 0,
+    description: normalized.description || '',
+    heroMediaUrl: normalized.heroMediaUrl || null,
+    media: (normalized.media || []).map((m: any) => ({
+      id: m.id || '',
+      mediaUrl: m.mediaUrl || '',
+      caption: m.caption || '',
+      orderIndex: m.orderIndex ?? 0,
+      type: m.type || 'image',
+    })),
+  }
+}
+
+// ════════════════════════════════════════════════════════════════════════════
 // MAIN FETCH HANDLER
 // ════════════════════════════════════════════════════════════════════════════
 
@@ -429,7 +489,7 @@ export default {
       return new Response(null, { status: 204, headers: corsHeaders(origin) })
     }
 
-    // ── API Routes ───────────────────────────────────────────────────────────
+// ── API Routes ───────────────────────────────────────────────────────────
     if (path.startsWith('/api/')) {
       try {
         return await handleApi(request, env, path, url)
@@ -550,31 +610,18 @@ async function handleApi(request: Request, env: Env, path: string, url: URL): Pr
   // GET /api/public/listings
   if (path === '/api/public/listings' && method === 'GET') {
     try {
-      const response = await fetch(`${env.INVENTORY_WORKER_URL}/api/listings`)
+      const response = await fetch(`${env.INVENTORY_WORKER_URL}/api/listings`, {
+        headers: { Authorization: `Bearer ${env.INTERNAL_API_SECRET}` },
+      })
       if (!response.ok) {
         throw new Error(`Inventory returned status ${response.status}`)
       }
       const data: any = await response.json()
       const listings = data.listings || data.data || data || []
-      const normalized = listings.map((project: any) => {
-        const pdata = project.data || {}
-        return {
-          id: project.id,
-          address: project.address || `${pdata.streetNumber || ''} ${pdata.streetName || ''} ${pdata.streetSuffix || ''}`.trim(),
-          city: project.city || pdata.city || '',
-          state: project.state || pdata.stateOrProvince || '',
-          zip: project.zip || pdata.postalCode || '',
-          price: project.price ?? pdata.listPrice ?? null,
-          propertyType: project.propertyType || pdata.propertyType || '',
-          bedrooms: project.bedrooms ?? pdata.bedroomsTotal ?? 0,
-          bathrooms: project.bathrooms ?? pdata.bathroomsTotalInteger ?? 0,
-          sqft: project.sqft ?? pdata.livingArea ?? 0,
-          description: project.description || pdata.publicRemarks || '',
-          heroMediaUrl: project.heroMediaUrl || null,
-          media: Array.isArray(project.media) ? project.media : [],
-        }
-      })
-      return ok({ success: true, data: normalized })
+      const normalized = Array.isArray(listings)
+        ? listings.map(normalizeInventoryListing).filter(Boolean)
+        : []
+      return ok(normalized.map(toPublicListingDto).filter(Boolean))
     } catch (e: any) {
       console.error('Failed to load public listings:', e)
       return err('Failed to load listings', 500)
@@ -586,44 +633,34 @@ async function handleApi(request: Request, env: Env, path: string, url: URL): Pr
   if (publicListingMatch && method === 'GET') {
     const listingId = publicListingMatch[1]
     try {
+      const proxyHeaders = { Authorization: `Bearer ${env.INTERNAL_API_SECRET}` }
       // Prefer detail endpoint for richer payload including media gallery.
-      const detailResponse = await fetch(`${env.INVENTORY_WORKER_URL}/api/projects/${listingId}`)
+      const detailResponse = await fetch(
+        `${env.INVENTORY_WORKER_URL}/api/projects/${listingId}`,
+        { headers: proxyHeaders }
+      )
       if (detailResponse.ok) {
         const detailData: any = await detailResponse.json()
         const project = detailData.project || detailData
         if (project && project.id) {
-          const pdata = project.data || {}
-          const normalized = {
-            id: project.id,
-            address: project.address || `${pdata.streetNumber || ''} ${pdata.streetName || ''} ${pdata.streetSuffix || ''}`.trim(),
-            city: project.city || pdata.city || '',
-            state: project.state || pdata.stateOrProvince || '',
-            zip: project.zip || pdata.postalCode || '',
-            price: project.price ?? pdata.listPrice ?? null,
-            propertyType: project.propertyType || pdata.propertyType || '',
-            bedrooms: project.bedrooms ?? pdata.bedroomsTotal ?? 0,
-            bathrooms: project.bathrooms ?? pdata.bathroomsTotalInteger ?? 0,
-            sqft: project.sqft ?? pdata.livingArea ?? 0,
-            description: project.description || pdata.publicRemarks || '',
-            heroMediaUrl: project.heroMediaUrl || null,
-            media: Array.isArray(project.media) ? project.media : [],
-            raw: project,
-          }
-          return ok(normalized)
+          return ok(toPublicListingDto(normalizeInventoryListing(project)))
         }
       }
 
       // Fallback to listings collection lookup for compatibility.
-      const response = await fetch(`${env.INVENTORY_WORKER_URL}/api/listings`)
+      const response = await fetch(`${env.INVENTORY_WORKER_URL}/api/listings`, {
+        headers: proxyHeaders,
+      })
       const data: any = await response.json()
       const listings = data.listings || data.data || data || []
       const listing = listings.find((l: any) => l.id === listingId)
       if (listing) {
-        return ok(listing)
+        return ok(toPublicListingDto(normalizeInventoryListing(listing)))
       }
       return err('Listing not found', 404)
     } catch (e: any) {
-      return err(e.message, 500)
+      console.error('Failed to load public listing:', e)
+      return err(e.message || 'Failed to load listing', 500)
     }
   }
 
@@ -2213,7 +2250,7 @@ async function handleApi(request: Request, env: Env, path: string, url: URL): Pr
       }
     }
     // All upstream services unavailable
-    return error('Open House service is temporarily unavailable', 503)
+    return err('Open House service is temporarily unavailable', 503)
   }
 
   // ── Transactions proxy — /api/transactions/* ─────────────────────────────────────────────
@@ -2355,21 +2392,48 @@ async function handleApi(request: Request, env: Env, path: string, url: URL): Pr
         // Upstream returned non-JSON error (e.g., HTML 522 page)
         const text = await response.text().catch(() => '')
         console.error(`Listings proxy: upstream returned ${response.status} (${contentType}): ${text.slice(0, 200)}`)
-        return error('Listing service is temporarily unavailable', 503)
+        return err('Listing service is temporarily unavailable', 503)
       }
 
       const data = await response.json().catch(() => null)
       if (!data) {
-        return error('Listing service returned invalid response', 502)
+        return err('Listing service returned invalid response', 502)
       }
 
+      // Normalize GET responses so the Workspace frontend receives
+      // field names it expects (address, price, status, etc.)
+      if (request.method === 'GET' || request.method === 'HEAD') {
+        if (path === '/api/listings') {
+          const listings = data.listings || data.data || data || []
+          const normalized = Array.isArray(listings)
+            ? listings.map(normalizeInventoryListing).filter(Boolean)
+            : []
+          return new Response(
+            JSON.stringify({ listings: normalized.map(toPublicListingDto).filter(Boolean) }),
+            {
+              status: response.status,
+              headers: { 'Content-Type': 'application/json' },
+            }
+          )
+        }
+        const detailMatch = path.match(/^\/api\/listings\/([^/]+)$/)
+        if (detailMatch) {
+          const normalized = toPublicListingDto(normalizeInventoryListing(data))
+          return new Response(JSON.stringify(normalized), {
+            status: response.status,
+            headers: { 'Content-Type': 'application/json' },
+          })
+        }
+      }
+
+      // Non-GET / unhandled path – pass raw response through
       return new Response(JSON.stringify(data), {
         status: response.status,
-        headers: { 'Content-Type': 'application/json' }
+        headers: { 'Content-Type': 'application/json' },
       })
-    } catch (error) {
-      console.error('Listings proxy error:', error)
-      return error('Failed to connect to listing service', 503)
+    } catch (proxyErr) {
+      console.error('Listings proxy error:', proxyErr)
+      return err('Failed to connect to listing service', 503)
     }
   }
 
