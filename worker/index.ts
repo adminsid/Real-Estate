@@ -482,11 +482,11 @@ async function handleApi(request: Request, env: Env, path: string, url: URL): Pr
     const appId = url.searchParams.get('app') || ''
     const returnTo = url.searchParams.get('return_to') || '/'
 
-    // Map known apps to their target URLs
+    // Map known apps to their target URLs (logical app IDs only)
     const appUrls: Record<string, string> = {
       'prime-america-kb': 'https://primeamerica.theceshop.com/real-estate/',
-      'inventory.primeamericarealestate.com': 'https://inventory.primeamericarealestate.com',
-      'openhouse.primeamericarealestate.com': 'https://openhouse.primeamericarealestate.com',
+      'inventory': 'https://inventory.primeamericarealestate.com',
+      'openhouse': 'https://openhouse.primeamericarealestate.com',
     }
 
     const targetUrl = appUrls[appId]
