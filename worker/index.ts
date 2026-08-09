@@ -2196,9 +2196,17 @@ async function handleApi(request: Request, env: Env, path: string, url: URL): Pr
       `${env.OPENHOUSE_WORKER_URL}/api/events/list`,
       'https://openhouse.primeamericarealestate.com/api/events/list',
     ]
+    // Forward user's session cookie for upstream authentication
+    const cookieHeader = request.headers.get('Cookie')
+    const fetchHeaders: Record<string, string> = {
+      'Accept': 'application/json',
+    }
+    if (cookieHeader) {
+      fetchHeaders['Cookie'] = cookieHeader
+    }
     for (const url of urls) {
       try {
-        const res = await fetch(url, { headers: { 'Accept': 'application/json' } })
+        const res = await fetch(url, { headers: fetchHeaders })
         if (res.ok) {
           const data: any = await res.json()
           return ok(data.events || [])
@@ -2331,11 +2339,18 @@ async function handleApi(request: Request, env: Env, path: string, url: URL): Pr
     const proxyUrl = `${env.INVENTORY_WORKER_URL}${targetUrl.pathname}${targetUrl.search}`
 
     try {
+      // Forward user's session cookie for upstream SSO authentication
+      const cookieHeader = request.headers.get('Cookie')
+      const proxyHeaders: Record<string, string> = {
+        'Content-Type': request.headers.get('Content-Type') || 'application/json',
+      }
+      if (cookieHeader) {
+        proxyHeaders['Cookie'] = cookieHeader
+      }
+
       const response = await fetch(proxyUrl, {
         method: request.method,
-        headers: {
-          'Content-Type': request.headers.get('Content-Type') || 'application/json',
-        },
+        headers: proxyHeaders,
         body: ['GET', 'HEAD'].includes(request.method) ? undefined : request.body,
         cf: { cacheTtl: 0 },
       })
