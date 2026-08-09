@@ -594,9 +594,10 @@ export default {
             SELECT
               COUNT(*) as total,
               SUM(CASE WHEN status = 'lead' THEN 1 ELSE 0 END) as lead,
+              SUM(CASE WHEN status = 'active' THEN 1 ELSE 0 END) as active,
+              SUM(CASE WHEN status = 'offer_received' THEN 1 ELSE 0 END) as offer_received,
               SUM(CASE WHEN status = 'under_contract' THEN 1 ELSE 0 END) as under_contract,
-              SUM(CASE WHEN status = 'closed' THEN 1 ELSE 0 END) as closed,
-              SUM(CASE WHEN status = 'active' THEN 1 ELSE 0 END) as active
+              SUM(CASE WHEN status = 'closed' THEN 1 ELSE 0 END) as closed
             FROM transactions
             WHERE tenant_id = ? AND is_active = 1
           `

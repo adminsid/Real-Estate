@@ -4,6 +4,7 @@ import * as Icons from 'lucide-react'
 import { SkeletonMetricGrid } from '@/components/common/SkeletonLoader'
 import { TodayActions } from '@/components/layout/TodayActions'
 import { useAuth } from '@/context/AuthContext'
+import { OPEN_PIPELINE_STATUSES } from '@/lib/transactionStatus'
 
 interface AssistantDashboardProps {
   can: (module: string, action: string) => boolean
@@ -45,7 +46,7 @@ export function AssistantDashboard({
           let missingMilestones = 0
 
           txs.forEach((t: any) => {
-            if (t.status === 'active' || t.status === 'lead' || t.status === 'offer_received') active++
+            if (OPEN_PIPELINE_STATUSES.includes(t.status)) active++
             if (t.target_close_date) {
               const closeDate = Date.parse(t.target_close_date)
               if (!isNaN(closeDate) && closeDate <= in14Days && closeDate >= Date.now()) closingSoon++

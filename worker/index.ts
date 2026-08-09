@@ -476,6 +476,46 @@ async function handleApi(request: Request, env: Env, path: string, url: URL): Pr
     return ok({ status: 'ok', app: env.APP_NAME, env: env.APP_ENV, ts: Date.now() })
   }
 
+  // ── SSO Redirect — /api/sso/redirect ────────────────────────────────────────
+  if (path === '/api/sso/redirect' && method === 'GET') {
+    const session = await requireAuth(request, env.JWT_SECRET)
+    const appId = url.searchParams.get('app') || ''
+    const returnTo = url.searchParams.get('return_to') || '/'
+
+    // Map known apps to their target URLs
+    const appUrls: Record<string, string> = {
+      'prime-america-kb': 'https://primeamerica.theceshop.com/real-estate/',
+      'inventory.primeamericarealestate.com': 'https://inventory.primeamericarealestate.com',
+      'openhouse.primeamericarealestate.com': 'https://openhouse.primeamericarealestate.com',
+    }
+
+    const targetUrl = appUrls[appId]
+    if (!targetUrl) {
+      return err(`Unknown SSO target app: ${appId}`, 400)
+    }
+
+    // Generate SSO token
+    const token = crypto.randomUUID()
+    const expiresAt = new Date(Date.now() + 5 * 60 * 1000).toISOString() // 5 min expiry
+
+    try {
+      await env.DB.prepare(`
+        INSERT INTO sso_tokens (id, tenant_id, user_id, target_app, return_to, expires_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `).bind(token, session.tenantId, session.userId, appId, returnTo, expiresAt).run()
+
+      // Redirect to target app with SSO token
+      const redirectUrl = `${targetUrl}?sso_token=${encodeURIComponent(token)}`
+      return new Response(null, {
+        status: 302,
+        headers: { 'Location': redirectUrl }
+      })
+    } catch (e) {
+      console.error('SSO redirect error:', e)
+      return err('Failed to create SSO session', 500)
+    }
+  }
+
   // ── Public Lead Submission ────────────────────────────────────────────────
   if (path === '/api/public/lead' && method === 'POST') {
     const body = await request.json<{
@@ -2100,9 +2140,9 @@ async function handleApi(request: Request, env: Env, path: string, url: URL): Pr
         if (txnRes.ok) {
           const txnData: any = await txnRes.json()
           if (txnData.success && txnData.data) {
-            // Count active & under contract deals for the dashboard "Transactions" metric
+            // Count all open pipeline deals for the dashboard "Active Transactions" metric
             const d = txnData.data
-            transactionsCount = (d.active || 0) + (d.under_contract || 0) + (d.lead || 0)
+            transactionsCount = (d.active || 0) + (d.offer_received || 0) + (d.under_contract || 0) + (d.lead || 0)
           }
         }
       } catch (e) {
@@ -2152,32 +2192,23 @@ async function handleApi(request: Request, env: Env, path: string, url: URL): Pr
     if (!(await can(session.userId, session.role, 'marketing', 'read', env.DB))) {
       throw forbiddenError('No access to Open Houses')
     }
-    try {
-      const openHouseUrl = `${env.OPENHOUSE_WORKER_URL}/api/events/list`
-      const res = await fetch(openHouseUrl, { headers: { 'Accept': 'application/json' } })
-      if (!res.ok) {
-        const altUrl = 'https://openhouse.primeamericarealestate.com/api/events/list'
-        const altRes = await fetch(altUrl, { headers: { 'Accept': 'application/json' } })
-        if (altRes.ok) {
-          const data: any = await altRes.json()
-          return ok(data.events || [])
-        }
-        return error('Failed to fetch open houses from worker', 502)
-      }
-      const data: any = await res.json()
-      return ok(data.events || [])
-    } catch (e: any) {
-      console.error(e)
+    const urls = [
+      `${env.OPENHOUSE_WORKER_URL}/api/events/list`,
+      'https://openhouse.primeamericarealestate.com/api/events/list',
+    ]
+    for (const url of urls) {
       try {
-        const altUrl = 'https://openhouse.primeamericarealestate.com/api/events/list'
-        const altRes = await fetch(altUrl, { headers: { 'Accept': 'application/json' } })
-        if (altRes.ok) {
-          const data: any = await altRes.json()
+        const res = await fetch(url, { headers: { 'Accept': 'application/json' } })
+        if (res.ok) {
+          const data: any = await res.json()
           return ok(data.events || [])
         }
-      } catch (e2) {}
-      return error(`Error fetching open houses: ${e.message}`, 500)
+      } catch (e) {
+        continue
+      }
     }
+    // All upstream services unavailable
+    return error('Open House service is temporarily unavailable', 503)
   }
 
   // ── Transactions proxy — /api/transactions/* ─────────────────────────────────────────────
@@ -2235,7 +2266,7 @@ async function handleApi(request: Request, env: Env, path: string, url: URL): Pr
     return env.TRANSACTIONS.fetch(txnRequest)
   }
 
-  // ── Listings proxy — /api/listings/* ─────────────────────────────────────────────
+// ── Listings proxy — /api/listings/* ─────────────────────────────────────────────
   if (path.startsWith('/api/listings')) {
     const session = await requireAuth(request, env.JWT_SECRET)
 
@@ -2283,8 +2314,8 @@ async function handleApi(request: Request, env: Env, path: string, url: URL): Pr
             categories = excluded.categories,
             updated_at = datetime('now')
         `)
-        .bind(listingId, lat, lng, categories)
-        .run()
+          .bind(listingId, lat, lng, categories)
+          .run()
 
         return ok({ success: true })
       }
@@ -2304,19 +2335,32 @@ async function handleApi(request: Request, env: Env, path: string, url: URL): Pr
         method: request.method,
         headers: {
           'Content-Type': request.headers.get('Content-Type') || 'application/json',
-          // Optional: Add shared secret if inventory worker expects it
-          // 'X-Internal-Secret': env.INTERNAL_API_SECRET
         },
         body: ['GET', 'HEAD'].includes(request.method) ? undefined : request.body,
+        cf: { cacheTtl: 0 },
       })
 
-      return new Response(response.body, {
+      // Check if response is JSON before passing through
+      const contentType = response.headers.get('content-type') || ''
+      if (!contentType.includes('application/json')) {
+        // Upstream returned non-JSON error (e.g., HTML 522 page)
+        const text = await response.text().catch(() => '')
+        console.error(`Listings proxy: upstream returned ${response.status} (${contentType}): ${text.slice(0, 200)}`)
+        return error('Listing service is temporarily unavailable', 503)
+      }
+
+      const data = await response.json().catch(() => null)
+      if (!data) {
+        return error('Listing service returned invalid response', 502)
+      }
+
+      return new Response(JSON.stringify(data), {
         status: response.status,
-        headers: response.headers
+        headers: { 'Content-Type': 'application/json' }
       })
     } catch (error) {
       console.error('Listings proxy error:', error)
-      return err('Failed to connect to inventory service', 502)
+      return error('Failed to connect to listing service', 503)
     }
   }
 
@@ -2412,6 +2456,67 @@ async function handleApi(request: Request, env: Env, path: string, url: URL): Pr
     }
 
     return err('Documents endpoint not found', 404)
+  }
+
+  // ── Notifications — /api/notifications ────────────────────────────────────────
+  if (path === '/api/notifications' && method === 'GET') {
+    const session = await requireAuth(request, env.JWT_SECRET)
+    try {
+      const { results } = await env.DB
+        .prepare('SELECT * FROM notifications WHERE tenant_id = ? ORDER BY created_at DESC LIMIT 100')
+        .bind(session.tenantId)
+        .all<{ id: string; message: string; created_at: string }>()
+      return ok(results || [])
+    } catch (e) {
+      console.error('Failed to load notifications', e)
+      return ok([])
+    }
+  }
+
+  // ── Notifications — Mark as read ─────────────────────────────────────────────
+  const notificationReadMatch = path.match(/^\/api\/notifications\/([^/]+)\/read$/)
+  if (notificationReadMatch && method === 'POST') {
+    const session = await requireAuth(request, env.JWT_SECRET)
+    const notificationId = notificationReadMatch[1]
+    try {
+      await env.DB.prepare('UPDATE notifications SET is_read = 1 WHERE id = ? AND tenant_id = ?')
+        .bind(notificationId, session.tenantId)
+        .run()
+      return ok({ success: true })
+    } catch (e) {
+      console.error('Failed to mark notification as read', e)
+      return err('Failed to mark notification as read', 500)
+    }
+  }
+
+  // ── Notifications — Delete ──────────────────────────────────────────────────
+  const notificationDeleteMatch = path.match(/^\/api\/notifications\/([^/]+)$/)
+  if (notificationDeleteMatch && method === 'DELETE') {
+    const session = await requireAuth(request, env.JWT_SECRET)
+    const notificationId = notificationDeleteMatch[1]
+    try {
+      await env.DB.prepare('DELETE FROM notifications WHERE id = ? AND tenant_id = ?')
+        .bind(notificationId, session.tenantId)
+        .run()
+      return ok({ success: true })
+    } catch (e) {
+      console.error('Failed to delete notification', e)
+      return err('Failed to delete notification', 500)
+    }
+  }
+
+  // ── Notifications — Mark all as read ────────────────────────────────────────
+  if (path === '/api/notifications/read-all' && method === 'POST') {
+    const session = await requireAuth(request, env.JWT_SECRET)
+    try {
+      await env.DB.prepare('UPDATE notifications SET is_read = 1 WHERE tenant_id = ? AND is_read = 0')
+        .bind(session.tenantId)
+        .run()
+      return ok({ success: true })
+    } catch (e) {
+      console.error('Failed to mark all notifications as read', e)
+      return err('Failed to mark all notifications as read', 500)
+    }
   }
 
   // ── Notifications (SSE) — /api/notifications/stream ─────────────────────

@@ -10,7 +10,7 @@ export default defineConfig({
   test: {
     environment: 'node',
     globals: true,
-    include: ['worker/lib/__tests__/**/*.test.ts', 'src/**/*.test.ts'],
+    include: ['worker/lib/__tests__/**/*.test.ts', 'src/**/*.test.ts', 'workers/**/__tests__/**/*.test.ts'],
     alias: {
       '@': path.resolve(__dirname, './src'),
     },

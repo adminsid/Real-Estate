@@ -6,16 +6,23 @@ import { SkeletonMetricGrid } from '@/components/common/SkeletonLoader'
 interface AdminDashboardProps {
   can: (module: string, action: string) => boolean
   visibleQuickLinks: any[]
+  stats: {
+    activeListings: number
+    activeTransactions: number
+    crmContacts: number
+    activeUsers: number
+  }
 }
 
 export function AdminDashboard({
   can,
   visibleQuickLinks,
+  stats: passedStats,
 }: AdminDashboardProps) {
   const [stats, setStats] = useState({
     activeUsers: 0,
-    activeTransactions: 0,
-    activeListings: 0,
+    activeTransactions: passedStats?.activeTransactions ?? 0,
+    activeListings: passedStats?.activeListings ?? 0,
     crmContacts: 0,
   })
   const [needsAttention, setNeedsAttention] = useState<{
@@ -57,34 +64,6 @@ export function AdminDashboard({
           setStats(prev => ({ ...prev, activeTransactions }))
         } catch (e) {
           errors.activeTransactions = 'Failed to load'
-        }
-
-        // Listings - get total count from stats endpoint
-        try {
-          const invRes = await fetch('/api/listings/stats', { credentials: 'include' })
-          const invJson = await invRes.json()
-          if (invJson.success && invJson.data) {
-            setStats(prev => ({ ...prev, activeListings: invJson.data.total || 0 }))
-          } else {
-            // Fallback: try listings endpoint with limit=1 to get total
-            const invRes = await fetch('/api/listings?limit=1', { credentials: 'include' })
-            const invJson = await invRes.json()
-            let activeListings = 0
-            if (invJson.success && invJson.data?.total !== undefined) {
-              activeListings = invJson.data.total
-            } else if (invJson.success && Array.isArray(invJson.data?.listings)) {
-              activeListings = invJson.data.listings.length
-            } else if (invJson.success && Array.isArray(invJson.data?.data)) {
-              activeListings = invJson.data.data.length
-            } else if (Array.isArray(invJson.listings)) {
-              activeListings = invJson.listings.length
-            } else if (Array.isArray(invJson.data)) {
-              activeListings = invJson.data.length
-            }
-            setStats(prev => ({ ...prev, activeListings }))
-          }
-        } catch (e) {
-          errors.activeListings = 'Failed to load'
         }
 
         // CRM contacts

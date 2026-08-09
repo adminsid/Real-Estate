@@ -5,6 +5,7 @@ import { SkeletonMetricGrid } from '@/components/common/SkeletonLoader'
 import { NAV_CATEGORIES, isCategoryVisible, isSubitemVisible } from '@/utils/constants'
 import { AppTile } from '@/components/apps/AppTile'
 import type { AppModule } from '@/types'
+import { OPEN_PIPELINE_STATUSES } from '@/lib/transactionStatus'
 
 interface BrokerTx {
   id: string
@@ -126,14 +127,14 @@ export function BrokerDashboard({ can, user, allowedAppModules }: BrokerDashboar
   }, [closingSoon, underContractMissingMilestones, lockedDeals])
 
   // ── Health metrics (max 5) ───────────────────────────────────────────────
-  const activeCount = useMemo(() => txs.filter((t) => t.status === 'active' || t.status === 'lead').length, [txs])
+  const activeCount = useMemo(() => txs.filter((t) => t.status && OPEN_PIPELINE_STATUSES.includes(t.status as any)).length, [txs])
   const underContractCount = useMemo(() => txs.filter((t) => t.status === 'under_contract').length, [txs])
   const closingSoonCount = useMemo(
     () => txs.filter((t) => t.status !== 'closed' && t.status !== 'fallen_through' && within14(t.target_close_date)).length,
     [txs],
   )
   const projectedCommission = useMemo(() => {
-    const relevant = txs.filter((t) => t.status === 'active' || t.status === 'under_contract')
+    const relevant = txs.filter((t) => t.status && OPEN_PIPELINE_STATUSES.includes(t.status as any))
     return Math.round(relevant.reduce((acc: number, t: BrokerTx) => acc + commission(t), 0))
   }, [txs])
   const pausedOrFallen = useMemo(

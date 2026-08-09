@@ -15,6 +15,7 @@ import { ListingDetailDrawer } from '@/components/transactions/ListingDetailDraw
 import { Pagination } from '@/components/common/Pagination'
 import { EmptyState } from '@/components/common/EmptyState'
 import { KANBAN_STAGES, STATUS_FILTER_OPTIONS, STATUS_SELECT_OPTIONS, getStatusBadgeClass, getStatusDotClass } from '@/constants/pipeline'
+import { OPEN_PIPELINE_STATUSES, ACTIVE_PURSUIT_STATUSES, NON_CLOSED_STATUSES } from '@/lib/transactionStatus'
 import clsx from 'clsx'
 import { useAuth } from '@/context/AuthContext'
 
@@ -540,8 +541,8 @@ export function TransactionsPage() {
   }, [sorted, page, pageSize])
 
   const getMetrics = () => {
-    const active = transactions.filter(t => t.status === 'active' || t.status === 'offer_received' || t.status === 'under_contract').length
-    const volume = transactions.filter(t => t.status !== 'closed' && t.status !== 'lead').reduce((sum, t) => sum + (t.price || 0), 0)
+    const active = transactions.filter(t => OPEN_PIPELINE_STATUSES.includes(t.status as any)).length
+    const volume = transactions.filter(t => NON_CLOSED_STATUSES.includes(t.status as any)).reduce((sum, t) => sum + (t.price || 0), 0)
     const closedThisMonth = transactions.filter(t => t.status === 'closed').length
 
     let totalCommission = 0
@@ -588,7 +589,7 @@ export function TransactionsPage() {
   // Leading Indicators Goal metrics
   const goals = [
     { id: 'lead', label: 'Leads Generated', target: goalTargets.lead, current: transactions.filter(t => t.status === 'lead').length },
-    { id: 'active', label: 'Active Pursuits', target: goalTargets.active, current: transactions.filter(t => t.status === 'active').length },
+    { id: 'active', label: 'Active Pursuits', target: goalTargets.active, current: transactions.filter(t => ACTIVE_PURSUIT_STATUSES.includes(t.status as any)).length },
     { id: 'under_contract', label: 'New Contracts Signed', target: goalTargets.under_contract, current: transactions.filter(t => t.status === 'under_contract').length },
     { id: 'closed', label: 'Showings Completed', target: goalTargets.closed, current: transactions.filter(t => t.status === 'closed').length },
   ]

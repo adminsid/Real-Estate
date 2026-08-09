@@ -583,6 +583,12 @@ export function DashboardPage() {
         <AdminDashboard
           can={can}
           visibleQuickLinks={visibleQuickLinks}
+          stats={{
+            activeListings: stats.company?.activeListings ?? 0,
+            activeTransactions: stats.company?.transactions ?? 0,
+            crmContacts: stats.company?.crmContacts ?? 0,
+            activeUsers: 0,
+          }}
         />
       ) : isSalesperson ? (
         <SalespersonDashboard
