@@ -1702,51 +1702,6 @@ async function handleApi(request: Request, env: Env, path: string, url: URL): Pr
       return ok({ success: true, tempPassword })
     }
 
-    // GET /api/search
-    if (path === '/api/search' && method === 'GET') {
-      const session = await getSession(request, env.JWT_SECRET)
-      if (!session) return authError()
-
-      const q = url.searchParams.get('q') || ''
-      if (q.length < 2) {
-        return ok({ contacts: [], transactions: [], listings: [] })
-      }
-
-      const searchQuery = `%${q}%`
-
-      // Search contacts
-      const contacts = await env.DB
-        .prepare('SELECT id, first_name, last_name, email, phone, status FROM contacts WHERE tenant_id = ? AND (first_name LIKE ? OR last_name LIKE ? OR email LIKE ?) LIMIT 5')
-        .bind(session.tenantId, searchQuery, searchQuery, searchQuery)
-        .all()
-
-      // Search transactions
-      const transactions = await env.DB
-        .prepare('SELECT id, name, type, status, price FROM transactions WHERE tenant_id = ? AND name LIKE ? LIMIT 5')
-        .bind(session.tenantId, searchQuery)
-        .all()
-
-      // Search listings
-      let listings: any[] = []
-      try {
-        const res = await fetch(`${env.INVENTORY_WORKER_URL}/api/listings`)
-        const listData: any = await res.json()
-        const allListings = listData.listings || listData.data || listData || []
-        listings = allListings.filter((l: any) =>
-          (l.address || '').toLowerCase().includes(q.toLowerCase()) ||
-          (l.city || '').toLowerCase().includes(q.toLowerCase())
-        ).slice(0, 5)
-      } catch (e) {
-        console.error('Listings search failed', e)
-      }
-
-      return ok({
-        contacts: contacts.results,
-        transactions: transactions.results,
-        listings: listings
-      })
-    }
-
     // GET /api/hr/invitations
     if (path === '/api/hr/invitations' && method === 'GET') {
       const rows = await env.DB
@@ -1988,7 +1943,56 @@ async function handleApi(request: Request, env: Env, path: string, url: URL): Pr
     return err('HR endpoint not found', 404)
   }
 
-  // ── Tenant Branding & Dashboard Settings — /api/tenant/* ─────────────────────────
+    // GET /api/search — Command Palette search for all authenticated users.
+    // This was accidentally nested inside the /api/hr/ block, making it unreachable
+    // because /api/search does not start with /api/hr/. It is a general feature,
+    // not an HR endpoint, and searches only tenant-scoped contacts, transactions,
+    // and listings with standard getSession authentication.
+    if (path === '/api/search' && method === 'GET') {
+      const session = await getSession(request, env.JWT_SECRET)
+      if (!session) return authError()
+
+      const q = url.searchParams.get('q') || ''
+      if (q.length < 2) {
+        return ok({ contacts: [], transactions: [], listings: [] })
+      }
+
+      const searchQuery = `%${q}%`
+
+      // Search contacts
+      const contacts = await env.DB
+        .prepare('SELECT id, first_name, last_name, email, phone, status FROM contacts WHERE tenant_id = ? AND (first_name LIKE ? OR last_name LIKE ? OR email LIKE ?) LIMIT 5')
+        .bind(session.tenantId, searchQuery, searchQuery, searchQuery)
+        .all()
+
+      // Search transactions
+      const transactions = await env.DB
+        .prepare('SELECT id, name, type, status, price FROM transactions WHERE tenant_id = ? AND name LIKE ? LIMIT 5')
+        .bind(session.tenantId, searchQuery)
+        .all()
+
+      // Search listings
+      let listings: any[] = []
+      try {
+        const res = await fetch(`${env.INVENTORY_WORKER_URL}/api/listings`)
+        const listData: any = await res.json()
+        const allListings = listData.listings || listData.data || listData || []
+        listings = allListings.filter((l: any) =>
+          (l.address || '').toLowerCase().includes(q.toLowerCase()) ||
+          (l.city || '').toLowerCase().includes(q.toLowerCase())
+        ).slice(0, 5)
+      } catch (e) {
+        console.error('Listings search failed', e)
+      }
+
+      return ok({
+        contacts: contacts.results,
+        transactions: transactions.results,
+        listings: listings
+      })
+    }
+
+    // ── Tenant Branding & Dashboard Settings — /api/tenant/* ─────────────────────────
   if (path.startsWith('/api/tenant/')) {
     const session = await requireAuth(request, env.JWT_SECRET)
 
