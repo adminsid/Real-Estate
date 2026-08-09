@@ -9,6 +9,7 @@ import { TodayActions } from '@/components/layout/TodayActions'
 import { WorkflowHabitEngine } from '@/components/dashboard/WorkflowHabitEngine'
 import { SalespersonDashboard } from '@/components/dashboard/roles/SalespersonDashboard'
 import { BrokerDashboard } from '@/components/dashboard/roles/BrokerDashboard'
+import { AssistantDashboard } from '@/components/dashboard/roles/AssistantDashboard'
 import type { AppModule, UserRole } from '@/types'
 import * as Icons from 'lucide-react'
 
@@ -372,6 +373,7 @@ export function DashboardPage() {
   const isAdmin = user && user.role === 'admin'
   const isSalesperson = user && user.role === 'salesperson'
   const isBroker = user && user.role === 'broker'
+  const isAssistant = user && user.role === 'assistant'
 
   // Build Analytics stats config
   const analyticsConfig = (isEditing ? editSettings.analytics : dbSettings.analytics) || DEFAULT_DASHBOARD_SETTINGS.analytics
@@ -592,6 +594,11 @@ export function DashboardPage() {
           can={can}
           user={user || undefined}
           allowedAppModules={combinedAppModules.filter(m => isSubitemVisible(m.id, m.category, user, can))}
+        />
+      ) : isAssistant ? (
+        <AssistantDashboard
+          can={can}
+          visibleQuickLinks={visibleQuickLinks}
         />
       ) : (
         <>

@@ -288,17 +288,19 @@ export default {
     // GET /api/contacts/stats
     if (path === '/api/contacts/stats' && method === 'GET') {
       const assignedTo = url.searchParams.get('assigned_to') ?? ''
+      // For assistant, use principalId as the effective user for data ownership
+      const effectiveUserId = ctx.isAssistant ? ctx.principalId! : ctx.userId
       let base = 'FROM contacts WHERE tenant_id = ? AND is_active = 1'
       const params: string[] = [ctx.tenantId]
       if (assignedTo) {
-        if (!['admin', 'broker'].includes(ctx.role) && assignedTo !== ctx.userId) {
+        if (!['admin', 'broker'].includes(ctx.role) && assignedTo !== effectiveUserId) {
           return err('Forbidden assigned_to filter', 403)
         }
         base += ' AND assigned_to = ?'
         params.push(assignedTo)
       } else if (!['admin','broker'].includes(ctx.role)) {
         base += ' AND assigned_to = ?'
-        params.push(ctx.userId)
+        params.push(effectiveUserId)
       }
 
       const [total, active, prospects, closed, overdue, needsFollowUp, qualified, newLeads] = await Promise.all([
