@@ -560,7 +560,7 @@ async function handleApi(request: Request, env: Env, path: string, url: URL): Pr
 
     try {
       await env.DB.prepare(`
-        INSERT INTO sso_tokens (id, tenant_id, user_id, target_app, return_to, expires_at)
+        INSERT INTO sso_tokens (token, tenant_id, user_id, target_app, return_to, expires_at)
         VALUES (?, ?, ?, ?, ?, ?)
       `).bind(token, session.tenantId, session.userId, appId, returnTo, expiresAt).run()
 
