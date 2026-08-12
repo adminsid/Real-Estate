@@ -70,7 +70,7 @@ const DEFAULT_DASHBOARD_SETTINGS: DashboardSettings = {
       name: 'Open House',
       description: 'Manage open houses and visitor registrations',
       icon: 'Home',
-      path: '/marketing/openhouse',
+      path: '/marketing/openhouses',
       externalUrl: '/apps/openhouse',
       status: 'active',
       category: 'marketing',

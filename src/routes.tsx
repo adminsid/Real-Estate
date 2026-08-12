@@ -164,6 +164,7 @@ export function AppRoutes() {
       <Route path="/marketing/crm" element={<ProtectedRoute><CRMPage /></ProtectedRoute>} />
       <Route path="/marketing/crm/lists" element={<ProtectedRoute><CRMMailingListsPage /></ProtectedRoute>} />
       <Route path="/marketing/crm/:id" element={<ProtectedRoute><CRMContactDetailPage /></ProtectedRoute>} />
+      <Route path="/marketing/openhouse" element={<Navigate to="/marketing/openhouses" replace />} />
       <Route path="/marketing/openhouses" element={<ProtectedRoute><OpenHousesPage /></ProtectedRoute>} />
       <Route path="/marketing/brand-marketing-hub" element={<ProtectedRoute><MarketingPage /></ProtectedRoute>} />
 
