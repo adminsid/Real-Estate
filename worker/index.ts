@@ -576,6 +576,47 @@ async function handleApi(request: Request, env: Env, path: string, url: URL): Pr
     }
   }
 
+  // Open House still consumes the one-time token through its server-side GET
+  // callback. Keep this compatibility path scoped to Open House only; it does
+  // not alter Inventory SSO validation behavior.
+  if (path === '/api/sso/validate' && method === 'GET') {
+    const token = url.searchParams.get('token') || ''
+    if (!token) return err('Invalid SSO token', 401)
+
+    const row = await env.DB.prepare(`
+      SELECT s.token, s.tenant_id, s.target_app, s.used_at, s.expires_at,
+             u.id AS user_id, u.email AS user_email, u.name AS user_name, u.role AS user_role
+      FROM sso_tokens s
+      JOIN users u ON u.id = s.user_id
+      WHERE s.token = ?
+    `).bind(token).first<{
+      token: string
+      tenant_id: string
+      target_app: string
+      used_at: string | null
+      expires_at: string
+      user_id: string
+      user_email: string
+      user_name: string
+      user_role: string
+    }>()
+
+    if (!row || row.target_app !== 'openhouse' || row.used_at || new Date(row.expires_at).getTime() <= Date.now()) {
+      return err('Invalid SSO token', 401)
+    }
+
+    const consumed = await env.DB.prepare(
+      'UPDATE sso_tokens SET used_at = ? WHERE token = ? AND used_at IS NULL'
+    ).bind(new Date().toISOString(), token).run()
+    const changes = Number((consumed.meta as { changes?: unknown } | undefined)?.changes ?? 0)
+    if (changes !== 1) return err('Invalid SSO token', 401)
+
+    return ok({
+      user: { id: row.user_id, email: row.user_email, name: row.user_name, role: row.user_role },
+      tenant: { id: row.tenant_id },
+    })
+  }
+
   // ── Public Lead Submission ────────────────────────────────────────────────
   if (path === '/api/public/lead' && method === 'POST') {
     const body = await request.json<{
