@@ -5,15 +5,20 @@ import { SkeletonMetricGrid } from '@/components/common/SkeletonLoader'
 import { TodayActions } from '@/components/layout/TodayActions'
 import { useAuth } from '@/context/AuthContext'
 import { OPEN_PIPELINE_STATUSES } from '@/lib/transactionStatus'
+import type { QuickLink } from '@/types'
 
 interface AssistantDashboardProps {
   can: (module: string, action: string) => boolean
-  visibleQuickLinks: any[]
+  visibleQuickLinks: QuickLink[]
+  onEditQuickLinks?: () => void
+  isPersonalized?: boolean
 }
 
 export function AssistantDashboard({
   can,
-  visibleQuickLinks,
+  visibleQuickLinks = [],
+  onEditQuickLinks,
+  isPersonalized,
 }: AssistantDashboardProps) {
   const { isActingAsAssistant, principal } = useAuth()
   const [txStats, setTxStats] = useState({
@@ -32,7 +37,10 @@ export function AssistantDashboard({
   // Fetch transaction stats for the linked salesperson
   useEffect(() => {
     async function loadTxStats() {
-      if (!principal?.id) return
+      if (!principal?.id) {
+        setIsLoadingStats(false)
+        return
+      }
       try {
         const res = await fetch(`/api/transactions?assigned_to=${principal.id}`, { credentials: 'include' })
         const json = await res.json()
@@ -68,7 +76,10 @@ export function AssistantDashboard({
   // Fetch contact stats for the linked salesperson
   useEffect(() => {
     async function loadContactStats() {
-      if (!principal?.id) return
+      if (!principal?.id) {
+        setIsLoadingStats(false)
+        return
+      }
       try {
         const res = await fetch(`/api/contacts/stats?assigned_to=${principal.id}`, { credentials: 'include' })
         const json = await res.json()
@@ -89,7 +100,7 @@ export function AssistantDashboard({
   }, [principal?.id])
 
   const workloadItems = useMemo(() => [
-    { key: 'activeTransactions', label: 'Active Transactions', value: txStats.active, color: '#3B82F6', href: '/transactions/pipeline', icon: Icons.LayoutDashboard },
+    { key: 'activeTransactions', label: 'Active Deals', value: txStats.active, color: '#3B82F6', href: '/transactions/pipeline', icon: Icons.LayoutDashboard },
     { key: 'delegatedContacts', label: 'Delegated Contacts', value: contactStats.total, color: '#3B82F6', href: '/marketing/crm', icon: Icons.Users },
     { key: 'dueToday', label: 'Due Today', value: contactStats.overdue + contactStats.needsFollowUp, color: '#F59E0B', href: '/marketing/crm?lead_stage=overdue', icon: Icons.Clock },
     { key: 'needsAttention', label: 'Needs Attention', value: txStats.missingMilestones + txStats.closingSoon, color: '#EF4444', href: '/transactions/pipeline', icon: Icons.AlertTriangle },
@@ -239,26 +250,75 @@ export function AssistantDashboard({
       </section>
 
       {/* ── Quick Links (personal) ───────────────────────────────────────────── */}
-      {visibleQuickLinks.length > 0 && (
-        <section className="mb-6">
-          <h3 className="text-sm font-bold text-gray-800 uppercase tracking-wider mb-3">My Quick Links</h3>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            {visibleQuickLinks.map((link: any) => (
-              <Link
-                key={link.id}
-                to={link.url}
-                className="flex items-center gap-3 p-3 rounded-xl border border-gray-100 hover:bg-gray-50 transition-all group"
-              >
-                {(() => {
-                  const Icon = (Icons as any)[link.icon] || Icons.Link
-                  return <Icon className="h-5 w-5 text-brand-navy flex-shrink-0" />
-                })()}
-                <span className="truncate text-sm text-gray-700 group-hover:text-gray-900">{link.label}</span>
-              </Link>
-            ))}
+      <section className="mb-6">
+        <div className="flex items-center justify-between gap-2 mb-3">
+          <div className="flex items-center gap-2">
+            <h3 className="text-sm font-bold text-gray-800 uppercase tracking-wider">My Quick Links</h3>
+            {isPersonalized && (
+              <span className="text-[10px] font-bold bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full border border-blue-100">
+                Personalized
+              </span>
+            )}
           </div>
-        </section>
-      )}
+          {onEditQuickLinks && (
+            <button
+              onClick={onEditQuickLinks}
+              className="inline-flex items-center gap-1.5 text-xs text-brand-navy hover:text-blue-700 bg-brand-navy/5 hover:bg-brand-navy/10 px-2.5 py-1 rounded-lg font-semibold transition-all"
+            >
+              <Icons.Pencil className="h-3 w-3" />
+              Edit My Quick Links
+            </button>
+          )}
+        </div>
+        {visibleQuickLinks.length > 0 ? (
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            {visibleQuickLinks.map((link: QuickLink) => {
+              const isExternal = link.url.startsWith('http://') || link.url.startsWith('https://')
+              const Icon = (Icons as any)[link.icon] || Icons.Link
+              const linkContent = (
+                <>
+                  <Icon className="h-5 w-5 text-brand-navy flex-shrink-0" />
+                  <span className="truncate text-sm text-gray-700 group-hover:text-gray-900 font-medium">{link.label}</span>
+                </>
+              )
+              const linkClass = "flex items-center gap-3 p-3 rounded-xl border border-gray-100 hover:bg-gray-50 transition-all group shadow-sm bg-white"
+
+              return isExternal ? (
+                <a
+                  key={link.id}
+                  href={link.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className={linkClass}
+                >
+                  {linkContent}
+                </a>
+              ) : (
+                <Link
+                  key={link.id}
+                  to={link.url}
+                  className={linkClass}
+                >
+                  {linkContent}
+                </Link>
+              )
+            })}
+          </div>
+        ) : (
+          <div className="py-6 text-center text-xs text-gray-400 border border-dashed rounded-xl flex flex-col items-center justify-center gap-2 bg-white">
+            <p>No quick links configured.</p>
+            {onEditQuickLinks && (
+              <button
+                onClick={onEditQuickLinks}
+                className="inline-flex items-center gap-1 text-xs text-brand-navy font-bold hover:underline"
+              >
+                <Icons.Plus className="h-3.5 w-3.5" />
+                Add Quick Links
+              </button>
+            )}
+          </div>
+        )}
+      </section>
     </div>
   )
 }

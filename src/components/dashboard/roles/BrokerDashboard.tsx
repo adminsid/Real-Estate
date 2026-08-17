@@ -4,7 +4,7 @@ import * as Icons from 'lucide-react'
 import { SkeletonMetricGrid } from '@/components/common/SkeletonLoader'
 import { NAV_CATEGORIES, isCategoryVisible, isSubitemVisible } from '@/utils/constants'
 import { AppTile } from '@/components/apps/AppTile'
-import type { AppModule } from '@/types'
+import type { AppModule, QuickLink } from '@/types'
 import { OPEN_PIPELINE_STATUSES } from '@/lib/transactionStatus'
 
 interface BrokerTx {
@@ -28,33 +28,44 @@ interface BrokerDashboardProps {
   can: (module: string, action: string) => boolean
   user: { id?: string; role: string } | null | undefined
   allowedAppModules: AppModule[]
+  visibleQuickLinks?: QuickLink[]
+  onEditQuickLinks?: () => void
+  isPersonalized?: boolean
 }
 
-export function BrokerDashboard({ can, user, allowedAppModules }: BrokerDashboardProps) {
+export function BrokerDashboard({
+  can,
+  user,
+  allowedAppModules,
+  visibleQuickLinks = [],
+  onEditQuickLinks,
+  isPersonalized,
+}: BrokerDashboardProps) {
   const [txs, setTxs] = useState<BrokerTx[]>([])
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState(false)
 
-  useEffect(() => {
-    let cancelled = false
-    async function load() {
-      try {
-        const res = await fetch('/api/transactions', { credentials: 'include' })
-        if (!res.ok) throw new Error('HTTP error')
-        const json = await res.json()
-        if (!cancelled && json.success && Array.isArray(json.data)) {
-          setTxs(json.data as BrokerTx[])
-        } else {
-          if (!cancelled) setLoadError(true)
-        }
-      } catch {
-        if (!cancelled) setLoadError(true)
-      } finally {
-        if (!cancelled) setLoading(false)
+  const load = async () => {
+    setLoading(true)
+    setLoadError(false)
+    try {
+      const res = await fetch('/api/transactions', { credentials: 'include' })
+      if (!res.ok) throw new Error('HTTP error')
+      const json = await res.json()
+      if (json.success && Array.isArray(json.data)) {
+        setTxs(json.data as BrokerTx[])
+      } else {
+        setLoadError(true)
       }
+    } catch {
+      setLoadError(true)
+    } finally {
+      setLoading(false)
     }
+  }
+
+  useEffect(() => {
     load()
-    return () => { cancelled = true }
   }, [])
 
   // ── Derived collections (single source: txs) ─────────────────────────────
@@ -153,11 +164,22 @@ export function BrokerDashboard({ can, user, allowedAppModules }: BrokerDashboar
   return (
     <div>
       {loadError ? (
-        <div className="py-10 text-center">
-          <p className="text-sm text-gray-600 mb-3">Unable to load broker oversight data.</p>
-          <Link to="/transactions/pipeline" className="text-sm font-medium text-indigo-600 hover:text-indigo-800 underline">
-            View pipeline
-          </Link>
+        <div className="py-10 text-center bg-gray-50 border border-dashed border-gray-200 rounded-2xl p-6">
+          <Icons.Activity className="h-8 w-8 text-gray-400 mx-auto mb-2" />
+          <p className="text-sm font-medium text-gray-700 mb-1">Unable to load broker oversight data.</p>
+          <p className="text-xs text-gray-500 mb-4">Pipeline service might be syncing or temporarily offline.</p>
+          <div className="flex items-center justify-center gap-3">
+            <button
+              onClick={() => load()}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-600 text-white text-xs font-semibold hover:bg-indigo-700 transition-colors"
+            >
+              <Icons.RefreshCw className="h-3 w-3" />
+              Retry Connection
+            </button>
+            <Link to="/transactions/pipeline" className="text-xs font-medium text-gray-600 hover:text-gray-900 underline">
+              View pipeline
+            </Link>
+          </div>
         </div>
       ) : (
         <>
@@ -225,10 +247,84 @@ export function BrokerDashboard({ can, user, allowedAppModules }: BrokerDashboar
             </div>
           </section>
 
-          {/* ── Tools: broker-scoped module shortcuts (secondary) ───────── */}
+          {/* ── Quick Links (personal) ───────────────────────────────────────────── */}
+          <section className="mb-6">
+            <div className="flex items-center justify-between gap-2 mb-3">
+              <div className="flex items-center gap-2">
+                <h3 className="text-sm font-bold text-gray-800 uppercase tracking-wider">My Quick Links</h3>
+                {isPersonalized && (
+                  <span className="text-[10px] font-bold bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full border border-blue-100">
+                    Personalized
+                  </span>
+                )}
+              </div>
+              {onEditQuickLinks && (
+                <button
+                  onClick={onEditQuickLinks}
+                  className="inline-flex items-center gap-1.5 text-xs text-brand-navy hover:text-blue-700 bg-brand-navy/5 hover:bg-brand-navy/10 px-2.5 py-1 rounded-lg font-semibold transition-all"
+                >
+                  <Icons.Pencil className="h-3 w-3" />
+                  Edit My Quick Links
+                </button>
+              )}
+            </div>
+            {visibleQuickLinks.length > 0 ? (
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                {visibleQuickLinks.map((link) => {
+                  const isExternal = link.url.startsWith('http://') || link.url.startsWith('https://')
+                  const Icon = (Icons as any)[link.icon] || Icons.Link
+                  const linkContent = (
+                    <>
+                      <Icon className="h-5 w-5 text-brand-navy flex-shrink-0" />
+                      <span className="truncate text-sm text-gray-700 group-hover:text-gray-900 font-medium">{link.label}</span>
+                    </>
+                  )
+                  const linkClass = "flex items-center gap-3 p-3 rounded-xl border border-gray-100 hover:bg-gray-50 transition-all group shadow-sm bg-white"
+
+                  return isExternal ? (
+                    <a
+                      key={link.id}
+                      href={link.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className={linkClass}
+                    >
+                      {linkContent}
+                    </a>
+                  ) : (
+                    <Link
+                      key={link.id}
+                      to={link.url}
+                      className={linkClass}
+                    >
+                      {linkContent}
+                    </Link>
+                  )
+                })}
+              </div>
+            ) : (
+              <div className="py-6 text-center text-xs text-gray-400 border border-dashed rounded-xl flex flex-col items-center justify-center gap-2 bg-white">
+                <p>No quick links configured.</p>
+                {onEditQuickLinks && (
+                  <button
+                    onClick={onEditQuickLinks}
+                    className="inline-flex items-center gap-1 text-xs text-brand-navy font-bold hover:underline"
+                  >
+                    <Icons.Plus className="h-3.5 w-3.5" />
+                    Add Quick Links
+                  </button>
+                )}
+              </div>
+            )}
+          </section>
+
+          {/* ── Apps: broker-scoped module shortcuts ───────── */}
           {NAV_CATEGORIES.filter((cat) => isCategoryVisible(cat, user, can)).length > 0 && (
             <section className="mb-6">
-              <h3 className="text-sm font-bold text-gray-800 uppercase tracking-wider mb-3">Workspace Modules</h3>
+              <div className="flex items-center gap-2 mb-3">
+                <Icons.LayoutGrid className="h-4 w-4 text-brand-navy" />
+                <h3 className="text-sm font-bold text-gray-800 uppercase tracking-wider">Apps</h3>
+              </div>
               <div className="space-y-6">
                 {NAV_CATEGORIES.filter((cat) => isCategoryVisible(cat, user, can)).map((cat) => {
                   const modules = allowedAppModules.filter((m) => m.category === cat.id && isSubitemVisible(m.id, cat.id, user, can))

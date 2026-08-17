@@ -41,6 +41,15 @@ export interface WorkspaceBranding {
   leadAppDomain?: string
   customWorkspaceDomain?: string
 }
+
+export interface QuickLink {
+  id: string
+  label: string
+  url: string
+  icon: string
+  visibility?: 'all' | UserRole | 'me'
+  ownerUserId?: string
+}
 // ─── App Module ────────────────────────────────────────────────────────────
 export type AppStatus = 'active' | 'under_construction' | 'external' | 'coming_soon'
 
@@ -63,6 +72,7 @@ export type AppCategory =
   | 'learning'
   | 'network'
   | 'tools'
+  | 'hr'
 
 // ─── MLS / Listing ─────────────────────────────────────────────────────────
 export interface MLSListing {
@@ -134,12 +144,14 @@ export interface Transaction {
   updatedAt: string
 }
 
-// Backend status values — must match workers/transactions/index.ts
 export type TransactionStatus =
   | 'lead'
   | 'active'
   | 'offer_received'
+  | 'contract_out'
   | 'under_contract'
+  | 'board_package'
+  | 'closing_prep'
   | 'closed'
   | 'fallen_through'
 
