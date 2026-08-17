@@ -51,9 +51,7 @@ const DEFAULT_DASHBOARD_SETTINGS: DashboardSettings = {
     zeroStatePanel: true,
   },
   quickLinks: [
-    { id: 'mls', label: 'MLS Listings', url: '/apps/inventory', icon: 'Home' },
-    { id: 'prime-america-kb', label: 'Knowledge Base Hub', url: '/apps/prime-america-kb', icon: 'BookOpen' },
-    { id: 'academy', label: 'Academy', url: 'https://primeamerica.theceshop.com/real-estate/', icon: 'BookOpen' },
+    { id: 'primeamericany', label: 'Prime America NY', url: 'https://primeamericany.com', icon: 'Globe' },
   ],
   customModules: [
     {
