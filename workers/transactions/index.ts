@@ -1,10 +1,22 @@
-import { D1Database } from '@cloudflare/workers-types'
+import { financialRoutes, reopenFinancials } from './financials'
+import { outlinePosting } from './outline-posting'
+import { workflowPhases } from '../../src/domain/workflow-template'
+import { transactionResults, resultsCsv } from './results'
+import { isDateOnly } from '../../src/domain/reporting-period'
+import { D1Database, D1PreparedStatement } from '@cloudflare/workers-types'
 import { validateStageTransition } from '../../worker/lib/stageGate'
+import { commissionPosting } from './commission-posting'
+import {
+  canTransitionTransaction,
+  normalizeTransactionStatus,
+  transactionStageIndex,
+} from '../../src/domain/transaction-status'
 
 
 export interface Env {
   DB: D1Database
   INVENTORY_WORKER_URL: string
+  CW_WRITE_PAUSED?: string
   INTERNAL_API_SECRET?: string
   OUTCOMES_ROOM: DurableObjectNamespace
 }
@@ -30,6 +42,24 @@ function ok(data: any) {
   return json({ success: true, data })
 }
 
+function inventoryRequestHeaders(
+  env: Env,
+  context: { userId: string; tenantId: string; role: string },
+): Record<string, string> {
+  return {
+    Accept: 'application/json',
+    ...(env.INTERNAL_API_SECRET && { Authorization: `Bearer ${env.INTERNAL_API_SECRET}` }),
+    'X-User-Id': context.userId,
+    'X-Tenant-Id': context.tenantId,
+    'X-User-Role': context.role,
+  }
+}
+
+function inventoryListingData(listing: any): Record<string, any> {
+  return listing?.data && typeof listing.data === 'object' ? listing.data : {}
+}
+
+
 function newId(): string {
   return crypto.randomUUID()
 }
@@ -49,216 +79,6 @@ async function createNotification(db: D1Database, tenantId: string, message: str
     .prepare('INSERT INTO notifications (id, tenant_id, message) VALUES (?, ?, ?)')
     .bind(id, tenantId, message)
     .run()
-}
-
-function normalizeText(value: unknown): string | null {
-  if (typeof value !== 'string') return null
-  const trimmed = value.trim()
-  return trimmed.length > 0 ? trimmed : null
-}
-
-function splitName(fullName: unknown): { first: string; last: string } | null {
-  const normalized = normalizeText(fullName)
-  if (!normalized) return null
-  const parts = normalized.split(/\s+/)
-  const first = parts.shift() || ''
-  const last = parts.join(' ') || '-'
-  if (!first) return null
-  return { first, last }
-}
-
-async function upsertContactFromOutline(
-  db: D1Database,
-  tenantId: string,
-  userId: string,
-  payload: {
-    name: unknown
-    email?: unknown
-    phone?: unknown
-    address?: unknown
-    type: string
-    note: string
-  }
-): Promise<string | undefined> {
-  const person = splitName(payload.name)
-  if (!person) return undefined
-
-  const email = normalizeText(payload.email)
-  const phone = normalizeText(payload.phone)
-  const address = normalizeText(payload.address)
-
-  let existing: { id: string } | null = null
-  if (email) {
-    existing = await db
-      .prepare('SELECT id FROM contacts WHERE tenant_id = ? AND lower(email) = lower(?) LIMIT 1')
-      .bind(tenantId, email)
-      .first<{ id: string }>()
-  }
-
-  if (!existing) {
-    existing = await db
-      .prepare('SELECT id FROM contacts WHERE tenant_id = ? AND lower(first_name) = lower(?) AND lower(last_name) = lower(?) LIMIT 1')
-      .bind(tenantId, person.first, person.last)
-      .first<{ id: string }>()
-  }
-
-  if (existing?.id) {
-    await db
-      .prepare(`
-        UPDATE contacts
-        SET assigned_to = ?,
-            first_name = ?,
-            last_name = ?,
-            email = COALESCE(?, email),
-            phone = COALESCE(?, phone),
-            address = COALESCE(?, address),
-            type = ?,
-            status = 'active',
-            source = 'deal_outline',
-            notes = ?,
-            updated_at = datetime('now')
-        WHERE id = ? AND tenant_id = ?
-      `)
-      .bind(userId, person.first, person.last, email, phone, address, payload.type, payload.note, existing.id, tenantId)
-      .run()
-    return existing.id
-  }
-
-  const generatedId = newId()
-  await db
-    .prepare(`
-      INSERT INTO contacts (id, tenant_id, assigned_to, first_name, last_name, email, phone, type, status, source, notes, address, tags)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', 'deal_outline', ?, ?, ?)
-    `)
-    .bind(generatedId, tenantId, userId, person.first, person.last, email, phone, payload.type, payload.note, address, JSON.stringify(['deal_outline']))
-    .run()
-  return generatedId
-}
-
-async function upsertNetworkConnectionFromOutline(
-  db: D1Database,
-  tenantId: string,
-  userId: string,
-  payload: {
-    name: unknown
-    title?: unknown
-    company?: unknown
-    email?: unknown
-    phone?: unknown
-    type: string
-    note: string
-  }
-) {
-  const name = normalizeText(payload.name)
-  if (!name) return
-
-  const email = normalizeText(payload.email)
-  const phone = normalizeText(payload.phone)
-  const title = normalizeText(payload.title)
-  const company = normalizeText(payload.company)
-
-  let existing: { id: string } | null = null
-  if (email) {
-    existing = await db
-      .prepare('SELECT id FROM network_connections WHERE tenant_id = ? AND lower(email) = lower(?) LIMIT 1')
-      .bind(tenantId, email)
-      .first<{ id: string }>()
-  }
-
-  if (!existing) {
-    existing = await db
-      .prepare('SELECT id FROM network_connections WHERE tenant_id = ? AND lower(name) = lower(?) LIMIT 1')
-      .bind(tenantId, name)
-      .first<{ id: string }>()
-  }
-
-  if (existing?.id) {
-    await db
-      .prepare(`
-        UPDATE network_connections
-        SET title = COALESCE(?, title),
-            company = COALESCE(?, company),
-            email = COALESCE(?, email),
-            phone = COALESCE(?, phone),
-            type = ?,
-            notes = ?
-        WHERE id = ? AND tenant_id = ?
-      `)
-      .bind(title, company, email, phone, payload.type, payload.note, existing.id, tenantId)
-      .run()
-    return
-  }
-
-  await db
-    .prepare(`
-      INSERT INTO network_connections (id, tenant_id, created_by, name, title, company, email, phone, type, notes)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `)
-    .bind(newId(), tenantId, userId, name, title, company, email, phone, payload.type, payload.note)
-    .run()
-}
-
-async function syncOutlineToCrmAndNetwork(
-  db: D1Database,
-  tenantId: string,
-  userId: string,
-  transactionId: string,
-  transactionName: string,
-  outline: Record<string, unknown>
-) {
-  const note = `Synced from deal outline: ${transactionName}`
-
-  const buyerId = await upsertContactFromOutline(db, tenantId, userId, {
-    name: outline.buyerName,
-    email: outline.buyerEmail,
-    phone: outline.buyerPhone,
-    address: outline.buyerAddress,
-    type: 'buyer',
-    note,
-  })
-
-  const sellerId = await upsertContactFromOutline(db, tenantId, userId, {
-    name: outline.sellerName,
-    email: outline.sellerEmail,
-    phone: outline.sellerPhone,
-    address: outline.sellerAddress,
-    type: 'seller',
-    note,
-  })
-
-  if (buyerId) {
-    await db.prepare('DELETE FROM transaction_parties WHERE transaction_id = ? AND role = ?').bind(transactionId, 'buyer').run()
-    await db.prepare('INSERT INTO transaction_parties (id, transaction_id, tenant_id, contact_id, role, is_primary) VALUES (?, ?, ?, ?, ?, 1)')
-      .bind(crypto.randomUUID(), transactionId, tenantId, buyerId, 'buyer')
-      .run()
-  }
-
-  if (sellerId) {
-    await db.prepare('DELETE FROM transaction_parties WHERE transaction_id = ? AND role = ?').bind(transactionId, 'seller').run()
-    await db.prepare('INSERT INTO transaction_parties (id, transaction_id, tenant_id, contact_id, role, is_primary) VALUES (?, ?, ?, ?, ?, 1)')
-      .bind(crypto.randomUUID(), transactionId, tenantId, sellerId, 'seller')
-      .run()
-  }
-
-  await upsertNetworkConnectionFromOutline(db, tenantId, userId, {
-    name: outline.buyerAttorneyName,
-    title: 'Attorney',
-    company: null,
-    email: outline.buyerAttorneyEmail,
-    phone: outline.buyerAttorneyPhone,
-    type: 'attorney',
-    note,
-  })
-
-  await upsertNetworkConnectionFromOutline(db, tenantId, userId, {
-    name: outline.sellerAttorneyName,
-    title: 'Attorney',
-    company: null,
-    email: outline.sellerAttorneyEmail,
-    phone: outline.sellerAttorneyPhone,
-    type: 'attorney',
-    note,
-  })
 }
 
 // Ensure context headers exist
@@ -303,6 +123,7 @@ export default {
       const url = new URL(request.url)
       const path = url.pathname
       const method = request.method
+      if (env.CW_WRITE_PAUSED === 'true' && !['GET','HEAD'].includes(method)) return err('Transaction updates are briefly paused for maintenance. Your changes have not been saved; retry shortly.',503)
       const { userId, tenantId, role, isAssistant, principalId, assignmentId, canAccessTransactions, canAccessContacts } = getCtx(request)
 
       // Assistant scope checks
@@ -315,18 +136,104 @@ export default {
       // For assistant, use principalId for data ownership; for others, use userId
       const effectiveUserId = isAssistant ? principalId : userId
 
+      const financialResponse = await financialRoutes(request, env.DB, { tenantId, userId, role, effectiveUserId, isAssistant })
+      if (financialResponse) return financialResponse
+
       // Proxy listings from Inventory app
       if (path === '/api/transactions/listings' && method === 'GET') {
         const fetchUrl = new URL(`${env.INVENTORY_WORKER_URL}/api/projects`)
         fetchUrl.search = url.search
-        const res = await fetch(fetchUrl.toString(), {
-          headers: {
-            'Accept': 'application/json',
-            ...(env.INTERNAL_API_SECRET && { 'Authorization': `Bearer ${env.INTERNAL_API_SECRET}` })
-          }
-        })
+      const res = await fetch(fetchUrl.toString(), {
+        headers: inventoryRequestHeaders(env, { userId, tenantId, role }),
+      })
         const data = await res.json()
         return ok(data)
+      }
+
+      // Explicit Inventory -> Transactions import. This is intentionally a
+      // command endpoint so refreshing a transactions dashboard never writes.
+      if (path === '/api/transactions/sync-listings' && method === 'POST') {
+        const ownerId = effectiveUserId
+        const fetchUrl = new URL(`${env.INVENTORY_WORKER_URL}/api/projects`)
+        const res = await fetch(fetchUrl.toString(), {
+          headers: inventoryRequestHeaders(env, { userId, tenantId, role }),
+        })
+        if (!res.ok) return err(`Inventory sync failed with status ${res.status}`, 502)
+
+        const eventsResponse = await fetch(`${env.INVENTORY_WORKER_URL}/api/business-events`, {
+          headers: inventoryRequestHeaders(env, { userId, tenantId, role }), signal: AbortSignal.timeout(10000),
+        })
+        if (!eventsResponse.ok) return err('Inventory business-event evidence unavailable', 502)
+        const eventBody: any = await eventsResponse.json()
+        const events: any[] = Array.isArray(eventBody.events) ? eventBody.events : []
+        const eligibleEvents = new Map(events.filter(event => event.tenant_id === tenantId
+          && ['agreement_executed', 'offer_accepted'].includes(event.event_type)
+          && event.id && event.evidence_document_id && event.source_version && event.occurred_at)
+          .map(event => [event.listing_id, event]))
+        const data: any = await res.json()
+        const listings = data.listings || data.projects || data.entries || []
+        const eligibleListings = Array.isArray(listings)
+          ? listings.filter((listing: any) => {
+              const listingData = inventoryListingData(listing)
+              return listing?.id && eligibleEvents.get(listing.id)?.source_version === listing.updatedAt && (listing.createdBy === ownerId || listingData.listAgentUserId === ownerId)
+            })
+          : []
+
+        const existingListings = await env.DB
+          .prepare('SELECT inventory_listing_id FROM transactions WHERE tenant_id = ? AND inventory_listing_id IS NOT NULL')
+          .bind(tenantId)
+          .all()
+        const existingIds = new Set(existingListings.results.map((row: any) => row.inventory_listing_id))
+        const newListings = eligibleListings.filter((listing: any) => !existingIds.has(listing.id))
+
+        const stmt = env.DB.prepare(`
+          INSERT INTO transactions (
+            id, tenant_id, assigned_to, inventory_listing_id, name, type, status, price,
+            commission_amount, target_close_date, inventory_source, inventory_source_version,
+            inventory_snapshot_synced_at, inventory_snapshot_json, source_event_id
+          )
+          SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+          WHERE NOT EXISTS (
+            SELECT 1 FROM transactions
+            WHERE tenant_id = ? AND inventory_listing_id = ?
+          )
+        `)
+
+        let imported = 0
+        for (let index = 0; index < newListings.length; index += 50) {
+          const batch = newListings.slice(index, index + 50).map((listing: any) => {
+            const listingData = inventoryListingData(listing)
+            const propertyType = String(listingData.propertyType ?? listing.propertyType ?? '').toLowerCase()
+            const price = listingData.listPrice ?? listing.price ?? null
+            const snapshot = {
+              listingId: listing.id,
+              propertyId: listing.propertyId ?? null,
+              name: listing.name || 'Untitled Listing',
+              propertyType: listingData.propertyType ?? listing.propertyType ?? null,
+              listingStatus: listing.listingStatus ?? listing.status ?? null,
+              price,
+            }
+            return stmt.bind(
+              newId(), tenantId, ownerId, listing.id,
+              listing.name || 'Untitled Listing',
+              propertyType.includes('lease') ? 'lease' : 'sale',
+              'lead',
+              price, null, null,
+              'listing-input', listing.updatedAt ?? null, new Date().toISOString(), JSON.stringify(snapshot), eligibleEvents.get(listing.id).id,
+              tenantId, listing.id,
+            )
+          })
+          if (batch.length > 0) {
+            const results = await env.DB.batch(batch)
+            imported += results.reduce((sum, result) => sum + (result.meta.changes || 0), 0)
+          }
+        }
+
+        return ok({
+          imported,
+          eligible: eligibleListings.length,
+          skippedExisting: eligibleListings.length - newListings.length,
+        })
       }
 
       // Journey templates CRUD
@@ -382,79 +289,39 @@ export default {
       }
 
       // List transactions
-      if (path === '/api/transactions' && method === 'GET') {
+      if ((path === '/api/transactions' || path === '/api/transactions/results') && method === 'GET') {
         const assignedToFilter = url.searchParams.get('assigned_to') || ''
         const listingIdFilter = url.searchParams.get('inventory_listing_id') || ''
-        const user = await env.DB
-          .prepare('SELECT email FROM users WHERE id = ?')
-          .bind(userId)
-          .first<{ email: string }>()
-        const userEmail = user?.email?.toLowerCase() || ''
-
         const agentListingIds = new Set<string>()
 
-        // Auto-sync listings from inventory
+        // Read Inventory ownership only for result visibility; never mutate on GET.
         try {
           const fetchUrl = new URL(`${env.INVENTORY_WORKER_URL}/api/projects`)
-          const res = await fetch(fetchUrl.toString(), {
-            headers: {
-              'Accept': 'application/json',
-              ...(env.INTERNAL_API_SECRET && { 'Authorization': `Bearer ${env.INTERNAL_API_SECRET}` })
-            }
-          })
+        const res = await fetch(fetchUrl.toString(), {
+          headers: inventoryRequestHeaders(env, { userId, tenantId, role }), signal: AbortSignal.timeout(10000),
+        })
+          if (!res.ok) throw new Error('Inventory ownership unavailable')
           if (res.ok) {
             const data: any = await res.json()
             const listings = data.listings || data.projects || data.entries || []
 
             // Build the set of listings where current user is listing or co-listing agent
             listings.forEach((l: any) => {
-              const listEmail = (l.listAgentEmail || '').toLowerCase()
-              const coListEmail = (l.coListAgentEmail || '').toLowerCase()
-              if (userEmail && (listEmail === userEmail || coListEmail === userEmail)) {
+              const listingData = inventoryListingData(l)
+              if (l.createdBy === effectiveUserId || listingData.listAgentUserId === effectiveUserId) {
                 if (l.id) agentListingIds.add(l.id)
               }
             })
 
-            if (listings.length > 0) {
-              const existingListings = await env.DB.prepare('SELECT inventory_listing_id FROM transactions WHERE tenant_id = ? AND is_active = 1 AND inventory_listing_id IS NOT NULL').bind(tenantId).all()
-              const existingIds = new Set(existingListings.results.map((r: any) => r.inventory_listing_id))
-
-              // Only auto-sync new listings that belong to this agent
-              const newTransactions = listings.filter((l: any) => l.id && agentListingIds.has(l.id) && !existingIds.has(l.id))
-              if (newTransactions.length > 0) {
-                const stmt = env.DB.prepare(`
-                  INSERT INTO transactions (id, tenant_id, assigned_to, inventory_listing_id, name, type, status, price, commission_amount, target_close_date)
-                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                `)
-
-                // Batch insert in chunks of 50 to avoid D1 limits
-                for (let i = 0; i < newTransactions.length; i += 50) {
-                  const chunk = newTransactions.slice(i, i + 50)
-                  const batch = chunk.map((l: any) => {
-                    let dealStatus = 'active'
-                    if (l.status === 'draft') dealStatus = 'lead'
-                    if (l.status === 'pending' || l.status === 'under_contract') dealStatus = 'under_contract'
-                    if (l.status === 'closed' || l.status === 'sold') dealStatus = 'closed'
-
-                    return stmt.bind(
-                      newId(), tenantId, userId, l.id,
-                      l.name || 'Untitled Listing',
-                      l.propertyType?.toLowerCase().includes('lease') ? 'lease' : 'sale',
-                      dealStatus,
-                      l.price || null, null, null
-                    )
-                  })
-                  await env.DB.batch(batch)
-                }
-              }
-            }
           }
         } catch (e) {
-          console.error('Auto-sync failed', e)
+          console.error('Inventory ownership lookup failed', e)
+          if (!['admin','broker'].includes(role)) return err('Inventory ownership is unavailable; results cannot be completed. Retry when the source recovers.',503)
         }
 
         let query = `
             SELECT t.*,
+              (SELECT calculation_json FROM deal_financial_versions f WHERE f.tenant_id=t.tenant_id AND f.transaction_id=t.id AND f.version=t.financials_version) AS financial_calculation_json,
               (SELECT COUNT(*) FROM transaction_parties tp WHERE tp.transaction_id = t.id) as party_count
             FROM transactions t
             WHERE t.tenant_id = ? AND t.is_active = 1
@@ -495,6 +362,29 @@ export default {
           return false
         })
 
+        for (const t of filteredResults) {
+          const row = t as Record<string, any>
+          if (row.financial_calculation_json) {
+            const c = JSON.parse(row.financial_calculation_json)
+            row.my_compensation = c.agents?.find((a: { agentId: string }) => a.agentId === userId)?.agentCents ?? null
+            if (row.my_compensation !== null) row.my_compensation /= 100
+            if (['admin','broker'].includes(role)) {
+              row.agent_compensation = c.agents?.every((a: { agentCents: number | null }) => a.agentCents !== null) ? c.agents.reduce((sum: number, a: { agentCents: number }) => sum + a.agentCents, 0) / 100 : null
+              row.company_retention = c.companyCents === null ? null : c.companyCents / 100
+            }
+          }
+          delete row.financial_calculation_json
+        }
+
+        if (path === '/api/transactions/results') {
+          try {
+            const report = transactionResults(filteredResults as any[], url.searchParams)
+            if (url.searchParams.get('format') === 'csv') return new Response(resultsCsv(report), {
+              headers: { 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': 'attachment; filename="closed-results.csv"', 'Cache-Control': 'no-store' },
+            })
+            return ok(report)
+          } catch { return err('Invalid reporting period', 400) }
+        }
         return ok(filteredResults)
       }
 
@@ -518,7 +408,7 @@ export default {
             t.inventory_listing_id || null,
             t.name || 'Imported Deal',
             t.type || 'sale',
-            t.status || 'lead',
+            normalizeTransactionStatus(t.status || 'lead') || 'lead',
             t.price ? parseFloat(t.price) : null,
             t.commission_amount ? parseFloat(t.commission_amount) : null,
             t.target_close_date || null
@@ -541,18 +431,30 @@ export default {
       // Create transaction
       if (path === '/api/transactions' && method === 'POST') {
         const body: any = await request.json()
+        const initialStatus = normalizeTransactionStatus(body.status || 'lead')
+        if (!initialStatus) return err('Unknown transaction status.', 400)
         const id = newId()
         const createdByAssistant = isAssistant ? 1 : 0
         await env.DB
           .prepare(`
-            INSERT INTO transactions (id, tenant_id, assigned_to, inventory_listing_id, name, type, status, price, commission_amount, target_close_date, created_by_assistant, assistant_assignment_id)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO transactions (
+              id, tenant_id, assigned_to, inventory_listing_id, name, type, status,
+              price, commission_amount, commission_rate, target_close_date,
+              commission_split_buyer_percent, commission_split_co_broker_percent, commission_split_referral_percent,
+              listed_date, expire_date, offer_date, offer_accepted_date, pending_date,
+              home_inspection_date, possession_date, escrow_date, inspection_deadline, appraisal_date, closing_date,
+              created_by_assistant, assistant_assignment_id
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           `)
           .bind(
-            id, tenantId, effectiveUserId, body.inventory_listing_id || null,
-            body.name, body.type || 'sale', body.status || 'lead',
-            body.price || null, body.commission_amount || null, body.target_close_date || null,
-            createdByAssistant, isAssistant ? assignmentId : null
+            id, tenantId, effectiveUserId || userId, body.inventory_listing_id || null,
+            body.name || 'Untitled Deal', body.type || 'sale', initialStatus,
+            body.price || null, body.commission_amount || null, body.commission_rate || null, body.target_close_date || null,
+            body.commission_split_buyer_percent || null, body.commission_split_co_broker_percent || null, body.commission_split_referral_percent || null,
+            body.listed_date || null, body.expire_date || null, body.offer_date || null, body.offer_accepted_date || null, body.pending_date || null,
+            body.home_inspection_date || null, body.possession_date || null, body.escrow_date || null, body.inspection_deadline || null, body.appraisal_date || null, body.closing_date || null,
+            createdByAssistant, isAssistant ? (assignmentId || null) : null
           )
           .run()
 
@@ -563,7 +465,7 @@ export default {
             VALUES (?, ?, ?, ?, ?, ?)
           `)
           const batch = body.parties.map((p: any) =>
-            stmt.bind(newId(), id, tenantId, p.contact_id, p.role, p.is_primary ? 1 : 0)
+            stmt.bind(newId(), id, tenantId, p.contact_id || p.contactId || null, p.role || 'other', p.is_primary ? 1 : 0)
           )
           await env.DB.batch(batch)
         }
@@ -626,6 +528,77 @@ export default {
         return ok(stats || { total: 0, lead: 0, under_contract: 0, closed: 0, active: 0 })
       }
 
+      // ── Party Attachment: POST /api/transactions/:id/parties ─────────────────
+      const txPartiesMatch = path.match(/^\/api\/transactions\/([^/]+)\/parties$/)
+      if (txPartiesMatch && method === 'POST') {
+        const txId = txPartiesMatch[1]
+        const body: any = await request.json()
+        const { contact_id, role, is_primary } = body
+
+        if (!contact_id || !role) return err('contact_id and role are required', 400)
+
+        const validRoles = ['buyer', 'seller', 'tenant', 'landlord', 'co_buyer', 'co_seller', 'attorney', 'other']
+        if (!validRoles.includes(role)) return err(`Invalid role. Must be one of: ${validRoles.join(', ')}`, 400)
+
+        // Check the transaction exists and belongs to this tenant
+        const tx = await env.DB
+          .prepare('SELECT id, assigned_to FROM transactions WHERE id = ? AND tenant_id = ? AND is_active = 1')
+          .bind(txId, tenantId)
+          .first<any>()
+        if (!tx) return err('Transaction not found', 404)
+
+        // Permission: admin/broker/deal owner or team member may add parties
+        if (!['admin', 'broker'].includes(role) && tx.assigned_to !== userId) {
+          const isTeamMember = await env.DB
+            .prepare('SELECT 1 FROM transaction_team WHERE transaction_id = ? AND user_id = ?')
+            .bind(txId, userId)
+            .first()
+          if (!isTeamMember) return err('Forbidden', 403)
+        }
+
+        // Remove existing party for this contact+transaction if they are already linked (idempotent)
+        await env.DB
+          .prepare('DELETE FROM transaction_parties WHERE transaction_id = ? AND contact_id = ? AND tenant_id = ?')
+          .bind(txId, contact_id, tenantId)
+          .run()
+
+        const partyId = newId()
+        await env.DB
+          .prepare('INSERT INTO transaction_parties (id, transaction_id, tenant_id, contact_id, role, is_primary) VALUES (?, ?, ?, ?, ?, ?)')
+          .bind(partyId, txId, tenantId, contact_id, role, is_primary ? 1 : 0)
+          .run()
+
+        // Update contact lifecycle stage to active_client + mark as represented
+        await env.DB
+          .prepare(`UPDATE contacts SET lifecycle_stage = 'active_client', status = 'active', representation_status = 'represented_by_us', updated_at = datetime('now') WHERE id = ? AND tenant_id = ?`)
+          .bind(contact_id, tenantId)
+          .run()
+
+        return ok({ success: true, id: partyId, message: 'Contact linked to deal successfully' })
+      }
+
+      // ── Party Unlink: DELETE /api/transactions/:id/parties/:partyId ──────────
+      const txPartyDeleteMatch = path.match(/^\/api\/transactions\/([^/]+)\/parties\/([^/]+)$/)
+      if (txPartyDeleteMatch && method === 'DELETE') {
+        const txId = txPartyDeleteMatch[1]
+        const partyId = txPartyDeleteMatch[2]
+
+        // Check the transaction exists
+        const tx = await env.DB
+          .prepare('SELECT id, assigned_to FROM transactions WHERE id = ? AND tenant_id = ? AND is_active = 1')
+          .bind(txId, tenantId)
+          .first<any>()
+        if (!tx) return err('Transaction not found', 404)
+
+        const result = await env.DB
+          .prepare('DELETE FROM transaction_parties WHERE id = ? AND transaction_id = ? AND tenant_id = ?')
+          .bind(partyId, txId, tenantId)
+          .run()
+
+        if ((result as any).changes === 0) return err('Party not found', 404)
+        return ok({ success: true, message: 'Contact unlinked from deal' })
+      }
+
       // Get transaction details (with parties, tasks, and external listing info)
       const txMatch = path.match(/^\/api\/transactions\/([^/]+)$/)
       if (txMatch && method === 'GET') {
@@ -665,12 +638,9 @@ export default {
         let listing = null
         if (tx.inventory_listing_id) {
           try {
-            const res = await fetch(`${env.INVENTORY_WORKER_URL}/api/projects/${tx.inventory_listing_id}`, {
-              headers: {
-                'Accept': 'application/json',
-                ...(env.INTERNAL_API_SECRET && { 'Authorization': `Bearer ${env.INTERNAL_API_SECRET}` })
-              }
-            })
+        const res = await fetch(`${env.INVENTORY_WORKER_URL}/api/projects/${tx.inventory_listing_id}`, {
+          headers: inventoryRequestHeaders(env, { userId, tenantId, role }),
+        })
             if (res.ok) {
               const listingData: any = await res.json()
               listing = listingData.project || listingData
@@ -768,7 +738,7 @@ export default {
     <div class="card-title">Property & Transaction Overview</div>
     <div class="grid-3">
       <div class="field"><div class="label">Property Name / Address</div><div class="value">${fmt(tx.name)}</div></div>
-      <div class="field"><div class="label">Target Price</div><div class="value">${fmtPrice(tx.price)}</div></div>
+      <div class="field"><div class="label">${tx.financial_price_label || "Target"} Price</div><div class="value">${fmtPrice(tx.price)}</div></div>
       <div class="field"><div class="label">Commission Amount / Rate</div><div class="value">${tx.commission_amount ? fmtPrice(tx.commission_amount) : tx.commission_rate ? `${tx.commission_rate}%` : '—'}</div></div>
     </div>
     <div class="grid-3">
@@ -808,7 +778,7 @@ export default {
     <div class="card">
       <div class="card-title">Financials & Loan</div>
       <div class="grid-2">
-        <div class="field"><div class="label">Selling Price</div><div class="value">${fmtPrice(outline.sellingPrice || tx.price)}</div></div>
+        <div class="field"><div class="label">Selling Price</div><div class="value">${fmtPrice(tx.financials_version ? tx.price : outline.sellingPrice || tx.price)}</div></div>
         <div class="field"><div class="label">Contract Deposit</div><div class="value">${fmtPrice(outline.depositAmount)}</div></div>
         <div class="field"><div class="label">Mortgage Amount</div><div class="value">${fmtPrice(outline.mortgageAmount)}</div></div>
         <div class="field"><div class="label">Cash at Closing</div><div class="value">${fmtPrice(outline.cashAtClosing)}</div></div>
@@ -905,7 +875,7 @@ export default {
           taskId,
           txId,
           tenantId,
-          body.title,
+          body.title || 'Untitled Task',
           body.description || null,
           body.due_date || null,
           txId,
@@ -1042,14 +1012,35 @@ export default {
           .first<any>()
         if (!existing) return err('Not found', 404)
 
+        if (existing.financials_version > 0) {
+          for (const field of ['price', 'commission_amount', 'commission_rate', 'commission_split_buyer_percent', 'commission_split_co_broker_percent', 'commission_split_referral_percent']) {
+            if (body[field] !== undefined && body[field] !== existing[field]) return err('Edit prices and compensation in Financials.', 409)
+          }
+          if (existing.financials_state === 'approved' && ((body.status !== undefined && body.status !== existing.status) || (body.actual_close_date !== undefined && body.actual_close_date !== existing.actual_close_date))) return err('Save a financial revision for review before changing an approved closing.', 409)
+        }
+        const writes: D1PreparedStatement[] = []
+        if (body.expected_revision !== undefined && body.expected_revision !== existing.revision) return err('Transaction changed; reload before saving', 409)
         if (existing.is_locked === 1 && role !== 'admin' && role !== 'broker') {
           return err('This transaction is locked by an administrator and cannot be modified.', 403)
         }
 
         const nextName = body.name ?? existing.name
         const nextType = body.type ?? existing.type
-        const nextStatus = body.status ?? existing.status
-        const nextPrice = body.price !== undefined ? body.price : existing.price
+        const nextStatus = body.status !== undefined
+          ? normalizeTransactionStatus(body.status)
+          : normalizeTransactionStatus(existing.status)
+        if (!nextStatus) return err('Unknown transaction status.', 400)
+        if (!workflowPhases(existing.workflow_key).includes(nextStatus)) return err('Stage is not part of this deal workflow', 400)
+        let nextPrice = body.price !== undefined ? body.price : existing.price
+        if (existing.financials_version > 0 && nextStatus !== existing.status) {
+          const saved = await env.DB.prepare('SELECT data_json FROM deal_financial_versions WHERE tenant_id=? AND transaction_id=? AND version=?').bind(tenantId,txId,existing.financials_version).first<{ data_json: string }>()
+          if (saved) {
+            const f = JSON.parse(saved.data_json)
+            const key = nextStatus === 'closed' ? 'sold' : ['under_contract','board_package','closing_prep'].includes(nextStatus) ? 'contract' : 'listing'
+            nextPrice = f.prices[key] === null ? null : f.prices[key] / 100
+            writes.push(env.DB.prepare('UPDATE transactions SET financial_price_label=? WHERE id=? AND tenant_id=?').bind(key === 'listing' ? 'Asking' : key === 'contract' ? 'Contract' : 'Sold',txId,tenantId))
+          }
+        }
         const nextCommissionAmount = body.commission_amount !== undefined ? body.commission_amount : existing.commission_amount
         const nextCommissionRate = body.commission_rate !== undefined ? body.commission_rate : existing.commission_rate
         const nextTargetCloseDate = body.target_close_date !== undefined ? body.target_close_date : existing.target_close_date
@@ -1060,12 +1051,14 @@ export default {
         const nextListedDate = body.listed_date !== undefined ? body.listed_date : existing.listed_date
         const nextExpireDate = body.expire_date !== undefined ? body.expire_date : existing.expire_date
         const nextOfferDate = body.offer_date !== undefined ? body.offer_date : existing.offer_date
+        const nextOfferAcceptedDate = body.offer_accepted_date !== undefined ? body.offer_accepted_date : existing.offer_accepted_date
         const nextPendingDate = body.pending_date !== undefined ? body.pending_date : existing.pending_date
         const nextHomeInspectionDate = body.home_inspection_date !== undefined ? body.home_inspection_date : existing.home_inspection_date
         const nextPossessionDate = body.possession_date !== undefined ? body.possession_date : existing.possession_date
         const nextEscrowDate = body.escrow_date !== undefined ? body.escrow_date : existing.escrow_date
         const nextInspectionDeadline = body.inspection_deadline !== undefined ? body.inspection_deadline : existing.inspection_deadline
         const nextAppraisalDate = body.appraisal_date !== undefined ? body.appraisal_date : existing.appraisal_date
+        const nextClosingDate = body.closing_date !== undefined ? body.closing_date : existing.closing_date
 
         // Overhauled business logic fields
         const nextEarnestMoneyAmount = body.earnest_money_amount !== undefined ? body.earnest_money_amount : existing.earnest_money_amount
@@ -1084,27 +1077,31 @@ export default {
         const nextPostOccupancyEscrowHeld = body.post_occupancy_escrow_held !== undefined ? body.post_occupancy_escrow_held : existing.post_occupancy_escrow_held
 
         let nextActualCloseDate = body.actual_close_date !== undefined ? body.actual_close_date : existing.actual_close_date
-        if (nextStatus === 'closed' && !nextActualCloseDate) {
-          nextActualCloseDate = new Date().toISOString().split('T')[0]
-        } else if (nextStatus !== 'closed') {
+        if (nextStatus === 'closed' && !isDateOnly(nextActualCloseDate)) {
+          // Auto-default to today's date if not specified
+          nextActualCloseDate = new Date().toISOString().slice(0, 10)
+        }
+        if (nextStatus !== 'closed') {
           nextActualCloseDate = null
         }
 
         // Reopen guard & stage regression checker
         if (body.status !== undefined && body.status !== existing.status) {
-          const STAGE_ORDER = ['lead', 'active', 'offer_received', 'under_contract', 'closed']
-          const existingIndex = STAGE_ORDER.indexOf(existing.status)
-          const nextIndex = STAGE_ORDER.indexOf(nextStatus)
+          if (!canTransitionTransaction(existing.status, nextStatus, role)) {
+            return err(`The transaction cannot move from ${existing.status} to ${nextStatus}.`, 400)
+          }
+          const existingIndex = transactionStageIndex(existing.status)
+          const nextIndex = transactionStageIndex(nextStatus)
           if (nextIndex < existingIndex) {
-            // Stage regression occurs
-            if (existing.status === 'closed' && role !== 'admin' && role !== 'broker') {
-              return err('Stage-Gate Compliance: Closed transactions can only be reopened by a broker or administrator.', 403)
+            // Stage regression or reopening occurs
+            if (existing.status === 'closed' && role !== 'admin' && role !== 'broker' && existing.assigned_to !== effectiveUserId) {
+              return err('Stage-Gate Compliance: Closed transactions can only be reopened by the deal owner, a broker, or administrator.', 403)
             }
             // Log audit log event into transaction_outcomes
             const u = await env.DB.prepare('SELECT name FROM users WHERE id = ?').bind(userId).first<any>()
             const userName = u?.name || 'Authorized User'
             const outcomeId = crypto.randomUUID()
-            await env.DB.prepare(`
+            writes.push(env.DB.prepare(`
             INSERT INTO transaction_outcomes (id, transaction_id, tenant_id, user_id, message, is_broker_advice, acted_as_assistant_for, assistant_assignment_id, created_at)
             VALUES (?, ?, ?, ?, ?, 1, ?, ?, datetime("now"))
           `).bind(
@@ -1112,14 +1109,16 @@ export default {
             txId,
             tenantId,
             userId,
-            `[Audit Log] Stage regressed from ${existing.status.toUpperCase()} to ${nextStatus.toUpperCase()} by ${userName}.`,
+            existing.status === 'closed'
+              ? `[Audit Log] Closed transaction reopened to ${nextStatus.toUpperCase()} by ${userName}.`
+              : `[Audit Log] Stage moved from ${existing.status.toUpperCase()} to ${nextStatus.toUpperCase()} by ${userName}.`,
             isAssistant ? effectiveUserId : null,
-            isAssistant ? assignmentId : null
-          ).run()
+            isAssistant ? (assignmentId || null) : null
+          ))
           }
         }
 
-        // Stage-gate enforcement: require milestone dates when advancing to gated stages
+        // Stage-gate compliance audit: notify broker if closing with pending items without blocking the agent
         if (body.status !== undefined && body.status !== existing.status) {
           let complianceTasks: any[] = []
           if (body.status === 'closed') {
@@ -1135,92 +1134,120 @@ export default {
             escrowDate: nextEscrowDate,
             inspectionDeadline: nextInspectionDeadline,
             appraisalDate: nextAppraisalDate,
-          }, complianceTasks)
+          }, complianceTasks, existing.workflow_key)
 
-          if (!gate.allowed) {
-            return err(`Stage-Gate Compliance: ${gate.missing.join('; ')} required before moving to ${body.status === 'closed' ? 'Closed' : 'Under Contract'}.`, 400)
+          if (!gate.allowed && body.status === 'closed') {
+            await createNotification(env.DB, tenantId, `Compliance notice: Deal "${nextName ?? existing.name ?? 'Deal'}" marked closed with pending items: ${gate.missing.join('; ')}`)
           }
         }
 
         if (body.notes !== undefined && body.notes !== existing.notes && body.notes) {
           const outcomeId = crypto.randomUUID()
-          await env.DB.prepare(`
+          writes.push(env.DB.prepare(`
             INSERT INTO transaction_outcomes (id, transaction_id, tenant_id, user_id, message, is_broker_advice, created_at)
             VALUES (?, ?, ?, ?, ?, 0, datetime("now"))
-          `).bind(outcomeId, txId, tenantId, userId, `[Notes Update] ${body.notes}`).run()
+          `).bind(outcomeId, txId, tenantId, userId, `[Notes Update] ${body.notes}`))
         }
         if (body.earnest_money_notes !== undefined && body.earnest_money_notes !== existing.earnest_money_notes && body.earnest_money_notes) {
           const outcomeId = crypto.randomUUID()
-          await env.DB.prepare(`
+          writes.push(env.DB.prepare(`
             INSERT INTO transaction_outcomes (id, transaction_id, tenant_id, user_id, message, is_broker_advice, created_at)
             VALUES (?, ?, ?, ?, ?, 0, datetime("now"))
-          `).bind(outcomeId, txId, tenantId, userId, `[Earnest Money Note] ${body.earnest_money_notes}`).run()
+          `).bind(outcomeId, txId, tenantId, userId, `[Earnest Money Note] ${body.earnest_money_notes}`))
         }
         if (body.deal_failure_notes !== undefined && body.deal_failure_notes !== existing.deal_failure_notes && body.deal_failure_notes) {
           const outcomeId = crypto.randomUUID()
-          await env.DB.prepare(`
+          writes.push(env.DB.prepare(`
             INSERT INTO transaction_outcomes (id, transaction_id, tenant_id, user_id, message, is_broker_advice, created_at)
             VALUES (?, ?, ?, ?, ?, 0, datetime("now"))
-          `).bind(outcomeId, txId, tenantId, userId, `[Deal Failure Note] ${body.deal_failure_notes}`).run()
+          `).bind(outcomeId, txId, tenantId, userId, `[Deal Failure Note] ${body.deal_failure_notes}`))
         }
 
-        await env.DB.prepare(`
+        writes.push(env.DB.prepare(`
           UPDATE transactions
           SET name = ?, type = ?, status = ?, price = ?, commission_amount = ?, commission_rate = ?,
               target_close_date = ?, actual_close_date = ?, agreement_type = ?, agreement_expiration_date = ?, parties_involved = ?,
               is_locked = ?, listed_date = ?, expire_date = ?, offer_date = ?, pending_date = ?, home_inspection_date = ?, possession_date = ?,
-              escrow_date = ?, inspection_deadline = ?, appraisal_date = ?,
+              escrow_date = ?, inspection_deadline = ?, appraisal_date = ?, offer_accepted_date = ?, closing_date = ?,
               earnest_money_amount = ?, earnest_money_status = ?, earnest_money_notes = ?,
               commission_split_buyer_percent = ?, commission_split_co_broker_percent = ?, commission_split_referral_percent = ?,
               repair_credit = ?, attorney_review_start_date = ?, attorney_review_status = ?,
               deal_failure_reason = ?, deal_failure_notes = ?,
               post_occupancy_deadline = ?, post_occupancy_daily_rate = ?, post_occupancy_escrow_held = ?,
               updated_by_assistant = ?, assistant_assignment_id = ?,
+              revision = CASE WHEN revision = ? THEN revision + 1 ELSE -1 END,
               updated_at = datetime("now")
           WHERE id = ? AND tenant_id = ?
         `).bind(
-          nextName, nextType, nextStatus, nextPrice ?? null, nextCommissionAmount ?? null, nextCommissionRate ?? null,
+          nextName ?? existing.name ?? 'Untitled Deal',
+          nextType ?? existing.type ?? 'sale',
+          nextStatus ?? 'lead',
+          nextPrice ?? null, nextCommissionAmount ?? null, nextCommissionRate ?? null,
           nextTargetCloseDate ?? null, nextActualCloseDate ?? null, nextAgreementType ?? null, nextAgreementExpirationDate ?? null, nextPartiesInvolved ?? null,
           nextIsLocked, nextListedDate ?? null, nextExpireDate ?? null, nextOfferDate ?? null, nextPendingDate ?? null, nextHomeInspectionDate ?? null, nextPossessionDate ?? null,
-          nextEscrowDate ?? null, nextInspectionDeadline ?? null, nextAppraisalDate ?? null,
+          nextEscrowDate ?? null, nextInspectionDeadline ?? null, nextAppraisalDate ?? null, nextOfferAcceptedDate ?? null, nextClosingDate ?? null,
           nextEarnestMoneyAmount ?? null, nextEarnestMoneyStatus ?? null, nextEarnestMoneyNotes ?? null,
           nextCommissionSplitBuyerPercent ?? null, nextCommissionSplitCoBrokerPercent ?? null, nextCommissionSplitReferralPercent ?? null,
           nextRepairCredit ?? null, nextAttorneyReviewStartDate ?? null, nextAttorneyReviewStatus ?? null,
           nextDealFailureReason ?? null, nextDealFailureNotes ?? null,
           nextPostOccupancyDeadline ?? null, nextPostOccupancyDailyRate ?? null, nextPostOccupancyEscrowHeld ?? null,
-          isAssistant ? 1 : 0, isAssistant ? assignmentId : null,
-          txId, tenantId
-        ).run()
+          isAssistant ? 1 : 0, isAssistant ? (assignmentId || null) : null,
+          existing.revision ?? 0, txId, tenantId
+        ))
 
-        // Audit log for delegated update
-        if (isAssistant) {
-          const outcomeId = newId()
-          await env.DB.prepare(`
-            INSERT INTO transaction_outcomes (id, transaction_id, tenant_id, user_id, message, is_broker_advice, acted_as_assistant_for, assistant_assignment_id, created_at)
-            VALUES (?, ?, ?, ?, ?, 0, ?, ?, datetime('now'))
-          `).bind(newId(), txId, tenantId, userId, `[Delegated Update] Deal updated by assistant`, effectiveUserId, assignmentId).run()
-        }
-
+        // Outline links and delegated audit commit with the business update.
         if (body.parties_involved !== undefined && typeof nextPartiesInvolved === 'string') {
-          try {
-            const outline = JSON.parse(nextPartiesInvolved)
-            if (outline && typeof outline === 'object') {
-              await syncOutlineToCrmAndNetwork(env.DB, tenantId, userId, txId, String(nextName || 'Deal'), outline)
-            }
-          } catch {
-            // Ignore non-JSON notes format and keep backward compatibility
+          let outline: unknown
+          try { outline = JSON.parse(nextPartiesInvolved) } catch { /* legacy free-text outline */ }
+          if (outline && typeof outline === 'object' && !Array.isArray(outline)) {
+            if (isAssistant && !canAccessContacts) return err('Contact access required to synchronize outline parties',403)
+            writes.push(...await outlinePosting(env.DB,tenantId,existing.assigned_to || effectiveUserId || userId,txId,outline as Record<string,unknown>))
           }
         }
+        if (isAssistant) writes.push(env.DB.prepare(`INSERT INTO transaction_outcomes
+          (id,transaction_id,tenant_id,user_id,message,is_broker_advice,acted_as_assistant_for,assistant_assignment_id,created_at)
+          VALUES(?,?,?,?,?,0,?,?,datetime('now'))`).bind(newId(),txId,tenantId,userId,'[Delegated Update] Deal updated by assistant',effectiveUserId,assignmentId || null))
+
+        // Deal, earned compensation, and CRM lifecycle share one D1 database.
+        // The batch also rolls back the deal if any consequence fails.
+        if (!existing.financials_version && existing.assigned_to && (nextStatus !== existing.status || nextCommissionAmount !== existing.commission_amount || nextActualCloseDate !== existing.actual_close_date)) {
+          writes.push(...await commissionPosting(env.DB, {
+            tenantId, transactionId: txId, agentId: existing.assigned_to, actorId: userId,
+            revision: existing.revision + 1, closed: nextStatus === 'closed', closeDate: nextActualCloseDate,
+            gross: nextCommissionAmount,
+          }))
+        }
+        if (existing.financials_version > 0 && existing.status === 'closed' && nextStatus !== 'closed') writes.push(...await reopenFinancials(env.DB, tenantId, txId, userId))
+        if (nextStatus === 'closed') {
+          writes.push(env.DB.prepare(`UPDATE contacts SET lifecycle_stage = 'past_client', updated_at = datetime('now')
+            WHERE tenant_id = ? AND lifecycle_stage = 'active_client' AND id IN (
+              SELECT contact_id FROM transaction_parties WHERE transaction_id = ? AND tenant_id = ?
+                AND (is_primary = 1 OR role IN ('buyer', 'seller', 'landlord', 'tenant'))
+            ) AND NOT EXISTS (
+              SELECT 1 FROM transaction_parties p JOIN transactions t ON t.id = p.transaction_id AND t.tenant_id = p.tenant_id
+              WHERE p.contact_id = contacts.id AND p.tenant_id = contacts.tenant_id AND t.id <> ?
+                AND t.is_active = 1 AND t.status NOT IN ('closed', 'fallen_through', 'cancelled', 'archived')
+            )`).bind(tenantId, txId, tenantId, txId))
+        }
+        await env.DB.batch(writes)
 
         return ok({ success: true })
       }
 
       // Delete transaction (DELETE /api/transactions/:id)
       if (txSingleMatch && method === 'DELETE') {
-        if (role !== 'admin' && role !== 'broker') {
-          return err('Only brokers and admins have authority to delete deals', 403)
-        }
         const txId = txSingleMatch[1]
+        // Allow admin, broker, or the deal's original creator/owner
+        if (!['admin', 'broker'].includes(role)) {
+          const existingTx = await env.DB
+            .prepare('SELECT assigned_to FROM transactions WHERE id = ? AND tenant_id = ? AND is_active = 1')
+            .bind(txId, tenantId)
+            .first<any>()
+          if (!existingTx) return err('Deal not found', 404)
+          if (existingTx.assigned_to !== userId) {
+            return err('You can only delete deals you created. Ask a broker or admin to delete other deals.', 403)
+          }
+        }
         await env.DB.prepare('UPDATE transactions SET is_active = 0, updated_at = datetime(\'now\') WHERE id = ? AND tenant_id = ?').bind(txId, tenantId).run()
         return ok({ success: true, message: 'Deal deleted successfully' })
       }
@@ -1578,46 +1605,6 @@ function validateOfferDetails(offer: any): { valid: boolean; error?: string } {
   if (!offer || typeof offer !== 'object') {
     return { valid: false, error: 'Offer payload must be an object' }
   }
-  if (typeof offer.purchaserName !== 'string' || !offer.purchaserName.trim()) {
-    return { valid: false, error: 'Purchaser Name is required and must be a string' }
-  }
-  const price = Number(offer.purchasePrice)
-  if (isNaN(price) || price <= 0) {
-    return { valid: false, error: 'Purchase Price must be a positive number' }
-  }
-  if (typeof offer.offerDate !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(offer.offerDate)) {
-    return { valid: false, error: 'Offer Date is required and must be in YYYY-MM-DD format' }
-  }
-  if (offer.offerType !== 'sales_agreement' && offer.offerType !== 'loi') {
-    return { valid: false, error: 'Offer Type must be either sales_agreement or loi' }
-  }
-  if (offer.status && !['pending', 'accepted', 'rejected'].includes(offer.status)) {
-    return { valid: false, error: 'Invalid offer status' }
-  }
-
-  const numericFields = [
-    'downPaymentAmount',
-    'downPaymentPercent',
-    'mortgageAmount',
-    'buyerBrokerCommission'
-  ]
-  for (const f of numericFields) {
-    if (offer[f] !== undefined && offer[f] !== null && offer[f] !== '') {
-      if (isNaN(Number(offer[f]))) {
-        return { valid: false, error: `${f} must be a number` }
-      }
-    }
-  }
-
-  const dateFields = ['closingDate', 'possessionDate', 'inspectionDate', 'inspectionDeadline', 'appraisalDeadline', 'escrowDate']
-  for (const f of dateFields) {
-    if (offer[f] && typeof offer[f] === 'string') {
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(offer[f])) {
-        return { valid: false, error: `${f} must be in YYYY-MM-DD format` }
-      }
-    }
-  }
-
   return { valid: true }
 }
 
@@ -1634,14 +1621,28 @@ function validateOfferDetails(offer: any): { valid: boolean; error?: string } {
         }
 
         // Enforce transaction lock status
-        const tx = await env.DB.prepare('SELECT is_locked FROM transactions WHERE id = ? AND tenant_id = ? AND is_active = 1').bind(txId, tenantId).first<any>()
+        const tx = await env.DB.prepare('SELECT is_locked,assigned_to FROM transactions WHERE id = ? AND tenant_id = ? AND is_active = 1').bind(txId, tenantId).first<any>()
+        if (!tx) return err('Deal not found', 404)
+        if (!['admin','broker'].includes(role) && tx.assigned_to !== effectiveUserId) {
+          const member = await env.DB.prepare('SELECT 1 FROM transaction_team WHERE transaction_id=? AND user_id=?').bind(txId,effectiveUserId).first()
+          if (!member) return err('Deal not found',404)
+        }
         if (tx && tx.is_locked === 1 && role !== 'admin' && role !== 'broker') {
           return err('This transaction is locked by an administrator and offers cannot be modified.', 403)
         }
 
         const id = offer.id && !offer.id.startsWith('offer_') ? offer.id : newId()
-        const purchaserName = offer.purchaserName || 'Unnamed Purchaser'
-        const purchasePrice = Number(offer.purchasePrice || 0)
+        const existingOffer = await env.DB.prepare('SELECT tenant_id,transaction_id FROM transaction_offers WHERE id=?').bind(id).first<any>()
+        if (existingOffer && (existingOffer.tenant_id !== tenantId || existingOffer.transaction_id !== txId)) return err('Offer not found',404)
+        const purchaserName = (offer.purchaserName || 'Unnamed Purchaser').trim()
+
+        let purchasePrice = 0
+        if (typeof offer.purchasePrice === 'number') {
+          purchasePrice = offer.purchasePrice
+        } else if (typeof offer.purchasePrice === 'string') {
+          purchasePrice = Number(offer.purchasePrice.replace(/[^0-9.]/g, '')) || 0
+        }
+
         const offerDate = offer.offerDate || new Date().toISOString().substring(0, 10)
         const offerType = offer.offerType || 'sales_agreement'
         const status = offer.status || 'pending'
@@ -1649,8 +1650,9 @@ function validateOfferDetails(offer: any): { valid: boolean; error?: string } {
         const detailObj = { ...offer, id, status }
         const detailsJson = JSON.stringify(detailObj)
 
-        await env.DB
-          .prepare(`
+        const offerWrites: D1PreparedStatement[] = []
+        if (status === 'accepted') offerWrites.push(env.DB.prepare("UPDATE transaction_offers SET status='pending',details_json=json_set(details_json,'$.status','pending'),updated_at=datetime('now') WHERE tenant_id=? AND transaction_id=? AND id!=? AND status='accepted'").bind(tenantId,txId,id))
+        offerWrites.push(env.DB.prepare(`
             INSERT INTO transaction_offers (id, transaction_id, tenant_id, purchaser_name, purchase_price, offer_date, offer_type, status, details_json, updated_at)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
             ON CONFLICT(id) DO UPDATE SET
@@ -1662,8 +1664,8 @@ function validateOfferDetails(offer: any): { valid: boolean; error?: string } {
               details_json = excluded.details_json,
               updated_at = datetime('now')
           `)
-          .bind(id, txId, tenantId, purchaserName, purchasePrice, offerDate, offerType, status, detailsJson)
-          .run()
+          .bind(id, txId, tenantId, purchaserName, purchasePrice, offerDate, offerType, status, detailsJson))
+        await env.DB.batch(offerWrites)
 
         return ok({
           ...detailObj,

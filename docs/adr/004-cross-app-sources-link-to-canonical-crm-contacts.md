@@ -1,0 +1,3 @@
+# ADR 004: Cross-App Sources Link to Canonical CRM Contacts
+
+CRM owns the canonical Contact. Public listing inquiries and Open House attendance send tenant, Listing, agent, consent, and source IDs through private service bindings. CRM resolves a Contact within the tenant by normalized email, then phone, and records a unique source relationship plus activity. A retried source ID is idempotent. Satellite applications retain their own event or submission facts and the returned `crm_contact_id`; they do not create independent contact copies. Display values such as address and agent name remain historical snapshots, while authorization and joins use stable IDs.

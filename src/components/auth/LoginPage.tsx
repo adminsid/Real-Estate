@@ -22,7 +22,7 @@ export function LoginPage() {
     }
   }
 
-  const companyName = branding?.companyName || 'Prime America Realty'
+  const companyName = branding?.companyName || 'Prime America Real Estate'
 
   return (
     <div className="min-h-screen bg-brand-navy flex items-center justify-center px-4">
@@ -32,17 +32,11 @@ export function LoginPage() {
       <div className="relative w-full max-w-md">
         {/* Logo / Branding */}
         <div className="text-center mb-8">
-          {branding?.logoUrl ? (
-            <img
-              src={branding.logoUrl}
-              alt={companyName}
-              className="h-16 w-auto mx-auto mb-4 object-contain"
-            />
-          ) : (
-            <div className="inline-flex items-center justify-center h-16 w-16 rounded-2xl bg-brand-gold mb-4">
-              <span className="text-brand-navy font-bold text-2xl">RE</span>
-            </div>
-          )}
+          <img
+            src={branding?.logoUrl || '/prime-america-seal.png'}
+            alt={companyName}
+            className="h-16 w-auto mx-auto mb-4 object-contain"
+          />
           <h1 className="text-2xl font-bold text-white">Welcome back</h1>
           <p className="text-white/50 mt-1 text-sm">
             Sign in to {companyName}

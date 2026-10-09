@@ -2,6 +2,7 @@ import { useState, useMemo } from 'react'
 import { useTransactionDetail } from './TransactionContext'
 import { CalendarDays, ChevronLeft, ChevronRight, CheckCircle2, Clock, CalendarRange, AlertCircle } from 'lucide-react'
 import clsx from 'clsx'
+import { getLocalDateString } from '@/utils/date'
 
 type CalendarEvent = {
   id: string
@@ -170,7 +171,7 @@ export function TransactionCalendarTab() {
           {calendarCells.map((cell, idx) => {
             const dayEvents = events.filter(e => e.dateStr === cell.dateStr)
             const hasEvents = dayEvents.length > 0
-            const isToday = new Date().toISOString().split('T')[0] === cell.dateStr
+            const isToday = getLocalDateString() === cell.dateStr
             const isSelected = selectedDateStr === cell.dateStr
 
             return (

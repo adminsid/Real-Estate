@@ -20,7 +20,7 @@ function makeEnv(overrides: Record<string, any> = {}) {
     DB: {
       prepare: (query: string) => ({
         bind: (...params: any[]) => ({
-          first: async () => null,
+          first: async () => query === 'SELECT role FROM users WHERE id=? AND tenant_id=? AND is_active=1' && params[0] === 'u1' && params[1] === 't1' ? {role:'salesperson'} : null,
           all: async () => ({ results: [] }),
           run: async () => ({}),
         }),
@@ -96,18 +96,19 @@ describe('GET /api/search', () => {
   })
 
   it('returns structured results for a valid authenticated query', async () => {
-    globalThis.fetch = vi.fn().mockResolvedValue(
+    const fetchSpy = vi.fn().mockResolvedValue(
       new Response(JSON.stringify({ listings: [] }), {
         status: 200,
         headers: { 'Content-Type': 'application/json' },
       })
     )
+    globalThis.fetch = fetchSpy
 
     const env = makeEnv({
       DB: {
         prepare: (query: string) => ({
           bind: (...params: any[]) => ({
-            first: async () => null,
+            first: async () => query === 'SELECT role FROM users WHERE id=? AND tenant_id=? AND is_active=1' && params[0] === 'u1' && params[1] === 't1' ? {role:'salesperson'} : null,
             all: async () => ({
               results: [
                 { id: 'c1', first_name: 'Alice', last_name: 'Smith', email: 'alice@test', phone: '555-1234', status: 'active' },
@@ -135,6 +136,13 @@ describe('GET /api/search', () => {
     expect(body.data.contacts.length).toBeGreaterThanOrEqual(0)
     expect(Array.isArray(body.data.transactions)).toBe(true)
     expect(Array.isArray(body.data.listings)).toBe(true)
+
+    const inventoryCall = fetchSpy.mock.calls.at(-1) as any
+    const headers = new Headers(inventoryCall[1]?.headers)
+    expect(headers.get('Authorization')).toBe(`Bearer ${TEST_INTERNAL_SECRET}`)
+    expect(headers.get('X-User-Id')).toBe('u1')
+    expect(headers.get('X-Tenant-Id')).toBe('t1')
+    expect(headers.get('X-User-Role')).toBe('salesperson')
   })
 
   it('does not expose /api/hr/search as a second divergent endpoint', async () => {

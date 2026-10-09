@@ -1,14 +1,20 @@
+import { ShowingSchedulerModal } from '@/components/marketing/ShowingSchedulerModal'
+import { ListingInquiriesPanel } from '@/components/marketing/ListingInquiriesPanel'
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { useParams, Link, useSearchParams, useNavigate } from 'react-router-dom'
 import { Layout } from '@/components/layout/Layout'
 import { SkeletonBlock, SkeletonCard } from '@/components/common/SkeletonLoader'
 import { useAuth } from '@/context/AuthContext'
+import { resolveMediaUrl } from '@/utils/media'
+import { createPrintExcerpt, selectListingPrintLayout } from '@/lib/listingPrintLayout'
+import { getListingPresentation } from '@/domain/listingPresentation'
 import clsx from 'clsx'
 import {
-  ArrowLeft, Loader2, MapPin, BedDouble, Bath, Maximize2,
+  ArrowLeft, Loader2, MapPin, Maximize2,
   Printer, Send, Phone, Mail, Plus, Calendar, Clock, Video, ExternalLink,
-  Calculator, BadgeInfo, Building2,
-  ChevronLeft, ChevronRight, X, Compass, Smartphone, Grid
+  Calculator, BadgeInfo, Building2, Edit3,
+  ChevronLeft, ChevronRight, X, Compass, Smartphone, Grid,
+  QrCode, Share2, Copy, Check, MessageSquare
 } from 'lucide-react'
 
 function firstNonEmpty(...values: Array<string | number | null | undefined>) {
@@ -23,9 +29,13 @@ function slugify(text: string) {
     .slice(0, 80)
 }
 
-function isResidentialType(listing: any) {
-  const t = String(listing?.propertyType || listing?.type || '').toLowerCase()
-  return ['residential', 'condo', 'co-op', 'multi-family'].some((x) => t.includes(x))
+function escapePrintHtml(value: unknown) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;')
 }
 
 function getListingAgentInfo(listing: any, agent: any, fallbackCompanyName: string) {
@@ -70,6 +80,26 @@ function getListingAgentInfo(listing: any, agent: any, fallbackCompanyName: stri
     phone: phone ? String(phone) : '',
     brokerage: brokerage ? String(brokerage) : '',
   }
+}
+
+function isMyListing(listing: any, user: any) {
+  if (!user || !listing) return false
+  const userEmail = (user.email || '').toLowerCase()
+  const userName = (user.name || '').toLowerCase()
+  const userId = String(user.id || '')
+
+  const agentInfo = getListingAgentInfo(listing, null, '')
+  const listEmail = (agentInfo.email || listing.listingAgentEmail || listing.listing_agent_email || listing.agent_email || listing.data?.listAgentEmail || '').toLowerCase()
+  const listName = (agentInfo.name || listing.listingAgentName || listing.listing_agent_name || listing.agent_name || listing.data?.listAgentFullName || '').toLowerCase()
+  const coListEmail = (listing.data?.coListAgentEmail || '').toLowerCase()
+  const coListName = (listing.data?.coListAgentFullName || '').toLowerCase()
+  const assignedId = String(listing.assigned_to || listing.userId || listing.user_id || listing.createdBy || listing.created_by || '')
+
+  return (
+    (Boolean(userEmail) && (listEmail.includes(userEmail) || coListEmail.includes(userEmail))) ||
+    (Boolean(userName) && (listName.includes(userName) || coListName.includes(userName))) ||
+    (Boolean(userId) && assignedId === userId)
+  )
 }
 
 function getListingSourceCoords(listing: any) {
@@ -127,6 +157,7 @@ export function ListingDetailPage() {
   const { user, branding } = useAuth()
   const [searchParams] = useSearchParams()
   const sharedById = searchParams.get('sharedBy')
+  const inviteToken = searchParams.get('inviteToken')
   const isPreview = searchParams.get('preview') === 'true'
 
   const [listing, setListing] = useState<any>(null)
@@ -144,14 +175,8 @@ export function ListingDetailPage() {
   const [isMobile, setIsMobile] = useState(false)
   const [forceDesktopLayout, setForceDesktopLayout] = useState(false)
 
+  const [showShowingHistory, setShowShowingHistory] = useState(false)
   const [showShowingModal, setShowShowingModal] = useState(false)
-  const [showingForm, setShowingForm] = useState({ buyerName: '', shownAt: '', feedback: '' })
-  const [submittingShowing, setSubmittingShowing] = useState(false)
-  const [showingTab, setShowingTab] = useState<'schedule' | 'log'>('schedule')
-  const [selectedDateStr, setSelectedDateStr] = useState(new Date().toISOString().split('T')[0])
-  const [selectedTimeStr, setSelectedTimeStr] = useState('10:00')
-  const [copyFeedback, setCopyFeedback] = useState(false)
-
   const [downpaymentType, setDownpaymentType] = useState<'percent' | 'dollar'>('percent')
   const [downpaymentValue, setDownpaymentValue] = useState(20)
   const [interestRate, setInterestRate] = useState(6.75)
@@ -160,7 +185,9 @@ export function ListingDetailPage() {
   const [loanType, setLoanType] = useState<'conventional' | 'fha' | 'va' | 'usda'>('conventional')
   const [showPaymentModal, setShowPaymentModal] = useState(false)
   const [showShareModal, setShowShareModal] = useState(false)
+  const [shareTab, setShareTab] = useState<'quick' | 'email' | 'qr'>('quick')
   const [shareCopied, setShareCopied] = useState(false)
+  const [htmlEmailCopied, setHtmlEmailCopied] = useState(false)
   const [showingVirtualTour, setShowingVirtualTour] = useState(false)
   const [logoFailed, setLogoFailed] = useState(false)
 
@@ -194,8 +221,8 @@ export function ListingDetailPage() {
     const taxAnnualRaw = Number(firstNonEmpty(r.TaxAnnualAmount, r.taxAnnualAmount, listing.monthly_taxes ? (listing.monthly_taxes * 12) : 0))
     if (Number.isFinite(taxAnnualRaw) && taxAnnualRaw > 0 && taxAnnualRaw < 200000) {
       setPropertyTaxes(taxAnnualRaw)
-    } else if (propertyTaxes === 0 && listing.price) {
-      setPropertyTaxes(Math.round(listing.price * 0.0125)) // 1.25% default tax estimate
+    } else {
+      setPropertyTaxes(0)
     }
     // Sync HOA/common charges (AssociationFee is already monthly), bounded safely
     const hoaMonthlyRaw = Number(firstNonEmpty(r.AssociationFee, r.hoaFee, r.associationFee, listing.common_charges, 0))
@@ -203,6 +230,26 @@ export function ListingDetailPage() {
       setCommonCharges(hoaMonthlyRaw)
     }
   }, [listing])
+
+  // Clean primary street display (strips raw Google Places suffix duplicates like ", Fresh Pond, NY, USA")
+  const displayStreet = useMemo(() => {
+    if (!listing?.address) return ''
+    let street = listing.address.trim()
+    street = street.replace(/,\s*(?:USA|United States)$/i, '')
+    if (listing.city && street.toLowerCase().includes(listing.city.toLowerCase())) {
+      const parts = street.split(',').map((s: string) => s.trim())
+      if (parts.length > 1 && parts[0]) {
+        return parts[0]
+      }
+    }
+    if (listing.state && street.toLowerCase().includes(listing.state.toLowerCase())) {
+      const parts = street.split(',').map((s: string) => s.trim())
+      if (parts.length > 1 && parts[0]) {
+        return parts[0]
+      }
+    }
+    return street
+  }, [listing?.address, listing?.city, listing?.state])
 
   // Dynamic address & location display from inventory metadata
   const displayLocation = useMemo(() => {
@@ -224,26 +271,45 @@ export function ListingDetailPage() {
 
     const parts = []
     if (neighborhood && String(neighborhood).trim()) parts.push(String(neighborhood).trim())
-    if (city && String(city).trim() && String(city).trim() !== String(neighborhood).trim()) parts.push(String(city).trim())
+    if (city && String(city).trim() && String(city).trim().toLowerCase() !== String(neighborhood).trim().toLowerCase()) {
+      parts.push(String(city).trim())
+    }
     if (state || zip) parts.push(`${state} ${zip}`.trim())
-    return parts.join(', ') || `${city}, ${state} ${zip}`
+    return parts.join(', ') || `${city}, ${state} ${zip}`.trim()
   }, [listing])
 
   // Dynamic school information from inventory metadata
   const listingSchools = useMemo(() => {
     if (!listing) return []
     const r = listing?.raw?.data || listing?.raw || {}
-    const elem = firstNonEmpty(r.ElementarySchool, r.elementarySchool, listing.elementary_school)
-    const middle = firstNonEmpty(r.MiddleOrJuniorSchool, r.middleOrJuniorSchool, listing.middle_school)
-    const high = firstNonEmpty(r.HighSchool, r.highSchool, listing.high_school)
-    const district = firstNonEmpty(r.SchoolDistrict, r.schoolDistrict, listing.city ? `${listing.city} School District` : 'Local School District')
-
-    return [
-      { type: 'Public Elementary', name: elem ? String(elem) : `${district} Elementary`, rating: '8/10' },
-      { type: 'Public Middle', name: middle ? String(middle) : `${district} Middle`, rating: '7/10' },
-      { type: 'Public High', name: high ? String(high) : `${district} High School`, rating: '8/10' },
+    const schools = [
+      { type: 'School District', name: firstNonEmpty(listing.schoolDistrict, r.SchoolDistrict, r.schoolDistrict, r.highSchoolDistrict) },
+      { type: 'Public Elementary', name: firstNonEmpty(listing.elementarySchool, r.ElementarySchool, r.elementarySchool, listing.elementary_school) },
+      { type: 'Public Middle', name: firstNonEmpty(listing.middleOrJuniorSchool, r.MiddleOrJuniorSchool, r.middleOrJuniorSchool, listing.middle_school) },
+      { type: 'Public High', name: firstNonEmpty(listing.highSchool, r.HighSchool, r.highSchool, listing.high_school) },
     ]
+    return schools.filter((school) => school.name).map((school) => ({ ...school, name: String(school.name) }))
   }, [listing])
+
+  const listingAreas = useMemo(() => {
+    if (!listing) return []
+    const r = listing?.raw?.data || listing?.raw || {}
+    const candidates = [
+      { label: 'Neighborhood', value: firstNonEmpty(listing.neighborhood, r.neighborhood, r.SubdivisionName) },
+      { label: 'MLS Area', value: firstNonEmpty(listing.mlsAreaMajor, r.mlsAreaMajor, r.MLSAreaMajor) },
+      { label: 'MLS Subarea', value: firstNonEmpty(listing.mlsAreaMinor, r.mlsAreaMinor, r.MLSAreaMinor) },
+      { label: 'County', value: firstNonEmpty(listing.county, r.county, r.CountyOrParish) },
+    ]
+    const seen = new Set<string>()
+    return candidates.flatMap((area) => {
+      const value = String(area.value || '').trim()
+      const key = value.toLowerCase()
+      if (!value || seen.has(key)) return []
+      seen.add(key)
+      return [{ ...area, value }]
+    })
+  }, [listing])
+  const presentation = useMemo(() => getListingPresentation(listing), [listing])
 
   // Load other listings (active only for Browse Feed)
   useEffect(() => {
@@ -278,7 +344,8 @@ export function ListingDetailPage() {
         metaDesc.setAttribute('name', 'description')
         document.head.appendChild(metaDesc)
       }
-      const descVal = `${listing.bedrooms || '—'} Bed, ${listing.bathrooms || '—'} Bath home at ${listing.address} for $${listing.price?.toLocaleString() || '—'}. Learn more at ${currentCompanyName}.`
+      const primarySummary = presentation.primaryFacts.slice(0, 4).map((item) => `${item.label}: ${item.value}`).join(', ')
+      const descVal = `${presentation.label} at ${listing.address}${primarySummary ? ` — ${primarySummary}` : ''}. Learn more at ${currentCompanyName}.`
       metaDesc.setAttribute('content', descVal)
 
       const localMedia = listing?.media && Array.isArray(listing.media) && listing.media.length > 0
@@ -312,7 +379,7 @@ export function ListingDetailPage() {
         el.setAttribute('content', cfg.content)
       })
     }
-  }, [listing, branding.companyName, agent])
+  }, [listing, branding.companyName, agent, presentation])
 
   // Inquiry Form
   const [leadName, setLeadName] = useState('')
@@ -320,11 +387,15 @@ export function ListingDetailPage() {
   const [leadPhone, setLeadPhone] = useState('')
   const [leadMessage, setLeadMessage] = useState('I am interested in learning more about this property.')
   const [showInquiryModal, setShowInquiryModal] = useState(false)
+  const [inquirySuccess, setInquirySuccess] = useState(false)
+  const [inquiryId, setInquiryId] = useState(() => crypto.randomUUID())
   const [selectedListObj, setSelectedListObj] = useState<any>(null)
 
   const openInquiry = (l: any) => {
     setSelectedListObj(l)
-    setLeadMessage(`I am interested in learning more about ${l?.address || 'this property'}.`)
+    setInquirySuccess(false)
+    const inquiryPresentation = getListingPresentation(l)
+    setLeadMessage(`${inquiryPresentation.inquiryPrompt} ${l?.address ? `Listing: ${l.address}.` : ''}`.trim())
     setShowInquiryModal(true)
   }
   const downPercent = useMemo(() => {
@@ -373,12 +444,19 @@ export function ListingDetailPage() {
     return idx === -1 ? 0 : idx
   }, [activeMediaUrl, mediaList])
 
-  const companyLogoUrl = agent?.companyLogoPublicUrl || agent?.companyLogoUrl || branding.logoUrl || null
+  const companyLogoUrl = agent?.companyLogoPublicUrl || agent?.companyLogoUrl || branding.logoUrl || '/prime-america-seal.png'
   const companyName = agent?.companyName || branding.companyName || 'Prime America Real Estate'
   const listingAgent = useMemo(() => getListingAgentInfo(listing, agent, companyName), [listing, agent, companyName])
   const isSharedLeadView = !!sharedById
   const presentedBy = useMemo(() => getPresentedByInfo(agent, listingAgent, companyName, isSharedLeadView), [agent, listingAgent, companyName, isSharedLeadView])
   const addressSlug = listing ? slugify(`${listing.address || ''} ${listing.city || ''} ${listing.state || ''}`) : ''
+
+  const sourceCoords = useMemo(() => getListingSourceCoords(listing), [listing])
+  const fallbackCoords = useMemo(() => getDeterministicCoords(listing?.address || '', listing?.city || '', listing?.zip || ''), [listing?.address, listing?.city, listing?.zip])
+  const effectiveMapCoords = useMemo(() => ({
+    lat: mapSettings?.lat ?? sourceCoords?.lat ?? fallbackCoords.lat,
+    lng: mapSettings?.lng ?? sourceCoords?.lng ?? fallbackCoords.lng,
+  }), [mapSettings?.lat, mapSettings?.lng, sourceCoords?.lat, sourceCoords?.lng, fallbackCoords.lat, fallbackCoords.lng])
 
   const leadDomainOrigin = useMemo(() => {
     if (branding.leadAppDomain && branding.leadAppDomain.trim() !== '') {
@@ -391,8 +469,14 @@ export function ListingDetailPage() {
     return window.location.origin
   }, [branding.leadAppDomain])
 
-  const shareUrl = listing ? `${leadDomainOrigin}/inventory/listings/${listing.id}/${addressSlug}?sharedBy=${user?.id || ''}` : ''
-  const previewUrl = listing ? `${leadDomainOrigin}/inventory/listings/${listing.id}/${addressSlug}?preview=true` : ''
+  const shareUrl = listing ? `${leadDomainOrigin}/public/listings/${listing.id}/${addressSlug}?${new URLSearchParams({
+    ...(listing.inviteOnlyToken ? { inviteToken: listing.inviteOnlyToken } : {}),
+    ...((sharedById || user?.id) ? { sharedBy: sharedById || user!.id } : {}),
+  }).toString()}` : ''
+  const previewUrl = listing ? `${leadDomainOrigin}/public/listings/${listing.id}/${addressSlug}?${new URLSearchParams({
+    preview: 'true',
+    ...(listing.inviteOnlyToken ? { inviteToken: listing.inviteOnlyToken } : {}),
+  }).toString()}` : ''
   const upcomingOpenHouses = useMemo(() => {
     return openHouses.filter((oh) => {
       try {
@@ -406,8 +490,6 @@ export function ListingDetailPage() {
   }, [openHouses])
 
   const listingAgentInfo = useMemo(() => getListingAgentInfo(listing, agent, companyName), [listing, agent, companyName])
-  const residentialTemplate = isResidentialType(listing)
-
   const getEmbedTourUrl = () => {
     if (!listing) return null
     const r = listing?.raw?.data || listing?.raw || {}
@@ -488,243 +570,387 @@ export function ListingDetailPage() {
     const agentPhone = presentedBy?.phone || agent?.phone || ''
     const agentAvatar = agent?.avatarUrl || ''
     const brokerageName = presentedBy?.brokerage || companyName
-    const logoUrl = companyLogoUrl || ''
-    const priceStr = listing.price ? `$${listing.price.toLocaleString()}` : 'Contact for Price'
+    const logoUrl = companyLogoUrl ? (companyLogoUrl.startsWith('http') ? companyLogoUrl : `${window.location.origin}${companyLogoUrl}`) : `${window.location.origin}/prime-america-seal.png`
+    const priceStr = presentation.primaryFacts.find((item) => item.id === 'price' || item.id === 'rent')?.value || 'Contact for Price'
 
-    const mediaUrls = mediaList.slice(0, 4).map((m: any) => {
-      return m.mediaUrl.startsWith('http') ? m.mediaUrl : `https://inventory.primeamericarealestate.com${m.mediaUrl}`
-    })
+    const mediaUrls = mediaList.slice(0, 6).map((m: any) => resolveMediaUrl(m.mediaUrl, listing.id)).filter(Boolean)
+
+    const r = listing?.raw?.data || listing?.raw || {}
+    const mlsVal = listing.mlsNumber || r.mlsNumber || r.listingId || 'Exclusive'
+    const description = String(listing.description || 'No description available.').trim()
+    const printLayout = selectListingPrintLayout(description, mediaUrls.length)
+    const printExcerpt = createPrintExcerpt(description)
+    const printSpecs = [
+      ...presentation.primaryFacts,
+      { id: 'mls', label: 'MLS #', value: String(mlsVal) },
+    ].slice(0, 8)
+    const printSpecsHtml = printSpecs.map(({ label, value }) => `
+      <div class="spec-item">
+        <div class="spec-label">${escapePrintHtml(label)}</div>
+        <div class="spec-value">${escapePrintHtml(value)}</div>
+      </div>`).join('')
 
     const flyerHtml = `
       <!DOCTYPE html>
       <html>
       <head>
-        <title>Flyer - ${listing.address}</title>
+        <title>Flyer - ${displayStreet || listing.address}</title>
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <style>
           @import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600;700;800&family=Playfair+Display:wght@700&display=swap');
+          @page {
+            size: letter portrait;
+            margin: 0.35in;
+          }
+          * {
+            box-sizing: border-box;
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
+          }
           body {
             font-family: 'Montserrat', sans-serif;
             margin: 0;
-            padding: 40px;
+            padding: 0;
             color: #1a1a1a;
             background: #fff;
           }
+          .print-page { padding: 20px; }
+          .two-page .cover-page {
+            min-height: 10.25in;
+            display: flex;
+            flex-direction: column;
+          }
+          .two-page .detail-page {
+            display: block;
+            break-before: page;
+            page-break-before: always;
+          }
+          .one-page .detail-page, .two-page .one-page-details { display: none; }
           .header {
             display: flex;
             justify-content: space-between;
             align-items: center;
             border-bottom: 2px solid #0F2040;
-            padding-bottom: 20px;
-            margin-bottom: 30px;
+            padding-bottom: 14px;
+            margin-bottom: 16px;
+            page-break-inside: avoid;
+            break-inside: avoid;
           }
           .logo-container {
             display: flex;
             align-items: center;
-            gap: 15px;
+            gap: 12px;
           }
           .logo {
-            max-height: 50px;
-            max-width: 150px;
+            max-height: 46px;
+            max-width: 140px;
             object-fit: contain;
           }
           .company-name {
-            font-size: 20px;
+            font-size: 18px;
             font-weight: 800;
             color: #0F2040;
           }
           .tagline {
-            font-size: 11px;
+            font-size: 10px;
             color: #C9A84C;
             text-transform: uppercase;
-            letter-spacing: 2px;
+            letter-spacing: 1.5px;
             margin-top: 2px;
           }
           .price-address {
             text-align: right;
           }
           .price {
-            font-size: 32px;
+            font-size: 26px;
             font-weight: 800;
             color: #C9A84C;
           }
           .address {
-            font-size: 14px;
-            color: #666;
-            margin-top: 5px;
+            font-size: 12px;
+            color: #555;
+            margin-top: 2px;
+            font-weight: 600;
           }
           .hero-image-container {
             width: 100%;
-            height: 380px;
-            border-radius: 20px;
+            height: 320px;
+            border-radius: 12px;
             overflow: hidden;
-            margin-bottom: 20px;
+            margin-bottom: 12px;
+            background: #f0f0f0;
+            page-break-inside: avoid;
+            break-inside: avoid;
           }
+          .one-page .hero-image-container { height: 255px; }
           .hero-image {
             width: 100%;
             height: 100%;
             object-fit: cover;
+            display: block;
           }
           .gallery-grid {
             display: grid;
             grid-template-columns: repeat(3, 1fr);
-            gap: 15px;
-            margin-bottom: 30px;
+            gap: 10px;
+            margin-bottom: 16px;
+            page-break-inside: avoid;
+            break-inside: avoid;
           }
           .gallery-image {
             width: 100%;
-            height: 120px;
+            height: 95px;
             object-fit: cover;
-            border-radius: 12px;
+            border-radius: 8px;
+            background: #f0f0f0;
+            display: block;
           }
+          .two-page .gallery-grid { grid-template-columns: repeat(5, 1fr); }
+          .two-page .gallery-image { height: 82px; }
+          .cover-summary {
+            margin: 14px 0 0;
+            padding: 12px 14px;
+            border-left: 3px solid #C9A84C;
+            background: #fbfaf6;
+            color: #4a4a4a;
+            font-size: 10px;
+            line-height: 1.5;
+          }
+          .cover-summary strong {
+            display: block;
+            color: #0F2040;
+            font-size: 11px;
+            margin-bottom: 3px;
+          }
+          .detail-title {
+            border-bottom: 2px solid #0F2040;
+            padding-bottom: 10px;
+            margin-bottom: 18px;
+          }
+          .detail-title h1 {
+            color: #0F2040;
+            font-family: 'Playfair Display', serif;
+            font-size: 22px;
+            margin: 0 0 3px;
+          }
+          .detail-description {
+            color: #3f4650;
+            font-size: 11px;
+            line-height: 1.65;
+            white-space: pre-line;
+            orphans: 3;
+            widows: 3;
+          }
+          .detail-description.long { column-count: 2; column-gap: 28px; }
           .details-section {
             display: grid;
-            grid-template-columns: 2fr 1fr;
-            gap: 40px;
-            margin-bottom: 30px;
+            grid-template-columns: 1.7fr 1.3fr;
+            gap: 20px;
+            margin-bottom: 16px;
+            page-break-inside: avoid;
+            break-inside: avoid;
           }
           .description-container h2 {
             font-family: 'Playfair Display', serif;
-            font-size: 22px;
+            font-size: 18px;
             color: #0F2040;
             margin-top: 0;
-            margin-bottom: 15px;
+            margin-bottom: 8px;
           }
           .description {
-            font-size: 12px;
-            line-height: 1.6;
+            font-size: 11px;
+            line-height: 1.55;
             color: #4a4a4a;
           }
           .specs-grid {
             display: grid;
             grid-template-columns: repeat(2, 1fr);
-            gap: 15px;
+            gap: 8px;
             background: #f8f9fa;
-            padding: 20px;
-            border-radius: 20px;
+            padding: 12px;
+            border-radius: 12px;
+            border: 1px solid #eaeaea;
             height: fit-content;
+            page-break-inside: avoid;
+            break-inside: avoid;
           }
+          .two-page .specs-grid { grid-template-columns: repeat(4, 1fr); }
+          .two-page .agent-card { margin-top: auto; }
+          .one-page-details {
+            margin-top: 14px;
+            columns: 2;
+            column-gap: 20px;
+          }
+          .one-page-details h2 { column-span: all; }
           .spec-item {
             text-align: center;
+            padding: 4px;
           }
           .spec-label {
-            font-size: 9px;
+            font-size: 8px;
             text-transform: uppercase;
             color: #888;
             font-weight: 700;
-            letter-spacing: 1px;
+            letter-spacing: 0.5px;
           }
           .spec-value {
-            font-size: 16px;
+            font-size: 13px;
             font-weight: 800;
             color: #0F2040;
-            margin-top: 3px;
+            margin-top: 1px;
           }
           .agent-card {
             border: 1px solid #eaeaea;
-            border-radius: 24px;
-            padding: 20px;
+            border-radius: 14px;
+            padding: 12px 16px;
             display: flex;
             align-items: center;
-            gap: 20px;
-            margin-top: 30px;
+            gap: 14px;
+            background: #ffffff;
+            margin-top: 12px;
+            page-break-inside: avoid;
+            break-inside: avoid;
           }
           .agent-photo {
-            width: 80px;
-            height: 80px;
+            width: 55px;
+            height: 55px;
             border-radius: 50%;
             object-fit: cover;
             border: 2px solid #C9A84C;
           }
           .agent-info h3 {
             margin: 0;
-            font-size: 16px;
+            font-size: 14px;
             color: #0F2040;
             font-weight: 700;
           }
           .agent-info p {
-            margin: 3px 0 0 0;
-            font-size: 12px;
+            margin: 2px 0 0 0;
+            font-size: 11px;
             color: #666;
           }
           .agent-contact {
-            margin-top: 8px !important;
+            margin-top: 4px !important;
             font-weight: 600;
             color: #0F2040 !important;
           }
+          .footer-compliance {
+            font-size: 8px;
+            color: #999;
+            text-align: center;
+            margin-top: 14px;
+            line-height: 1.35;
+            border-top: 1px solid #eee;
+            padding-top: 8px;
+            page-break-inside: avoid;
+            break-inside: avoid;
+          }
           @media print {
-            body {
-              padding: 0;
-            }
             .no-print {
               display: none;
             }
           }
         </style>
       </head>
-      <body>
-        <div class="header">
-          <div class="logo-container">
-            ${logoUrl ? `<img class="logo" src="${logoUrl}">` : ''}
-            <div>
-              <div class="company-name">${brokerageName}</div>
-              <div class="tagline">Exclusive Representation</div>
+      <body class="${printLayout}">
+        <section class="print-page cover-page">
+          <div class="header">
+            <div class="logo-container">
+              ${logoUrl ? `<img class="logo" src="${escapePrintHtml(logoUrl)}" alt="">` : ''}
+              <div>
+                <div class="company-name">${escapePrintHtml(brokerageName)}</div>
+                <div class="tagline">Exclusive Representation</div>
+              </div>
+            </div>
+            <div class="price-address">
+              <div class="price">${escapePrintHtml(priceStr)}</div>
+              <div class="address">${escapePrintHtml(displayStreet || listing.address)}, ${escapePrintHtml(displayLocation)}</div>
             </div>
           </div>
-          <div class="price-address">
-            <div class="price">${priceStr}</div>
-            <div class="address">${listing.address}, ${listing.city}, ${listing.state}</div>
-          </div>
-        </div>
 
-        <div class="hero-image-container">
-          <img class="hero-image" src="${mediaUrls[0] || ''}">
-        </div>
+          ${mediaUrls[0] ? `<div class="hero-image-container">
+            <img class="hero-image" src="${escapePrintHtml(mediaUrls[0])}" alt="${escapePrintHtml(displayStreet || listing.address)}">
+          </div>` : ''}
 
-        <div class="gallery-grid">
-          ${mediaUrls.slice(1, 4).map((url: string) => `<img class="gallery-image" src="${url}">`).join('')}
-        </div>
+          ${mediaUrls.length > 1 ? `<div class="gallery-grid">
+            ${mediaUrls.slice(1, printLayout === 'two-page' ? 6 : 4).map((url: string) => `<img class="gallery-image" src="${escapePrintHtml(url)}" alt="">`).join('')}
+          </div>` : ''}
 
-        <div class="details-section">
-          <div class="description-container">
-            <h2>About the Property</h2>
-            <div class="description">${listing.description || 'No description available.'}</div>
-          </div>
-          <div class="specs-grid">
-            <div class="spec-item">
-              <div class="spec-label">Bedrooms</div>
-              <div class="spec-value">${listing.bedrooms || '—'}</div>
-            </div>
-            <div class="spec-item">
-              <div class="spec-label">Bathrooms</div>
-              <div class="spec-value">${listing.bathrooms || '—'}</div>
-            </div>
-            <div class="spec-item">
-              <div class="spec-label">Square Feet</div>
-              <div class="spec-value">${listing.sqft ? listing.sqft.toLocaleString() : '—'}</div>
-            </div>
-            <div class="spec-item">
-              <div class="spec-label">Year Built</div>
-              <div class="spec-value">${listing.yearBuilt || '—'}</div>
+          <div class="specs-grid">${printSpecsHtml}</div>
+
+          ${printLayout === 'two-page' ? `<div class="cover-summary">
+            <strong>${escapePrintHtml(presentation.highlightTitle)}</strong>
+            ${escapePrintHtml(printExcerpt)} <span>Full details on page 2.</span>
+          </div>` : ''}
+
+          <div class="one-page-details">
+            <div class="description-container">
+              <h2>About the Property</h2>
+              <div class="description">${escapePrintHtml(description)}</div>
             </div>
           </div>
-        </div>
 
-        <div class="agent-card">
-          ${agentAvatar ? `<img class="agent-photo" src="${agentAvatar}">` : ''}
-          <div class="agent-info">
-            <h3>Presented By: ${agentName}</h3>
-            <p>${brokerageName}</p>
-            <p class="agent-contact">Phone: ${agentPhone} | Email: ${agentEmail}</p>
+          <div class="agent-card">
+            ${agentAvatar ? `<img class="agent-photo" src="${escapePrintHtml(agentAvatar)}" alt="">` : ''}
+            <div class="agent-info">
+              <h3>Presented By: ${escapePrintHtml(agentName)}</h3>
+              <p>${escapePrintHtml(brokerageName)}</p>
+              <p class="agent-contact">Phone: ${escapePrintHtml(agentPhone || 'Contact office')} ${agentEmail ? `| Email: ${escapePrintHtml(agentEmail)}` : ''}</p>
+            </div>
           </div>
-        </div>
+
+          <div class="footer-compliance">
+            Listing courtesy of ${escapePrintHtml(brokerageName)}. Equal Housing Opportunity. All broker advertisements are regulated under Article 12-A of NY State Real Property Law.
+          </div>
+        </section>
+
+        <section class="print-page detail-page">
+          <div class="detail-title">
+            <h1>About the Property</h1>
+            <div class="address">${escapePrintHtml(displayStreet || listing.address)}, ${escapePrintHtml(displayLocation)} · ${escapePrintHtml(priceStr)}</div>
+          </div>
+          <div class="detail-description ${description.length > 1200 ? 'long' : ''}">${escapePrintHtml(description)}</div>
+          <div class="agent-card">
+            ${agentAvatar ? `<img class="agent-photo" src="${escapePrintHtml(agentAvatar)}" alt="">` : ''}
+            <div class="agent-info">
+              <h3>Presented By: ${escapePrintHtml(agentName)}</h3>
+              <p>${escapePrintHtml(brokerageName)}</p>
+              <p class="agent-contact">Phone: ${escapePrintHtml(agentPhone || 'Contact office')} ${agentEmail ? `| Email: ${escapePrintHtml(agentEmail)}` : ''}</p>
+            </div>
+          </div>
+          <div class="footer-compliance">
+            Listing courtesy of ${escapePrintHtml(brokerageName)}. Equal Housing Opportunity. All information is deemed reliable but should be independently verified.
+          </div>
+        </section>
 
         <script>
           window.onload = function() {
-            setTimeout(function() {
-              window.print();
-            }, 1000);
+            var printed = false;
+            var images = Array.from(document.images);
+            var loaded = 0;
+            var total = images.length;
+            function doPrint() {
+              if (printed) return;
+              printed = true;
+              setTimeout(function() {
+                window.print();
+              }, 250);
+            }
+            if (total === 0) { doPrint(); return; }
+            function checkDone() {
+              loaded++;
+              if (loaded >= total) { doPrint(); }
+            }
+            images.forEach(function(img) {
+              if (img.complete) {
+                checkDone();
+              } else {
+                img.onload = checkDone;
+                img.onerror = checkDone;
+              }
+            });
+            setTimeout(doPrint, 2500);
           }
         </script>
       </body>
@@ -753,7 +979,8 @@ export function ListingDetailPage() {
   }
 
   const handleSelectListing = (selectedListObj: any) => {
-    navigate(`/inventory/listings/${selectedListObj.id}`)
+    const qs = sharedById ? `?sharedBy=${encodeURIComponent(sharedById)}` : ''
+    navigate(`/inventory/listings/${selectedListObj.id}${qs}`)
   }
 
   useEffect(() => {
@@ -767,10 +994,13 @@ export function ListingDetailPage() {
     setMobileViewMode('story')
     async function loadData() {
       try {
-        const res = await fetch(`/api/public/listings/${id}`)
+        const listingEndpoint = (sharedById || !user)
+          ? `/api/public/listings/${id}${inviteToken ? `?inviteToken=${encodeURIComponent(inviteToken)}` : ''}`
+          : `/api/listings/${id}`
+        const res = await fetch(listingEndpoint)
         const data = await res.json()
-        const listObj = data.data
-        if (data.success && listObj) {
+        const listObj = data?.data || (data?.id ? data : null)
+        if (listObj && data?.success !== false) {
           setListing(listObj)
           if (listObj.heroMediaUrl) {
             setActiveMediaUrl(listObj.heroMediaUrl)
@@ -824,7 +1054,7 @@ export function ListingDetailPage() {
       }
     }
     loadData()
-  }, [id, sharedById, user])
+  }, [id, sharedById, inviteToken, user])
 
   const handleAddToDeals = async () => {
     if (!listing) return
@@ -860,33 +1090,41 @@ export function ListingDetailPage() {
     }
   }
 
-  const handleSendLead = async (e: React.FormEvent) => {
+  const handleSendLead = async (e: React.FormEvent, targetObj?: any) => {
     e.preventDefault()
     setIsSubmittingLead(true)
+    const target = targetObj || selectedListObj || listing
     try {
       const res = await fetch('/api/public/lead', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          tenantId: user?.tenantId || agent?.tenantId || 'tenant_primeamerica',
-          agentId: sharedById || user?.id || null,
+          listingId: target?.id || listing?.id,
+          inquiryId,
+          sharedBy: sharedById || undefined,
           first_name: leadName.split(' ')[0] || 'Inquiry',
           last_name: leadName.split(' ').slice(1).join(' ') || 'Lead',
           email: leadEmail,
           phone: leadPhone,
-          notes: `Lead from shared listing landing page for property ${listing?.address}. Message: ${leadMessage}`
+          notes: `Lead from shared listing landing page for property ${target?.address || listing?.address || ''}. Message: ${leadMessage}`
         })
       })
       if (res.ok) {
-        alert('Thank you! Your inquiry has been sent to the presented by agent.')
-        setLeadName('')
-        setLeadEmail('')
-        setLeadPhone('')
+        setInquirySuccess(true)
+        setInquiryId(crypto.randomUUID())
+        setTimeout(() => {
+          setLeadName('')
+          setLeadEmail('')
+          setLeadPhone('')
+          setInquirySuccess(false)
+          setShowInquiryModal(false)
+        }, 2000)
       } else {
         alert('Failed to submit inquiry. Please try again.')
       }
     } catch (e) {
       console.error(e)
+      alert('An error occurred. Please try again.')
     } finally {
       setIsSubmittingLead(false)
     }
@@ -947,7 +1185,7 @@ export function ListingDetailPage() {
   function renderPublicView() {
     if (!listing) return null
     const isLuxury = listing.price && listing.price >= 1000000
-    const isLease = listing.propertyType?.toLowerCase().includes('lease') || listing.propertyType?.toLowerCase().includes('rent')
+    const isLease = presentation.id === 'rental' || presentation.id === 'commercial-lease'
 
     const theme = isLuxury
       ? {
@@ -980,8 +1218,6 @@ export function ListingDetailPage() {
         }
 
     const embedUrl = getEmbedTourUrl()
-    const pricePerSqFt = listing?.price && listing?.sqft ? Math.round(listing.price / listing.sqft) : null
-
     const companyIdentity = {
       companyName,
       address: String(firstNonEmpty(agent?.companyAddress, branding.companyAddress, '100 Wall Street, 12th Floor, New York, NY 10005') || '100 Wall Street, 12th Floor, New York, NY 10005'),
@@ -989,14 +1225,12 @@ export function ListingDetailPage() {
       fax: String(firstNonEmpty(agent?.companyFax, branding.companyFax, '') || ''),
     }
     const complianceDisclaimer = getComplianceDisclaimer(companyIdentity)
-    const residentialTemplate = isResidentialType(listing)
-    const sourceCoords = getListingSourceCoords(listing)
-    const fallbackCoords = getDeterministicCoords(listing.address, listing.city, listing.zip)
-    const effectiveMapCoords = {
-      lat: mapSettings?.lat ?? sourceCoords?.lat ?? fallbackCoords.lat,
-      lng: mapSettings?.lng ?? sourceCoords?.lng ?? fallbackCoords.lng,
-    }
-
+    const overviewFacts = presentation.showAffordability && estimatedMonthlyPayment
+      ? [
+          ...presentation.primaryFacts.slice(0, 3),
+          { id: 'estimated-payment', label: 'Estimated Monthly Payment', value: `$${estimatedMonthlyPayment.total.toLocaleString()}/mo` },
+        ]
+      : presentation.primaryFacts.slice(0, 4)
     // ── MOBILE RESPONSIVE EXPERIENCE ──────────────────────────────────────────
     if (isMobile && !forceDesktopLayout) {
       return (
@@ -1017,10 +1251,17 @@ export function ListingDetailPage() {
               <Grid className="h-4.5 w-4.5" /> Browse Feed
             </button>
             <button
-              onClick={() => setForceDesktopLayout(true)}
-              className="flex-1 py-3 text-xs font-black uppercase tracking-widest text-center flex items-center justify-center gap-1.5 border-b-2 border-transparent text-gray-400 hover:text-white"
+              onClick={printFlyer}
+              className="py-3 px-3 text-xs font-black uppercase tracking-widest text-center flex items-center justify-center gap-1.5 border-b-2 border-transparent text-gray-400 hover:text-white"
+              title="Print Flyer"
             >
-              <Grid className="h-4.5 w-4.5" /> Full Page
+              <Printer className="h-4 w-4" /> Print
+            </button>
+            <button
+              onClick={() => setForceDesktopLayout(true)}
+              className="py-3 px-3 text-xs font-black uppercase tracking-widest text-center flex items-center justify-center gap-1.5 border-b-2 border-transparent text-gray-400 hover:text-white"
+            >
+              Full Page
             </button>
           </div>
 
@@ -1044,12 +1285,15 @@ export function ListingDetailPage() {
           {mobileViewMode === 'story' ? (
             <ListingStoryView
               listing={listing}
+              displayStreet={displayStreet}
               agent={agent}
               listingAgent={presentedBy}
               isSharedLeadView={isSharedLeadView}
               complianceDisclaimer={complianceDisclaimer}
               mapSettings={mapSettings}
               effectiveMapCoords={effectiveMapCoords}
+              listingAreas={listingAreas}
+              listingSchools={listingSchools}
               mediaList={mediaList}
               activeIndex={activeIndex}
               handleNextPhoto={handleNextPhoto}
@@ -1062,6 +1306,7 @@ export function ListingDetailPage() {
               companyLogoUrl={companyLogoUrl}
               companyName={companyName}
               onOpenInquiry={openInquiry}
+              onPrintFlyer={printFlyer}
             />
           ) : (
             <ListingMobileFeed
@@ -1092,37 +1337,48 @@ export function ListingDetailPage() {
               <h4 className="font-bold text-gray-800 text-xs uppercase tracking-wider mb-1">
                 Voluntary Inquiry
               </h4>
-              <p className="text-[9px] text-gray-400 mb-4">Asking about {selectedListObj ? selectedListObj.address : 'available options'}. No obligation.</p>
-              <form onSubmit={(e) => { e.preventDefault(); handleSendLead(e); setShowInquiryModal(false); }} className="space-y-3.5">
-                <div>
-                  <label className="text-[9px] uppercase font-bold text-gray-400 block mb-0.5">Your Name</label>
-                  <input required value={leadName} onChange={e => setLeadName(e.target.value)} placeholder="Jane Doe" className="w-full rounded-xl border border-gray-200 px-3.5 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 bg-gray-50/50" />
-                </div>
-                <div>
-                  <label className="text-[9px] uppercase font-bold text-gray-400 block mb-0.5">Email Address</label>
-                  <input required type="email" value={leadEmail} onChange={e => setLeadEmail(e.target.value)} placeholder="jane@email.com" className="w-full rounded-xl border border-gray-200 px-3.5 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 bg-gray-50/50" />
-                </div>
-                <div>
-                  <label className="text-[9px] uppercase font-bold text-gray-400 block mb-0.5">Phone Number</label>
-                  <input required type="tel" value={leadPhone} onChange={e => setLeadPhone(e.target.value)} placeholder="555-0199" className="w-full rounded-xl border border-gray-200 px-3.5 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 bg-gray-50/50" />
-                </div>
-                <div>
-                  <label className="text-[9px] uppercase font-bold text-gray-400 block mb-0.5">Message</label>
-                  <textarea rows={2} value={leadMessage} onChange={e => setLeadMessage(e.target.value)} className="w-full rounded-xl border border-gray-200 px-3.5 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 bg-gray-50/50" />
-                </div>
+              <p className="text-[9px] text-gray-400 mb-4">Asking about {selectedListObj ? selectedListObj.address : (listing?.address || 'available options')}. No obligation.</p>
 
-                <button
-                  type="submit"
-                  disabled={isSubmittingLead}
-                  className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2.5 rounded-xl text-xs shadow-md transition-colors"
-                >
-                  {isSubmittingLead ? 'Sending...' : 'Send Inquiry'}
-                </button>
+              {inquirySuccess ? (
+                <div className="py-8 text-center space-y-2">
+                  <div className="h-10 w-10 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto text-lg font-bold">
+                    ✓
+                  </div>
+                  <p className="text-xs font-bold text-gray-900">Inquiry Sent Successfully!</p>
+                  <p className="text-[10px] text-gray-500">The presented agent will contact you shortly.</p>
+                </div>
+              ) : (
+                <form onSubmit={(e) => handleSendLead(e, selectedListObj)} className="space-y-3.5">
+                  <div>
+                    <label className="text-[9px] uppercase font-bold text-gray-400 block mb-0.5">Your Name</label>
+                    <input required value={leadName} onChange={e => setLeadName(e.target.value)} placeholder="Jane Doe" className="w-full rounded-xl border border-gray-200 px-3.5 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 bg-gray-50/50" />
+                  </div>
+                  <div>
+                    <label className="text-[9px] uppercase font-bold text-gray-400 block mb-0.5">Email Address</label>
+                    <input required type="email" value={leadEmail} onChange={e => setLeadEmail(e.target.value)} placeholder="jane@email.com" className="w-full rounded-xl border border-gray-200 px-3.5 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 bg-gray-50/50" />
+                  </div>
+                  <div>
+                    <label className="text-[9px] uppercase font-bold text-gray-400 block mb-0.5">Phone Number</label>
+                    <input required type="tel" value={leadPhone} onChange={e => setLeadPhone(e.target.value)} placeholder="555-0199" className="w-full rounded-xl border border-gray-200 px-3.5 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 bg-gray-50/50" />
+                  </div>
+                  <div>
+                    <label className="text-[9px] uppercase font-bold text-gray-400 block mb-0.5">Message</label>
+                    <textarea rows={2} value={leadMessage} onChange={e => setLeadMessage(e.target.value)} className="w-full rounded-xl border border-gray-200 px-3.5 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 bg-gray-50/50" />
+                  </div>
 
-                <p className="text-[7.5px] text-gray-400 text-center leading-relaxed mt-2.5">
-                  {complianceDisclaimer}
-                </p>
-              </form>
+                  <button
+                    type="submit"
+                    disabled={isSubmittingLead}
+                    className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2.5 rounded-xl text-xs shadow-md transition-colors flex items-center justify-center gap-1.5"
+                  >
+                    {isSubmittingLead ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Sending...</> : 'Send Inquiry'}
+                  </button>
+
+                  <p className="text-[7.5px] text-gray-400 text-center leading-relaxed mt-2.5">
+                    {complianceDisclaimer}
+                  </p>
+                </form>
+              )}
             </div>
           </div>
         )}
@@ -1157,7 +1413,7 @@ export function ListingDetailPage() {
         {/* Global sticky header */}
         <header className="sticky top-0 z-40 bg-white/90 backdrop-blur-md border-b border-gray-150 px-6 py-3.5 flex items-center justify-between shadow-xs">
           <div className="flex items-center gap-3">
-            {!logoFailed && companyLogoUrl ? (
+            {!logoFailed && companyLogoUrl && !companyLogoUrl.includes('/prime-america-seal.png') ? (
               <img
                 src={companyLogoUrl}
                 alt={companyName}
@@ -1166,14 +1422,11 @@ export function ListingDetailPage() {
               />
             ) : (
               <div className="flex items-center gap-2.5">
-                <svg className="h-10 w-10 flex-shrink-0" viewBox="0 0 100 100">
-                  <circle cx="50" cy="50" r="48" fill="#0c1e2d" stroke="#b45309" strokeWidth="3" />
-                  <circle cx="50" cy="50" r="42" fill="none" stroke="#b45309" strokeWidth="0.7" strokeDasharray="2 2" />
-                  <text x="50" y="32" fill="#f59e0b" fontSize="6.5" fontWeight="bold" textAnchor="middle" letterSpacing="0.5">PRIME</text>
-                  <text x="50" y="42" fill="#f59e0b" fontSize="6.5" fontWeight="bold" textAnchor="middle" letterSpacing="0.5">AMERICA</text>
-                  <text x="50" y="70" fill="#f59e0b" fontSize="5.5" fontWeight="bold" textAnchor="middle">REAL ESTATE</text>
-                  <path d="M42 58 L50 50 L58 58 L55 58 L55 64 L45 64 L45 58 Z" fill="#f59e0b" />
-                </svg>
+                <img
+                  src="/prime-america-seal.png"
+                  alt="Prime America Real Estate"
+                  className="h-10 w-10 object-contain rounded-full border border-amber-500/30"
+                />
                 <div>
                   <p className="font-extrabold text-base text-gray-900 leading-none">{companyName}</p>
                   <p className="text-[11px] font-semibold text-amber-600 tracking-wide mt-0.5">Prime America Real Estate, Inc.</p>
@@ -1182,27 +1435,37 @@ export function ListingDetailPage() {
             )}
           </div>
 
-          {/* Header Right - Presented by Agent Card */}
-          {presentedBy.name && (
-            <div className="flex items-center gap-3 bg-gray-50/90 border border-gray-200 rounded-full pl-3 pr-4 py-1.5 shadow-xs">
-              <div className="h-9 w-9 rounded-full bg-brand-navy text-brand-gold font-bold text-xs flex items-center justify-center flex-shrink-0 border border-amber-400/40 shadow-xs">
-                {(presentedBy.name || 'S')[0]}
+          {/* Header Right - Presented by Agent Card & Action Buttons */}
+          <div className="flex items-center gap-2.5">
+            <button
+              onClick={printFlyer}
+              className="px-3.5 py-1.5 rounded-full text-xs font-bold bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 transition-colors shadow-xs flex items-center gap-1.5 no-print"
+              title="Print Property Flyer"
+            >
+              <Printer className="h-3.5 w-3.5 text-gray-500" /> <span className="hidden sm:inline">Print</span> Flyer
+            </button>
+
+            {presentedBy.name && (
+              <div className="flex items-center gap-3 bg-gray-50/90 border border-gray-200 rounded-full pl-3 pr-4 py-1.5 shadow-xs">
+                <div className="h-9 w-9 rounded-full bg-brand-navy text-brand-gold font-bold text-xs flex items-center justify-center flex-shrink-0 border border-amber-400/40 shadow-xs">
+                  {(presentedBy.name || 'S')[0]}
+                </div>
+                <div className="text-left leading-tight hidden sm:block">
+                  <p className="text-[9.5px] font-bold text-gray-400 uppercase tracking-wider">Presented by</p>
+                  <p className="text-xs font-extrabold text-gray-900">{presentedBy.name}</p>
+                </div>
+                <button
+                  onClick={() => {
+                    const formEl = document.getElementById('request-tour-form')
+                    if (formEl) formEl.scrollIntoView({ behavior: 'smooth' })
+                  }}
+                  className="ml-1 px-3.5 py-1.5 rounded-full text-xs font-bold bg-brand-gold text-brand-navy hover:bg-amber-400 transition-colors shadow-xs"
+                >
+                  Contact
+                </button>
               </div>
-              <div className="text-left leading-tight hidden sm:block">
-                <p className="text-[9.5px] font-bold text-gray-400 uppercase tracking-wider">Presented by</p>
-                <p className="text-xs font-extrabold text-gray-900">{presentedBy.name}</p>
-              </div>
-              <button
-                onClick={() => {
-                  const formEl = document.getElementById('request-tour-form')
-                  if (formEl) formEl.scrollIntoView({ behavior: 'smooth' })
-                }}
-                className="ml-1 px-3.5 py-1.5 rounded-full text-xs font-bold bg-brand-gold text-brand-navy hover:bg-amber-400 transition-colors shadow-xs"
-              >
-                Contact
-              </button>
-            </div>
-          )}
+            )}
+          </div>
         </header>
 
         <div className="max-w-6xl mx-auto px-6 mt-6">
@@ -1241,11 +1504,7 @@ export function ListingDetailPage() {
               )
             ) : activeMediaUrl ? (
               <img
-                src={
-                  activeMediaUrl.startsWith('http')
-                    ? activeMediaUrl
-                    : `https://inventory.primeamericarealestate.com${activeMediaUrl}`
-                }
+                src={resolveMediaUrl(activeMediaUrl, listing.id)}
                 alt={listing.address}
                 className="w-full h-full object-cover cursor-pointer hover:scale-[1.01] transition-transform duration-500"
                 onClick={() => setIsLightboxOpen(true)}
@@ -1306,9 +1565,7 @@ export function ListingDetailPage() {
           {(mediaList.length > 0 || embedUrl) && (
             <div className="flex gap-2.5 overflow-x-auto py-4 px-1 scrollbar-hide">
               {mediaList.map((med: any, idx: number) => {
-                const mediaSrc = med.mediaUrl.startsWith('http')
-                  ? med.mediaUrl
-                  : `https://inventory.primeamericarealestate.com${med.mediaUrl}`
+                const mediaSrc = resolveMediaUrl(med.mediaUrl, listing.id)
                 return (
                   <button
                     key={med.id}
@@ -1337,25 +1594,21 @@ export function ListingDetailPage() {
 
           {/* Core Info & Quick Stats Row */}
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 mt-2">
-            <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
-              <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400">Asking Price</p>
-              <p className="mt-1 text-2xl font-black text-gray-900">{listing.price ? `$${listing.price.toLocaleString()}` : '—'}</p>
-            </div>
-            <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
-              <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400">Price / Sq Ft</p>
-              <p className="mt-1 text-2xl font-black text-gray-900">{pricePerSqFt ? `$${pricePerSqFt}` : '—'}</p>
-            </div>
-            <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
-              <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400">Days On Market</p>
-              <p className="mt-1 text-2xl font-black text-gray-900">12 days</p>
-            </div>
-            <div
-              onClick={() => setShowPaymentModal(true)}
-              className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm cursor-pointer hover:border-brand-navy/30 transition-colors relative"
-            >
-              <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400">Est. Monthly Payment <span className="text-[9px] text-blue-600 font-bold ml-1">adjust</span></p>
-              <p className="mt-1 text-2xl font-black text-gray-900 max-w-full truncate">{estimatedMonthlyPayment ? `$${estimatedMonthlyPayment.total.toLocaleString()}` : '—'}/mo</p>
-            </div>
+            {overviewFacts.map((item) => (
+              <div
+                key={item.id}
+                onClick={item.id === 'estimated-payment' ? () => setShowPaymentModal(true) : undefined}
+                className={clsx(
+                  'rounded-2xl border border-gray-200 bg-white p-4 shadow-sm',
+                  item.id === 'estimated-payment' && 'cursor-pointer hover:border-brand-navy/30 transition-colors',
+                )}
+              >
+                <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400">
+                  {item.label}{item.id === 'estimated-payment' ? <span className="text-[9px] text-blue-600 font-bold ml-1">adjust</span> : null}
+                </p>
+                <p className="mt-1 text-2xl font-black text-gray-900 max-w-full truncate">{item.value}</p>
+              </div>
+            ))}
           </div>
 
           {/* Main 2-Column Section */}
@@ -1365,52 +1618,21 @@ export function ListingDetailPage() {
               {/* Address details & Quick Specs */}
               <div className="space-y-4 bg-white p-6 rounded-3xl border border-gray-200 shadow-sm">
                 <div>
-                  <h1 className={`text-3xl ${theme.fontHeading} text-gray-900 font-bold`}>{listing.address}</h1>
+                  <h1 className={`text-3xl ${theme.fontHeading} text-gray-900 font-bold`}>{displayStreet || listing.address}</h1>
                   <p className="text-gray-600 text-base flex items-center gap-1.5 font-sans mt-1 font-medium">
                     <MapPin className="h-5 w-5 text-amber-500 flex-shrink-0" />
                     {displayLocation}
                   </p>
                 </div>
 
-                {residentialTemplate ? (
-                  <div className="rounded-2xl border border-gray-100 bg-gray-50/80 p-5 mt-4 grid grid-cols-4 gap-4 text-center font-sans">
-                    <div className="space-y-1">
-                      <BedDouble className="h-5 w-5 mx-auto text-blue-600" />
-                      <p className="text-[10px] text-gray-400 font-bold uppercase">Bedrooms</p>
-                      <p className="text-xl font-black text-gray-900">{listing.bedrooms || '—'}</p>
+                <div className="rounded-2xl border border-gray-100 bg-gray-50/80 p-5 mt-4 grid grid-cols-2 md:grid-cols-4 gap-3 text-center font-sans">
+                  {presentation.primaryFacts.slice(1, 5).map((item) => (
+                    <div key={item.id} className="rounded-xl bg-white border border-gray-100 p-3">
+                      <p className="text-[10px] text-gray-400 font-bold uppercase">{item.label}</p>
+                      <p className="text-sm font-bold text-gray-800 capitalize mt-1">{item.value}</p>
                     </div>
-                    <div className="space-y-1 border-l border-gray-200">
-                      <Bath className="h-5 w-5 mx-auto text-blue-600" />
-                      <p className="text-[10px] text-gray-400 font-bold uppercase">Bathrooms</p>
-                      <p className="text-xl font-black text-gray-900">{listing.bathrooms || '—'}</p>
-                    </div>
-                    <div className="space-y-1 border-l border-gray-200">
-                      <Maximize2 className="h-5 w-5 mx-auto text-blue-600" />
-                      <p className="text-[10px] text-gray-400 font-bold uppercase">Square Feet</p>
-                      <p className="text-xl font-black text-gray-900">{listing.sqft ? listing.sqft.toLocaleString() : '—'}</p>
-                    </div>
-                    <div className="space-y-1 border-l border-gray-200">
-                      <Calendar className="h-5 w-5 mx-auto text-blue-600" />
-                      <p className="text-[10px] text-gray-400 font-bold uppercase">Year Built</p>
-                      <p className="text-xl font-black text-gray-900">{listing.yearBuilt || listing.year_built || '1925'}</p>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="rounded-2xl border border-gray-100 bg-gray-50/80 p-5 mt-4 grid grid-cols-3 gap-3 text-center font-sans">
-                    <div className="rounded-xl bg-white border border-gray-100 p-3">
-                      <p className="text-[10px] text-gray-400 font-bold uppercase">Property Type</p>
-                      <p className="text-sm font-bold text-gray-800 capitalize">{listing.propertySubtype || listing.propertyType || 'Commercial'}</p>
-                    </div>
-                    <div className="rounded-xl bg-white border border-gray-100 p-3">
-                      <p className="text-[10px] text-gray-400 font-bold uppercase">Building Size</p>
-                      <p className="text-sm font-bold text-gray-800">{listing.sqft ? `${Number(listing.sqft).toLocaleString()} sf` : '—'}</p>
-                    </div>
-                    <div className="rounded-xl bg-white border border-gray-100 p-3">
-                      <p className="text-[10px] text-gray-400 font-bold uppercase">Lot Size</p>
-                      <p className="text-sm font-bold text-gray-800">{listing.lotSize ? `${Number(listing.lotSize).toLocaleString()} sf` : '—'}</p>
-                    </div>
-                  </div>
-                )}
+                  ))}
+                </div>
               </div>
 
               {/* Description */}
@@ -1421,11 +1643,41 @@ export function ListingDetailPage() {
                 </p>
               </div>
 
+              {presentation.sections.length > 0 ? (
+                <div className="space-y-5 bg-white p-6 rounded-3xl border border-gray-200 shadow-sm font-sans">
+                  <h2 className="text-xl font-bold text-gray-900 border-b border-gray-100 pb-2">{presentation.label} Details</h2>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    {presentation.sections.map((section) => (
+                      <div key={section.title}>
+                        <h3 className="text-xs font-extrabold uppercase tracking-wider text-gray-500 mb-3">{section.title}</h3>
+                        <dl className="space-y-2">
+                          {section.facts.map((item) => (
+                            <div key={item.id} className="flex items-start justify-between gap-4 border-b border-gray-100 pb-2 text-sm">
+                              <dt className="text-gray-500">{item.label}</dt>
+                              <dd className="font-bold text-gray-900 text-right">{item.value}</dd>
+                            </div>
+                          ))}
+                        </dl>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+
               {/* Interactive Local Map section */}
               <div className="space-y-4 bg-white p-6 rounded-3xl border border-gray-200 shadow-sm">
                 <h2 className="text-xl font-bold text-gray-900 flex items-center gap-2">
                   <Compass className="h-5 w-5 text-amber-500" /> Explore {listing.city || 'Property'} Location
                 </h2>
+                {listingAreas.length > 0 ? (
+                  <div className="flex flex-wrap gap-2 font-sans">
+                    {listingAreas.map((area) => (
+                      <span key={area.label} className="rounded-full border border-gray-200 bg-gray-50 px-3 py-1.5 text-xs text-gray-700">
+                        <strong>{area.label}:</strong> {area.value}
+                      </span>
+                    ))}
+                  </div>
+                ) : null}
                 <ListingMap
                   address={listing.address}
                   city={listing.city}
@@ -1437,7 +1689,7 @@ export function ListingDetailPage() {
               </div>
 
               {/* Hyper-Local School Info & Amenities */}
-              <div className="space-y-4 bg-white p-6 rounded-3xl border border-gray-200 shadow-sm font-sans">
+              {presentation.showSchools && listingSchools.length > 0 ? <div className="space-y-4 bg-white p-6 rounded-3xl border border-gray-200 shadow-sm font-sans">
                 <h2 className="text-xl font-bold text-gray-900 border-b border-gray-100 pb-2 flex items-center gap-2">
                   <Building2 className="h-5 w-5 text-blue-600" /> Area Schools & Education
                 </h2>
@@ -1448,13 +1700,10 @@ export function ListingDetailPage() {
                         <span className="text-[9px] font-extrabold uppercase text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full">{sch.type}</span>
                         <p className="font-bold text-gray-900 text-sm mt-2">{sch.name}</p>
                       </div>
-                      <p className="text-xs font-semibold text-emerald-600 mt-2 flex items-center gap-1">
-                        <span>★ Rating:</span> {sch.rating}
-                      </p>
                     </div>
                   ))}
                 </div>
-              </div>
+              </div> : null}
 
               {/* Virtual Tour note — now shown inline in photo gallery above */}
 
@@ -1499,10 +1748,10 @@ export function ListingDetailPage() {
               <div id="request-tour-form" className="bg-white rounded-3xl p-6 border border-gray-200 shadow-xl space-y-4 font-sans">
                 <div>
                   <h3 className="font-extrabold text-gray-900 text-lg flex items-center gap-2">
-                    <Send className="h-5 w-5 text-blue-600" /> Schedule a Tour
+                    <Send className="h-5 w-5 text-blue-600" /> {presentation.inquiryTitle}
                   </h3>
                   <p className="text-xs text-gray-500 mt-1">
-                    or call Siddhartha Lama: <a href="tel:9294248950" className="font-bold text-blue-600 hover:underline">(929) 424-8950</a>
+                    or call {presentedBy.name || 'our team'}: <a href={`tel:${presentedBy.phone || ''}`} className="font-bold text-blue-600 hover:underline">{presentedBy.phone || 'Contact us'}</a>
                   </p>
                 </div>
 
@@ -1536,7 +1785,7 @@ export function ListingDetailPage() {
                     className="w-full bg-blue-600 hover:bg-blue-700 text-white font-extrabold py-3.5 rounded-xl text-sm transition-all shadow-lg shadow-blue-600/20 inline-flex items-center justify-center gap-2"
                   >
                     <BadgeInfo className="h-4 w-4" />
-                    {isSubmittingLead ? 'Submitting...' : 'Request Private Showing'}
+                    {isSubmittingLead ? 'Submitting...' : presentation.inquiryAction}
                   </button>
                 </form>
               </div>
@@ -1631,11 +1880,7 @@ export function ListingDetailPage() {
               )}
 
               <img
-                src={
-                  mediaList[activeIndex]?.mediaUrl?.startsWith('http')
-                    ? mediaList[activeIndex].mediaUrl
-                    : `https://inventory.primeamericarealestate.com${mediaList[activeIndex]?.mediaUrl}`
-                }
+                src={resolveMediaUrl(mediaList[activeIndex]?.mediaUrl, listing.id)}
                 alt={listing.address}
                 className="max-h-[75vh] max-w-full object-contain rounded-xl shadow-2xl select-none"
               />
@@ -1658,9 +1903,7 @@ export function ListingDetailPage() {
 
               <div className="flex gap-2 overflow-x-auto max-w-full scrollbar-hide py-1">
                 {mediaList.map((med: any, idx: number) => {
-                  const mediaSrc = med.mediaUrl.startsWith('http')
-                    ? med.mediaUrl
-                    : `https://inventory.primeamericarealestate.com${med.mediaUrl}`
+                  const mediaSrc = resolveMediaUrl(med.mediaUrl, listing.id)
                   return (
                     <button
                       key={med.id}
@@ -1681,75 +1924,379 @@ export function ListingDetailPage() {
     )
   }
 
-  const shareModal = showShareModal && (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm overflow-y-auto" onClick={() => setShowShareModal(false)}>
-      <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm mx-auto overflow-hidden font-sans border border-gray-200 p-5 space-y-4" onClick={(e) => e.stopPropagation()}>
-        <div className="flex justify-between items-center border-b border-gray-100 pb-3">
-          <h3 className="text-sm font-extrabold text-gray-900 flex items-center gap-1.5">
-            <Send className="h-4 w-4 text-blue-600" /> Share Listing Details
-          </h3>
-          <button onClick={() => setShowShareModal(false)} className="text-gray-400 hover:text-gray-600"><X className="h-4 w-4" /></button>
-        </div>
+  const generateHtmlEmail = () => {
+    if (!listing) return ''
+    const heroSrc = resolveMediaUrl(listing.heroMediaUrl, listing.id) || `${window.location.origin}/prime-america-seal.png`
+    const agentPhoto = agent?.avatarUrl || `${window.location.origin}/prime-america-seal.png`
+    const price = listing.price ? `$${listing.price.toLocaleString()}` : 'Price Upon Request'
+    const beds = listing.bedrooms ? `${listing.bedrooms} Beds` : null
+    const baths = listing.bathrooms ? `${listing.bathrooms} Baths` : null
+    const sqft = listing.sqft ? `${Number(listing.sqft).toLocaleString()} SqFt` : null
+    const specs = [beds, baths, sqft].filter(Boolean).join(' • ') || 'Exclusive Property'
+    const agentName = presentedBy?.name || agent?.name || 'Prime America Real Estate'
+    const agentBrokerage = presentedBy?.brokerage || companyName || 'Prime America Real Estate'
+    const agentPhone = presentedBy?.phone || agent?.phone || ''
+    const agentEmail = presentedBy?.email || agent?.email || ''
 
-        {/* Property Preview Card */}
-        {listing && (
-          <div className="flex gap-3 bg-gray-50 border border-gray-200 rounded-2xl p-3 items-center">
-            {mediaList[0]?.mediaUrl ? (
-              <img
-                src={mediaList[0].mediaUrl.startsWith('http') ? mediaList[0].mediaUrl : `https://inventory.primeamericarealestate.com${mediaList[0].mediaUrl}`}
-                alt=""
-                className="h-14 w-16 rounded-xl object-cover border border-gray-200 flex-shrink-0"
-              />
-            ) : (
-              <div className="h-14 w-16 rounded-xl bg-gray-200 flex items-center justify-center text-[10px] font-bold text-gray-500 flex-shrink-0">
-                No Pic
-              </div>
-            )}
-            <div className="min-w-0 flex-1">
-              <p className="font-bold text-gray-900 text-xs truncate">{listing.address}</p>
-              <p className="text-[11px] text-amber-600 font-extrabold mt-0.5">${listing.price?.toLocaleString() || '—'}</p>
-              <p className="text-[10px] text-gray-500 truncate">{displayLocation}</p>
+    return `<div style="max-width:600px;margin:0 auto;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;background-color:#ffffff;border:1px solid #e5e7eb;border-radius:16px;overflow:hidden;box-shadow:0 4px 12px rgba(0,0,0,0.05);">
+  <div style="position:relative;width:100%;height:280px;background-color:#0f172a;">
+    <img src="${heroSrc}" alt="${listing.address}" style="width:100%;height:280px;object-fit:cover;display:block;" />
+  </div>
+  <div style="padding:24px;">
+    <div style="margin-bottom:12px;">
+      <span style="background-color:#eff6ff;color:#1d4ed8;font-size:11px;font-weight:800;padding:4px 10px;border-radius:9999px;text-transform:uppercase;letter-spacing:0.05em;display:inline-block;">${listing.propertyType || 'For Sale'}</span>
+      <span style="color:#059669;font-size:22px;font-weight:900;float:right;line-height:1;">${price}</span>
+    </div>
+    <h2 style="margin:0 0 6px 0;font-size:20px;font-weight:800;color:#0f172a;line-height:1.2;">${displayStreet || listing.address}</h2>
+    <p style="margin:0 0 16px 0;font-size:13px;color:#64748b;">${displayLocation}</p>
+    <div style="background-color:#f8fafc;border:1px solid #f1f5f9;border-radius:12px;padding:12px;margin-bottom:20px;text-align:center;">
+      <span style="font-size:13px;font-weight:700;color:#334155;">${specs}</span>
+    </div>
+    <p style="font-size:13px;line-height:1.6;color:#475569;margin-bottom:24px;">${(listing.description || '').slice(0, 220)}${listing.description && listing.description.length > 220 ? '...' : ''}</p>
+    <div style="text-align:center;margin-bottom:24px;">
+      <a href="${shareUrl}" style="background-color:#0f172a;color:#ffffff;font-size:14px;font-weight:700;padding:14px 28px;border-radius:12px;text-decoration:none;display:inline-block;box-shadow:0 4px 6px -1px rgba(0,0,0,0.1);">Explore Photos & 3D Virtual Tour ↗</a>
+    </div>
+    <hr style="border:none;border-top:1px solid #e2e8f0;margin:20px 0;" />
+    <table style="width:100%;border-collapse:collapse;">
+      <tr>
+        <td style="width:48px;vertical-align:middle;">
+          <img src="${agentPhoto}" alt="${agentName}" style="width:44px;height:44px;border-radius:50%;object-fit:cover;display:block;border:1px solid #cbd5e1;" />
+        </td>
+        <td style="vertical-align:middle;padding-left:12px;">
+          <div style="font-size:13px;font-weight:800;color:#0f172a;">${agentName}</div>
+          <div style="font-size:11px;color:#64748b;">${agentBrokerage}</div>
+          ${agentPhone ? `<div style="font-size:11px;color:#2563eb;font-weight:600;margin-top:2px;"><a href="tel:${agentPhone}" style="color:#2563eb;text-decoration:none;">${agentPhone}</a></div>` : ''}
+          ${agentEmail ? `<div style="font-size:11px;color:#64748b;margin-top:1px;"><a href="mailto:${agentEmail}" style="color:#64748b;text-decoration:none;">${agentEmail}</a></div>` : ''}
+        </td>
+      </tr>
+    </table>
+  </div>
+</div>`
+  }
+
+  const handleCopyHtmlEmail = async () => {
+    const html = generateHtmlEmail()
+    const plain = `Check out ${listing.address} (${listing.price ? '$' + listing.price.toLocaleString() : ''})\n\nView Photos & 3D Tour: ${shareUrl}\n\nPresented by: ${presentedBy?.name || agent?.name || ''} (${presentedBy?.phone || agent?.phone || ''})`
+    try {
+      if (navigator.clipboard && (window as any).ClipboardItem) {
+        const blobHtml = new Blob([html], { type: 'text/html' })
+        const blobText = new Blob([plain], { type: 'text/plain' })
+        await navigator.clipboard.write([
+          new (window as any).ClipboardItem({
+            'text/html': blobHtml,
+            'text/plain': blobText,
+          })
+        ])
+      } else {
+        await navigator.clipboard.writeText(plain)
+      }
+      setHtmlEmailCopied(true)
+      setTimeout(() => setHtmlEmailCopied(false), 2500)
+    } catch (e) {
+      await navigator.clipboard.writeText(plain)
+      setHtmlEmailCopied(true)
+      setTimeout(() => setHtmlEmailCopied(false), 2500)
+    }
+  }
+
+  const handleNativeShare = async () => {
+    if (navigator.share) {
+      try {
+        await navigator.share({
+          title: `${displayStreet || listing.address} ($${listing.price?.toLocaleString() || ''})`,
+          text: `Check out ${displayStreet || listing.address} ($${listing.price ? '$' + listing.price.toLocaleString() : ''}) on Prime America Real Estate. Take a 3D tour & see all photos:`,
+          url: shareUrl || window.location.href,
+        })
+      } catch (err) {
+        // user cancelled or share failed
+      }
+    }
+  }
+
+  const qrCodeImgUrl = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(shareUrl || window.location.href)}`
+
+  const shareModal = showShareModal && (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm overflow-y-auto" onClick={() => setShowShareModal(false)}>
+      <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md mx-auto overflow-hidden font-sans border border-gray-200 space-y-0" onClick={(e) => e.stopPropagation()}>
+        {/* Modal Header */}
+        <div className="p-4 border-b border-gray-100 flex items-center justify-between bg-gray-50/50">
+          <div className="flex items-center gap-2">
+            <div className="h-8 w-8 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center">
+              <Share2 className="h-4 w-4" />
+            </div>
+            <div>
+              <h3 className="text-sm font-extrabold text-gray-900">Marketing & Share Hub</h3>
+              <p className="text-[10px] text-gray-400">Social, SMS, Email & Print Ready</p>
             </div>
           </div>
-        )}
-
-        {/* Share Action Buttons */}
-        <div className="space-y-2 text-xs font-bold">
-          <button
-            onClick={() => {
-              navigator.clipboard.writeText(shareUrl || window.location.href)
-              setShareCopied(true)
-              setTimeout(() => setShareCopied(false), 2500)
-            }}
-            className="w-full py-2.5 px-4 rounded-xl bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 transition-colors flex items-center justify-between"
-          >
-            <span>Copy Link</span>
-            {shareCopied ? <span className="text-[10px] text-emerald-600 font-bold">✓ Copied!</span> : <span className="text-[10px] text-blue-500 font-bold">Tap to copy</span>}
+          <button onClick={() => setShowShareModal(false)} className="text-gray-400 hover:text-gray-600 p-1.5 rounded-full hover:bg-gray-100">
+            <X className="h-4 w-4" />
           </button>
+        </div>
 
-          <a
-            href={`https://wa.me/?text=${encodeURIComponent(`Check out ${listing?.address || 'this listing'} ($${listing?.price?.toLocaleString() || ''}) on Prime America Real Estate: ${shareUrl || window.location.href}`)}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="w-full py-2.5 px-4 rounded-xl bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100 transition-colors flex items-center justify-between"
+        {/* Tab Navigation */}
+        <div className="flex border-b border-gray-100 bg-gray-50/80 px-3 pt-2 gap-1 text-xs font-bold">
+          <button
+            onClick={() => setShareTab('quick')}
+            className={`pb-2.5 px-3 rounded-t-xl transition-all border-b-2 flex items-center gap-1.5 ${
+              shareTab === 'quick' ? 'border-blue-600 text-blue-600 bg-white shadow-xs' : 'border-transparent text-gray-500 hover:text-gray-800'
+            }`}
           >
-            <span>📱 Share via WhatsApp</span>
-            <ExternalLink className="h-3.5 w-3.5" />
-          </a>
+            <Smartphone className="h-3.5 w-3.5" /> Quick & Social
+          </button>
+          <button
+            onClick={() => setShareTab('email')}
+            className={`pb-2.5 px-3 rounded-t-xl transition-all border-b-2 flex items-center gap-1.5 ${
+              shareTab === 'email' ? 'border-blue-600 text-blue-600 bg-white shadow-xs' : 'border-transparent text-gray-500 hover:text-gray-800'
+            }`}
+          >
+            <Mail className="h-3.5 w-3.5" /> HTML Email
+          </button>
+          <button
+            onClick={() => setShareTab('qr')}
+            className={`pb-2.5 px-3 rounded-t-xl transition-all border-b-2 flex items-center gap-1.5 ${
+              shareTab === 'qr' ? 'border-blue-600 text-blue-600 bg-white shadow-xs' : 'border-transparent text-gray-500 hover:text-gray-800'
+            }`}
+          >
+            <QrCode className="h-3.5 w-3.5" /> QR Code
+          </button>
+        </div>
 
-          <a
-            href={`mailto:?subject=${encodeURIComponent(`${listing?.address || 'Exclusive Listing'} - Prime America Real Estate`)}&body=${encodeURIComponent(`I thought you might be interested in ${listing?.address || 'this home'} listed at $${listing?.price?.toLocaleString() || ''}.\n\nView details: ${shareUrl || window.location.href}`)}`}
-            className="w-full py-2.5 px-4 rounded-xl bg-gray-50 text-gray-700 border border-gray-200 hover:bg-gray-100 transition-colors flex items-center justify-between"
-          >
-            <span>✉️ Share via Email</span>
-            <ExternalLink className="h-3.5 w-3.5" />
-          </a>
+        {/* Modal Body */}
+        <div className="p-5 space-y-4 max-h-[75vh] overflow-y-auto">
+          {/* Property Mini Card */}
+          {listing && (
+            <div className="flex gap-3 bg-gray-50 border border-gray-200/80 rounded-2xl p-3 items-center">
+              {listing.heroMediaUrl ? (
+                <img
+                  src={resolveMediaUrl(listing.heroMediaUrl, listing.id)}
+                  alt=""
+                  className="h-14 w-16 rounded-xl object-cover border border-gray-200 flex-shrink-0"
+                />
+              ) : (
+                <div className="h-14 w-16 rounded-xl bg-gray-200 flex items-center justify-center text-[10px] font-bold text-gray-500 flex-shrink-0">
+                  No Pic
+                </div>
+              )}
+              <div className="min-w-0 flex-1">
+                <p className="font-bold text-gray-900 text-xs truncate">{displayStreet || listing.address}</p>
+                <p className="text-[11px] text-emerald-600 font-extrabold mt-0.5">${listing.price?.toLocaleString() || 'Contact for Price'}</p>
+                <p className="text-[10px] text-gray-500 truncate">{displayLocation}</p>
+              </div>
+            </div>
+          )}
+
+          {/* TAB 1: QUICK & SOCIAL */}
+          {shareTab === 'quick' && (
+            <div className="space-y-3">
+              {/* Native Device Share Sheet (iOS / Android) */}
+              {'share' in navigator && (
+                <button
+                  onClick={handleNativeShare}
+                  className="w-full py-3 px-4 rounded-2xl bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-extrabold text-xs shadow-md hover:opacity-95 transition-all flex items-center justify-between"
+                >
+                  <span className="flex items-center gap-2">
+                    <Share2 className="h-4 w-4" /> Open Device Share Sheet
+                  </span>
+                  <span className="text-[10px] bg-white/20 px-2 py-0.5 rounded-full uppercase tracking-wider">iMessage / WhatsApp / AirDrop</span>
+                </button>
+              )}
+
+              {/* 1-Tap SMS */}
+              <a
+                href={`sms:?&body=${encodeURIComponent(`Check out ${displayStreet || listing?.address || 'this property'} ($${listing?.price ? '$' + listing.price.toLocaleString() : ''} • ${listing?.bedrooms || '—'}b/${listing?.bathrooms || '—'}ba) on Prime America Real Estate:\n${shareUrl || window.location.href}`)}`}
+                className="w-full py-2.5 px-4 rounded-xl bg-emerald-50 text-emerald-800 border border-emerald-200 hover:bg-emerald-100 transition-colors flex items-center justify-between text-xs font-bold"
+              >
+                <span className="flex items-center gap-2">
+                  <MessageSquare className="h-4 w-4 text-emerald-600" /> Send via SMS Text Message
+                </span>
+                <span className="text-[10px] text-emerald-600 font-bold">1-Tap Text</span>
+              </a>
+
+              {/* WhatsApp */}
+              <a
+                href={`https://wa.me/?text=${encodeURIComponent(`Check out ${displayStreet || listing?.address || 'this listing'} ($${listing?.price?.toLocaleString() || ''}) on Prime America Real Estate: ${shareUrl || window.location.href}`)}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="w-full py-2.5 px-4 rounded-xl bg-green-50 text-green-800 border border-green-200 hover:bg-green-100 transition-colors flex items-center justify-between text-xs font-bold"
+              >
+                <span className="flex items-center gap-2">
+                  <span className="text-base leading-none">💬</span> Share on WhatsApp
+                </span>
+                <ExternalLink className="h-3.5 w-3.5 text-green-600" />
+              </a>
+
+              {/* Social Grid (Facebook, LinkedIn, X) */}
+              <div className="grid grid-cols-3 gap-2 pt-1">
+                <a
+                  href={`https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(shareUrl || window.location.href)}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="py-2.5 px-2 rounded-xl bg-blue-50 text-blue-800 border border-blue-200 hover:bg-blue-100 transition-colors flex flex-col items-center justify-center gap-1 text-[11px] font-bold text-center"
+                >
+                  <span className="text-sm font-black text-blue-700">f</span>
+                  <span>Facebook</span>
+                </a>
+                <a
+                  href={`https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(shareUrl || window.location.href)}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="py-2.5 px-2 rounded-xl bg-sky-50 text-sky-800 border border-sky-200 hover:bg-sky-100 transition-colors flex flex-col items-center justify-center gap-1 text-[11px] font-bold text-center"
+                >
+                  <span className="text-sm font-black text-sky-700">in</span>
+                  <span>LinkedIn</span>
+                </a>
+                <a
+                  href={`https://twitter.com/intent/tweet?text=${encodeURIComponent(`Check out ${displayStreet || listing?.address || 'this property'} ($${listing?.price ? '$' + listing.price.toLocaleString() : ''})`)}&url=${encodeURIComponent(shareUrl || window.location.href)}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="py-2.5 px-2 rounded-xl bg-gray-100 text-gray-800 border border-gray-200 hover:bg-gray-200 transition-colors flex flex-col items-center justify-center gap-1 text-[11px] font-bold text-center"
+                >
+                  <span className="text-sm font-black">𝕏</span>
+                  <span>X / Twitter</span>
+                </a>
+              </div>
+
+              {/* Copy Direct Link */}
+              <div className="pt-2">
+                <label className="text-[10px] font-extrabold uppercase tracking-wider text-gray-400 block mb-1">Public Co-Branded Link</label>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    readOnly
+                    value={shareUrl || window.location.href}
+                    className="flex-1 bg-gray-50 border border-gray-200 rounded-xl px-3 py-2 text-xs text-gray-600 font-mono select-all focus:outline-none"
+                  />
+                  <button
+                    onClick={() => {
+                      navigator.clipboard.writeText(shareUrl || window.location.href)
+                      setShareCopied(true)
+                      setTimeout(() => setShareCopied(false), 2500)
+                    }}
+                    className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1 flex-shrink-0 ${
+                      shareCopied ? 'bg-emerald-600 text-white' : 'bg-brand-navy text-white hover:bg-gray-800'
+                    }`}
+                  >
+                    {shareCopied ? <><Check className="h-3.5 w-3.5" /> Copied</> : <><Copy className="h-3.5 w-3.5" /> Copy</>}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* TAB 2: RICH HTML EMAIL */}
+          {shareTab === 'email' && (
+            <div className="space-y-4">
+              <p className="text-xs text-gray-600">
+                Copy this pre-formatted newsletter property card to paste directly into <strong>Gmail, Outlook, Apple Mail</strong>, or CRM email blasts:
+              </p>
+
+              {/* Visual Card Preview */}
+              <div className="border border-gray-200 rounded-2xl p-3 bg-white shadow-xs space-y-2 text-xs">
+                <div className="h-28 rounded-xl bg-gray-100 overflow-hidden relative">
+                  <img
+                    src={resolveMediaUrl(listing.heroMediaUrl, listing.id)}
+                    alt=""
+                    className="w-full h-full object-cover"
+                  />
+                  <span className="absolute top-2 left-2 bg-black/70 text-white font-extrabold text-[10px] px-2 py-0.5 rounded-md backdrop-blur-xs">
+                    ${listing.price?.toLocaleString()}
+                  </span>
+                </div>
+                <div className="space-y-1">
+                  <h4 className="font-bold text-gray-900 text-xs">{displayStreet || listing.address}</h4>
+                  <p className="text-[10px] text-gray-400">{displayLocation}</p>
+                  <p className="text-[10px] font-bold text-gray-600">
+                    {listing.bedrooms ? `${listing.bedrooms} Beds • ` : ''}{listing.bathrooms ? `${listing.bathrooms} Baths • ` : ''}{listing.sqft ? `${Number(listing.sqft).toLocaleString()} SqFt` : ''}
+                  </p>
+                </div>
+                <div className="pt-2 border-t border-gray-100 flex items-center justify-between">
+                  <div className="flex items-center gap-1.5">
+                    <img
+                      src={agent?.avatarUrl || '/prime-america-seal.png'}
+                      alt=""
+                      className="h-6 w-6 rounded-full object-cover border border-gray-200"
+                    />
+                    <span className="text-[10px] font-bold text-gray-800">{presentedBy?.name || agent?.name || 'Prime America Agent'}</span>
+                  </div>
+                  <span className="text-[9px] font-extrabold bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full">
+                    View 3D Tour ↗
+                  </span>
+                </div>
+              </div>
+
+              {/* Copy & Mailto Actions */}
+              <div className="space-y-2">
+                <button
+                  onClick={handleCopyHtmlEmail}
+                  className={`w-full py-3 px-4 rounded-2xl font-extrabold text-xs shadow-md transition-all flex items-center justify-center gap-2 ${
+                    htmlEmailCopied ? 'bg-emerald-600 text-white' : 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white hover:opacity-95'
+                  }`}
+                >
+                  {htmlEmailCopied ? (
+                    <><Check className="h-4 w-4" /> Rich HTML Email Copied to Clipboard!</>
+                  ) : (
+                    <><Copy className="h-4 w-4" /> Copy Styled Email for Gmail / Outlook</>
+                  )}
+                </button>
+
+                <a
+                  href={`mailto:?subject=${encodeURIComponent(`${displayStreet || listing?.address || 'Exclusive Property'} - Prime America Real Estate`)}&body=${encodeURIComponent(`Check out ${displayStreet || listing?.address || 'this home'} ($${listing?.price?.toLocaleString() || ''}).\n\nView full details & 3D tour: ${shareUrl || window.location.href}\n\nPresented by: ${presentedBy?.name || agent?.name || 'Prime America Real Estate'} (${presentedBy?.phone || agent?.phone || ''})`)}`}
+                  className="w-full py-2.5 px-4 rounded-xl bg-gray-50 text-gray-700 border border-gray-200 hover:bg-gray-100 transition-colors flex items-center justify-center gap-2 text-xs font-bold"
+                >
+                  <Mail className="h-4 w-4 text-gray-500" /> Open Default Mail Client (Mailto)
+                </a>
+              </div>
+            </div>
+          )}
+
+          {/* TAB 3: QR CODE */}
+          {shareTab === 'qr' && (
+            <div className="space-y-4 text-center">
+              <p className="text-xs text-gray-600">
+                Scan with any smartphone camera to open the co-branded listing directly:
+              </p>
+
+              <div className="bg-white border-2 border-gray-150 p-4 rounded-2xl inline-block shadow-md mx-auto">
+                <img
+                  src={qrCodeImgUrl}
+                  alt="Listing QR Code"
+                  className="h-48 w-48 mx-auto"
+                />
+                <p className="text-[11px] font-bold text-gray-900 mt-2 truncate max-w-[200px] mx-auto">{displayStreet || listing.address}</p>
+                <p className="text-[10px] text-emerald-600 font-extrabold">${listing.price?.toLocaleString() || 'Contact for Price'}</p>
+              </div>
+
+              <div className="flex gap-2">
+                <a
+                  href={qrCodeImgUrl}
+                  download={`${slugify(listing.address || 'listing')}-qr-code.png`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex-1 py-2.5 px-3 rounded-xl bg-brand-navy text-white text-xs font-bold hover:bg-gray-800 transition-colors flex items-center justify-center gap-1.5 shadow-sm"
+                >
+                  <QrCode className="h-3.5 w-3.5 text-brand-gold" /> Download QR
+                </a>
+                <button
+                  onClick={() => {
+                    navigator.clipboard.writeText(shareUrl || window.location.href)
+                    setShareCopied(true)
+                    setTimeout(() => setShareCopied(false), 2500)
+                  }}
+                  className="py-2.5 px-4 rounded-xl bg-gray-100 text-gray-700 text-xs font-bold hover:bg-gray-200 transition-colors flex items-center justify-center gap-1.5"
+                >
+                  {shareCopied ? <Check className="h-3.5 w-3.5 text-emerald-600" /> : <Copy className="h-3.5 w-3.5" />}
+                  {shareCopied ? 'Copied' : 'Copy Link'}
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>
   )
 
-  const paymentModal = showPaymentModal && (
+  const paymentModal = showPaymentModal && presentation.showAffordability && (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm overflow-y-auto" onClick={() => setShowPaymentModal(false)}>
       <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md my-auto overflow-hidden font-sans border border-gray-200" onClick={(e) => e.stopPropagation()}>
         {/* Modal Header */}
@@ -1964,9 +2511,19 @@ export function ListingDetailPage() {
 
       {/* Back button and tools */}
       <div className="mb-6 flex flex-wrap items-center justify-between gap-3 no-print">
-        <Link to="/inventory/mls" className="rounded-xl p-2.5 text-gray-500 hover:bg-gray-100 hover:text-gray-900 transition-colors shadow-sm bg-white border border-gray-200 flex items-center justify-center">
+        <button
+          onClick={() => {
+            if (window.history.length > 1) {
+              navigate(-1)
+            } else {
+              navigate('/inventory/mls')
+            }
+          }}
+          className="rounded-xl p-2.5 text-gray-500 hover:bg-gray-100 hover:text-gray-900 transition-colors shadow-sm bg-white border border-gray-200 flex items-center justify-center cursor-pointer"
+          title="Go Back"
+        >
           <ArrowLeft className="h-5 w-5" />
-        </Link>
+        </button>
 
         {/* Responsive Workspace Action Toolbar */}
         <div className="flex flex-wrap items-center gap-2">
@@ -1976,7 +2533,7 @@ export function ListingDetailPage() {
                 onClick={handleAddToDeals}
                 className="inline-flex items-center gap-1.5 text-xs sm:text-sm font-extrabold bg-blue-600 text-white px-3.5 py-2.5 rounded-xl hover:bg-blue-700 transition-colors shadow-sm"
               >
-                <Plus className="h-4 w-4" /> <span className="hidden sm:inline">Add to</span> Deals Pipeline
+                <Plus className="h-4 w-4" /> <span className="hidden sm:inline">Add to</span> Deals
               </button>
               <Link
                 to={`/transactions/pipeline?search=${encodeURIComponent(listing.address)}`}
@@ -1990,15 +2547,18 @@ export function ListingDetailPage() {
               >
                 <Clock className="h-3.5 w-3.5" /> <span className="hidden md:inline">Log</span> Showing
               </button>
+              {presentation.showAffordability ? <button
+                onClick={() => setShowPaymentModal(true)}
+                className="inline-flex items-center gap-1.5 text-xs sm:text-sm font-bold bg-white border border-gray-200 text-gray-700 px-3 py-2.5 rounded-xl hover:bg-gray-50 shadow-sm"
+                title="Calculate Mortgage & Affordability"
+              >
+                <Calculator className="h-3.5 w-3.5 text-blue-600" /> <span className="hidden md:inline">Payment</span> Calc
+              </button> : null}
               <button
-                onClick={() => {
-                  navigator.clipboard.writeText(shareUrl || window.location.href)
-                  setShareCopied(true)
-                  setTimeout(() => setShareCopied(false), 2500)
-                }}
+                onClick={() => setShowShareModal(true)}
                 className="inline-flex items-center gap-1.5 text-xs sm:text-sm font-bold bg-blue-50 border border-blue-200 text-blue-700 px-3 py-2.5 rounded-xl hover:bg-blue-100 shadow-sm"
               >
-                {shareCopied ? <><span className="hidden md:inline">✓ Copied!</span><span className="md:hidden">✓</span></> : <><Send className="h-3.5 w-3.5" /> <span className="hidden md:inline">Copy Lead Link</span><span className="md:hidden">Copy</span></>}
+                <Send className="h-3.5 w-3.5" /> <span className="hidden md:inline">Share</span> Listing
               </button>
               <a
                 href={previewUrl}
@@ -2008,6 +2568,17 @@ export function ListingDetailPage() {
               >
                 <ExternalLink className="h-3.5 w-3.5" /> Preview <span className="hidden md:inline">Lead</span>
               </a>
+              {(user && (['admin', 'broker'].includes(user.role) || isMyListing(listing, user))) && (
+                <a
+                  href={(listing as any).editUrl || `https://inventory.primeamericarealestate.com/listings/${listing.id}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 text-xs sm:text-sm font-bold bg-brand-navy hover:bg-brand-navy-light text-white px-3.5 py-2.5 rounded-xl shadow-sm transition-colors"
+                  title="Edit full listing in Inventory Engine"
+                >
+                  <Edit3 className="h-3.5 w-3.5 text-brand-gold" /> <span className="hidden md:inline">Edit</span> Form
+                </a>
+              )}
             </>
           )}
 
@@ -2056,11 +2627,7 @@ export function ListingDetailPage() {
                 )
               ) : activeMediaUrl ? (
                 <img
-                  src={
-                    activeMediaUrl.startsWith('http')
-                      ? activeMediaUrl
-                      : `https://inventory.primeamericarealestate.com${activeMediaUrl}`
-                  }
+                  src={resolveMediaUrl(activeMediaUrl, listing.id)}
                   alt={listing.address}
                   className="w-full h-full object-cover cursor-pointer hover:scale-[1.01] transition-transform duration-500 flyer-img"
                   onClick={() => setIsLightboxOpen(true)}
@@ -2101,9 +2668,7 @@ export function ListingDetailPage() {
             {(listing.media && Array.isArray(listing.media) && listing.media.length > 0 || embedUrl) && (
               <div className="flex gap-2.5 overflow-x-auto py-4 px-6 border-b border-gray-100 bg-gray-50/50 scrollbar-hide no-print">
                 {listing.media && Array.isArray(listing.media) && listing.media.map((med: any) => {
-                  const mediaSrc = med.mediaUrl.startsWith('http')
-                    ? med.mediaUrl
-                    : `https://inventory.primeamericarealestate.com${med.mediaUrl}`
+                  const mediaSrc = resolveMediaUrl(med.mediaUrl, listing.id)
                   return (
                     <button
                       key={med.id}
@@ -2133,7 +2698,7 @@ export function ListingDetailPage() {
             <div className="p-6 space-y-4">
               <div className="flex justify-between items-start">
                 <div>
-                  <h1 className="text-2xl font-bold text-gray-900">{listing.address}</h1>
+                  <h1 className="text-2xl font-bold text-gray-900">{displayStreet || listing.address}</h1>
                   <p className="text-gray-500 flex items-center gap-1 mt-1">
                     <MapPin className="h-4 w-4 text-gray-400" />
                     {listing.city}, {listing.state} {listing.zip}
@@ -2141,46 +2706,23 @@ export function ListingDetailPage() {
                 </div>
                 <div className="text-right">
                   <p className="text-3xl font-extrabold text-gray-900">
-                    {listing.price ? `$${listing.price.toLocaleString()}` : '—'}
+                    {presentation.primaryFacts[0]?.value || 'Not provided'}
                   </p>
                   <span className="inline-block mt-1 text-xs font-semibold px-2 py-0.5 rounded bg-blue-100 text-blue-800 uppercase">
-                    For {listing.propertyType || 'Sale'}
+                    {presentation.label}
                   </span>
                 </div>
               </div>
 
               {/* Specs */}
-              {residentialTemplate ? (
-                <div className="grid grid-cols-3 gap-4 bg-gray-50 p-4 rounded-xl border border-gray-100 text-center">
-                  <div>
-                    <BedDouble className="h-5 w-5 mx-auto mb-1 text-gray-400" />
-                    <p className="text-sm font-bold text-gray-800">{listing.bedrooms || '—'} Beds</p>
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 bg-gray-50 p-4 rounded-xl border border-gray-100 text-center">
+                {presentation.primaryFacts.slice(0, 6).map((item) => (
+                  <div key={item.id} className="rounded-lg bg-white border border-gray-100 p-3">
+                    <p className="text-[10px] text-gray-400 uppercase">{item.label}</p>
+                    <p className="text-sm font-bold text-gray-800 capitalize">{item.value}</p>
                   </div>
-                  <div>
-                    <Bath className="h-5 w-5 mx-auto mb-1 text-gray-400" />
-                    <p className="text-sm font-bold text-gray-800">{listing.bathrooms || '—'} Baths</p>
-                  </div>
-                  <div>
-                    <Maximize2 className="h-5 w-5 mx-auto mb-1 text-gray-400" />
-                    <p className="text-sm font-bold text-gray-800">{listing.sqft ? `${listing.sqft.toLocaleString()} Sq Ft` : '—'}</p>
-                  </div>
-                </div>
-              ) : (
-                <div className="grid grid-cols-3 gap-3 bg-gray-50 p-4 rounded-xl border border-gray-100 text-center">
-                  <div className="rounded-lg bg-white border border-gray-100 p-3">
-                    <p className="text-[10px] text-gray-400 uppercase">Property Type</p>
-                    <p className="text-sm font-bold text-gray-800 capitalize">{listing.propertySubtype || listing.propertyType || 'Commercial'}</p>
-                  </div>
-                  <div className="rounded-lg bg-white border border-gray-100 p-3">
-                    <p className="text-[10px] text-gray-400 uppercase">Building Size</p>
-                    <p className="text-sm font-bold text-gray-800">{listing.sqft ? `${Number(listing.sqft).toLocaleString()} sf` : '—'}</p>
-                  </div>
-                  <div className="rounded-lg bg-white border border-gray-100 p-3">
-                    <p className="text-[10px] text-gray-400 uppercase">Lot Size</p>
-                    <p className="text-sm font-bold text-gray-800">{listing.lotSize ? `${Number(listing.lotSize).toLocaleString()} sf` : '—'}</p>
-                  </div>
-                </div>
-              )}
+                ))}
+              </div>
 
               <div>
                 <h3 className="font-bold text-gray-800 mb-2">Property Description</h3>
@@ -2190,71 +2732,28 @@ export function ListingDetailPage() {
               </div>
 
               {/* Facts & Features */}
-              {(() => {
-                const r = listing?.raw?.data || listing?.raw || {}
-                const hasFeatures = r.heating || r.Heating || r.cooling || r.Cooling || r.appliances || r.Appliances || r.parkingFeatures || r.parking || r.basement || r.exteriorFeatures || r.flooring || r.roof || r.zoning || r.hoaFee
-                if (!hasFeatures) return null
-
-                const sections = [
-                  {
-                    title: 'Interior Details',
-                    items: [
-                      { label: 'Heating', value: r.heating || r.Heating },
-                      { label: 'Cooling', value: r.cooling || r.Cooling },
-                      { label: 'Appliances', value: r.appliances || r.Appliances },
-                      { label: 'Flooring', value: r.flooring || r.Flooring },
-                      { label: 'Basement', value: r.basement || r.Basement },
-                    ]
-                  },
-                  {
-                    title: 'Exterior & Parking',
-                    items: [
-                      { label: 'Parking', value: r.parkingFeatures || r.ParkingFeatures || r.parking },
-                      { label: 'Garage Spaces', value: r.garageSpaces || r.GarageSpaces },
-                      { label: 'Exterior Features', value: r.exteriorFeatures || r.ExteriorFeatures || r.exterior },
-                      { label: 'Roof', value: r.roof || r.Roof },
-                      { label: 'Construction', value: r.constructionMaterials || r.ConstructionMaterials },
-                    ]
-                  },
-                  {
-                    title: 'Property Details',
-                    items: [
-                      { label: 'Zoning', value: r.zoning || r.Zoning },
-                      { label: 'Taxes', value: r.taxAnnualAmount ? `$${Number(r.taxAnnualAmount).toLocaleString()}/yr` : null },
-                      { label: 'HOA Fee', value: r.hoaFee ? `$${Number(r.hoaFee).toLocaleString()}` : null },
-                      { label: 'Sewer', value: r.sewer || r.Sewer },
-                      { label: 'Water', value: r.waterSource || r.WaterSource },
-                    ]
-                  }
-                ]
-
-                return (
-                  <div className="pt-6 mt-6 border-t border-gray-150 space-y-6">
-                    <h3 className="font-bold text-gray-900 text-xl flex items-center gap-2">
-                      <Grid className="h-5 w-5 text-gray-400" /> Facts & Features
-                    </h3>
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                      {sections.map((sec) => {
-                        const validItems = sec.items.filter(i => i.value)
-                        if (validItems.length === 0) return null
-                        return (
-                          <div key={sec.title} className="space-y-3">
-                            <h4 className="font-semibold text-gray-800 text-sm uppercase tracking-wide border-b border-gray-100 pb-1.5">{sec.title}</h4>
-                            <ul className="space-y-2">
-                              {validItems.map((item, idx) => (
-                                <li key={idx} className="flex flex-col text-sm">
-                                  <span className="text-gray-500 font-medium">{item.label}</span>
-                                  <span className="text-gray-900 leading-tight mt-0.5">{Array.isArray(item.value) ? item.value.join(', ') : item.value}</span>
-                                </li>
-                              ))}
-                            </ul>
-                          </div>
-                        )
-                      })}
-                    </div>
+              {presentation.sections.length > 0 ? (
+                <div className="pt-6 mt-6 border-t border-gray-150 space-y-6">
+                  <h3 className="font-bold text-gray-900 text-xl flex items-center gap-2">
+                    <Grid className="h-5 w-5 text-gray-400" /> {presentation.label} Details
+                  </h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    {presentation.sections.map((section) => (
+                      <div key={section.title} className="space-y-3">
+                        <h4 className="font-semibold text-gray-800 text-sm uppercase tracking-wide border-b border-gray-100 pb-1.5">{section.title}</h4>
+                        <ul className="space-y-2">
+                          {section.facts.map((item) => (
+                            <li key={item.id} className="flex flex-col text-sm">
+                              <span className="text-gray-500 font-medium">{item.label}</span>
+                              <span className="text-gray-900 leading-tight mt-0.5">{item.value}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    ))}
                   </div>
-                )
-              })()}
+                </div>
+              ) : null}
 
               {/* Open House Schedule Banner */}
               {upcomingOpenHouses.length > 0 && (
@@ -2289,6 +2788,28 @@ export function ListingDetailPage() {
                 </div>
               )}
 
+              {/* Location & Neighborhood Map */}
+              <div className="pt-6 mt-6 border-t border-gray-150 space-y-4 no-print">
+                <div className="flex items-center justify-between">
+                  <h3 className="font-bold text-gray-900 text-xl flex items-center gap-2">
+                    <Compass className="h-5 w-5 text-gray-400" /> Location & Neighborhood
+                  </h3>
+                  <span className="px-3 py-1 rounded-full text-xs font-bold bg-amber-50 text-amber-800 border border-amber-200">
+                    Walk Score: {getDynamicWalkScore(listing.zip, listing.city)}/100
+                  </span>
+                </div>
+                <div className="h-96 rounded-2xl overflow-hidden border border-gray-200 shadow-sm relative">
+                  <ListingMap
+                    address={listing.address}
+                    city={listing.city}
+                    zip={listing.zip}
+                    customLat={effectiveMapCoords?.lat ?? mapSettings?.lat}
+                    customLng={effectiveMapCoords?.lng ?? mapSettings?.lng}
+                    allowedCategories={mapSettings?.categories}
+                  />
+                </div>
+              </div>
+
               {/* Virtual Tour — now shown inline in photo gallery thumbnail strip above */}
             </div>
           </div>
@@ -2299,17 +2820,11 @@ export function ListingDetailPage() {
           {/* Listing Agent info */}
           {listingAgentInfo.name && (
             <div className="bg-white rounded-2xl border border-gray-200 p-5 shadow-sm text-center">
-              {companyLogoUrl ? (
-                <img
-                  src={companyLogoUrl}
-                  alt={companyName}
-                  className="h-16 w-16 rounded-2xl object-contain bg-white border border-gray-100 mx-auto mb-3 p-1"
-                />
-              ) : (
-                <div className="h-16 w-16 rounded-full bg-brand-navy/10 flex items-center justify-center font-bold text-brand-navy text-xl mx-auto mb-3">
-                  {listingAgentInfo.name.split(' ').map((n: string) => n[0]).join('')}
-                </div>
-              )}
+              <img
+                src={companyLogoUrl || '/prime-america-seal.png'}
+                alt={companyName}
+                className="h-16 w-16 rounded-2xl object-contain bg-white border border-gray-100 mx-auto mb-3 p-1 shadow-xs"
+              />
               <h3 className="font-bold text-gray-800 text-lg">{listingAgentInfo.name}</h3>
               <p className="text-xs text-gray-500 capitalize">Listing Agent • {listingAgentInfo.brokerage || companyName}</p>
               <div className="mt-4 pt-3 border-t border-gray-100 text-left space-y-2 text-xs">
@@ -2363,246 +2878,15 @@ export function ListingDetailPage() {
         </div>
       </div>
 
-      {/* Showing modal */}
-      {/* Showing modal */}
-      {showShowingModal && (() => {
-        const next7Days = []
-        const locale = 'en-US'
-        for (let i = 0; i < 7; i++) {
-          const d = new Date()
-          d.setDate(d.getDate() + i)
-          next7Days.push({
-            dateStr: d.toISOString().split('T')[0],
-            dayName: i === 0 ? 'Today' : i === 1 ? 'Tomorrow' : d.toLocaleDateString(locale, { weekday: 'short' }),
-            dayNum: d.getDate(),
-            monthName: d.toLocaleDateString(locale, { month: 'short' }),
-          })
-        }
-        const timeSlots = ['09:00', '10:00', '11:00', '12:00', '13:00', '14:00', '15:00', '16:00', '17:00', '18:00']
-        const confirmMessage = `Hi ${showingForm.buyerName || 'Client'}, confirming our showing of ${listing?.name || listing?.address || 'property'} scheduled for ${selectedDateStr} at ${selectedTimeStr}. See you there! — ${user?.name || 'Agent'}`
-
-        return (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 overflow-y-auto" onClick={() => setShowShowingModal(false)}>
-            <div className="bg-white rounded-3xl shadow-2xl p-6 w-full max-w-md mx-auto space-y-4 max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-              <div className="flex justify-between items-center border-b pb-2.5">
-                <h3 className="text-base font-bold text-gray-900 flex items-center gap-1.5">
-                  <Calendar className="h-5 w-5 text-brand-navy" />
-                  Showing Scheduler
-                </h3>
-                <button onClick={() => setShowShowingModal(false)} className="text-gray-400 hover:text-gray-600">✕</button>
-              </div>
-
-              {/* Mode Toggle Tabs */}
-              <div className="flex bg-gray-100 rounded-xl p-1 gap-1">
-                <button
-                  type="button"
-                  onClick={() => setShowingTab('schedule')}
-                  className={clsx(
-                    "flex-1 py-1.5 text-xs font-bold rounded-lg transition-all",
-                    showingTab === 'schedule' ? "bg-white text-brand-navy shadow-sm" : "text-gray-500 hover:text-gray-800"
-                  )}
-                >
-                  📅 Schedule Future
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setShowingTab('log')}
-                  className={clsx(
-                    "flex-1 py-1.5 text-xs font-bold rounded-lg transition-all",
-                    showingTab === 'log' ? "bg-white text-brand-navy shadow-sm" : "text-gray-500 hover:text-gray-800"
-                  )}
-                >
-                  📝 Log Past
-                </button>
-              </div>
-
-              {/* Client Info */}
-              <div>
-                <label className="mb-1 block text-[10px] font-bold uppercase tracking-wide text-gray-400">Buyer / Client Name *</label>
-                <input
-                  required
-                  value={showingForm.buyerName}
-                  onChange={(e) => setShowingForm((p) => ({ ...p, buyerName: e.target.value }))}
-                  placeholder="e.g. John Smith"
-                  className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-navy bg-white"
-                />
-              </div>
-
-              {showingTab === 'schedule' ? (
-                <>
-                  {/* Date Scrolling Selector */}
-                  <div className="space-y-1">
-                    <label className="mb-1 block text-[10px] font-bold uppercase tracking-wide text-gray-400">Select Date</label>
-                    <div className="flex gap-2 overflow-x-auto pb-1.5 scrollbar-none no-print">
-                      {next7Days.map((d) => {
-                        const isSelected = selectedDateStr === d.dateStr
-                        return (
-                          <button
-                            key={d.dateStr}
-                            type="button"
-                            onClick={() => setSelectedDateStr(d.dateStr)}
-                            className={clsx(
-                              "flex-shrink-0 w-14 p-2 rounded-xl text-center border-2 transition-all flex flex-col items-center justify-center",
-                              isSelected ? "border-brand-navy bg-blue-50/50 text-brand-navy font-bold" : "border-gray-100 bg-white text-gray-600 hover:border-gray-250"
-                            )}
-                          >
-                            <span className="text-[9px] uppercase font-bold text-gray-400 leading-none mb-1">{d.dayName}</span>
-                            <span className="text-base font-extrabold leading-none mb-0.5">{d.dayNum}</span>
-                            <span className="text-[8px] uppercase font-semibold leading-none">{d.monthName}</span>
-                          </button>
-                        )
-                      })}
-                    </div>
-                  </div>
-
-                  {/* Time Slots Selector */}
-                  <div className="space-y-1.5">
-                    <label className="mb-1 block text-[10px] font-bold uppercase tracking-wide text-gray-400">Select Time Slot</label>
-                    <div className="grid grid-cols-4 gap-1.5">
-                      {timeSlots.map((ts) => {
-                        const isSelected = selectedTimeStr === ts
-                        const [hour, min] = ts.split(':')
-                        const hr = parseInt(hour)
-                        const ampm = hr >= 12 ? 'PM' : 'AM'
-                        const hr12 = hr % 12 === 0 ? 12 : hr % 12
-                        const displayTime = `${hr12}:${min} ${ampm}`
-
-                        return (
-                          <button
-                            key={ts}
-                            type="button"
-                            onClick={() => setSelectedTimeStr(ts)}
-                            className={clsx(
-                              "py-1.5 rounded-lg text-center font-bold text-[10px] border transition-all",
-                              isSelected ? "bg-brand-navy text-white border-brand-navy shadow-sm" : "bg-gray-50 border-gray-150 text-gray-600 hover:bg-gray-100"
-                            )}
-                          >
-                            {displayTime}
-                          </button>
-                        )
-                      })}
-                    </div>
-                  </div>
-
-                  {/* Custom Picker Fallback */}
-                  <div>
-                    <label className="mb-1 block text-[10px] font-bold uppercase tracking-wide text-gray-400">Or Custom Date/Time</label>
-                    <input
-                      type="datetime-local"
-                      value={`${selectedDateStr}T${selectedTimeStr}`}
-                      onChange={(e) => {
-                        const parts = e.target.value.split('T')
-                        if (parts[0]) setSelectedDateStr(parts[0])
-                        if (parts[1]) setSelectedTimeStr(parts[1].substring(0, 5))
-                      }}
-                      className="w-full rounded-xl border border-gray-200 px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-brand-navy bg-white"
-                    />
-                  </div>
-
-                  {/* SMS / Copy Confirmation Template */}
-                  <div className="bg-gray-50 border border-gray-150 rounded-2xl p-3 space-y-1.5">
-                    <div className="flex justify-between items-center">
-                      <span className="text-[9px] font-bold uppercase text-gray-400 flex items-center gap-1">
-                        <Smartphone className="h-3.5 w-3.5 text-gray-500" />
-                        Client Text Confirmation Copy
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          navigator.clipboard.writeText(confirmMessage)
-                          setCopyFeedback(true)
-                          setTimeout(() => setCopyFeedback(false), 2000)
-                        }}
-                        className="text-[10px] font-bold text-blue-600 hover:underline bg-white border px-2 py-0.5 rounded-md"
-                      >
-                        {copyFeedback ? 'Copied ✓' : 'Copy'}
-                      </button>
-                    </div>
-                    <p className="text-[11px] text-gray-600 italic leading-relaxed bg-white border border-gray-100 p-2 rounded-xl">
-                      "{confirmMessage}"
-                    </p>
-                  </div>
-                </>
-              ) : (
-                <>
-                  {/* Past Showing Log fields */}
-                  <div>
-                    <label className="mb-1 block text-[10px] font-bold uppercase tracking-wide text-gray-400">Date & Time</label>
-                    <input
-                      type="datetime-local"
-                      value={showingForm.shownAt}
-                      onChange={(e) => setShowingForm((p) => ({ ...p, shownAt: e.target.value }))}
-                      className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-navy bg-white"
-                    />
-                  </div>
-                  <div>
-                    <label className="mb-1 block text-[10px] font-bold uppercase tracking-wide text-gray-400">Feedback</label>
-                    <textarea
-                      value={showingForm.feedback}
-                      onChange={(e) => setShowingForm((p) => ({ ...p, feedback: e.target.value }))}
-                      placeholder="Feedback from buyer/client..."
-                      rows={3}
-                      className="w-full rounded-xl border border-gray-200 px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-brand-navy bg-white"
-                    />
-                  </div>
-                </>
-              )}
-
-              {/* Actions */}
-              <div className="flex gap-2 pt-2 border-t">
-                <button
-                  type="button"
-                  onClick={() => setShowShowingModal(false)}
-                  className="flex-1 rounded-xl border border-gray-200 px-4 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-50"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  disabled={
-                    submittingShowing ||
-                    !showingForm.buyerName.trim() ||
-                    (showingTab === 'log' && !showingForm.shownAt)
-                  }
-                  onClick={async () => {
-                    setSubmittingShowing(true)
-                    try {
-                      const finalShownAt = showingTab === 'schedule'
-                        ? new Date(`${selectedDateStr}T${selectedTimeStr}:00`).toISOString()
-                        : new Date(showingForm.shownAt).toISOString()
-
-                      const res = await fetch('/api/showings', {
-                        method: 'POST',
-                        credentials: 'include',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                          listingId: listing?.id,
-                          buyerName: showingForm.buyerName.trim(),
-                          shownAt: finalShownAt,
-                          feedback: showingTab === 'log' && showingForm.feedback.trim() ? showingForm.feedback.trim() : undefined,
-                          listingAddress: listing?.address ? `${listing.address}, ${listing.city || ''} ${listing.state || ''}`.trim() : undefined,
-                        }),
-                      })
-                      const data = await res.json()
-                      if (!data.success) throw new Error(data.error)
-                      setShowShowingModal(false)
-                      setShowingForm({ buyerName: '', shownAt: '', feedback: '' })
-                      alert(showingTab === 'schedule' ? 'Showing scheduled successfully' : 'Showing log saved successfully')
-                    } catch (e: any) {
-                      alert(e.message)
-                    } finally {
-                      setSubmittingShowing(false)
-                    }
-                  }}
-                  className="flex-1 rounded-xl bg-brand-navy px-4 py-2 text-xs font-semibold text-white hover:bg-brand-navy-light disabled:opacity-60"
-                >
-                  {submittingShowing ? 'Saving...' : showingTab === 'schedule' ? 'Schedule' : 'Save Log'}
-                </button>
-              </div>
-            </div>
+      {showShowingModal && listing && <ShowingSchedulerModal listing={listing} agentName={user?.name} onClose={() => setShowShowingModal(false)} onViewHistory={() => {setShowShowingModal(false);setShowShowingHistory(true)}} />}
+      {showShowingHistory && listing && (
+        <div className="fixed inset-0 z-50 overflow-y-auto bg-black/40 p-4" role="dialog" aria-modal="true" aria-label="Listing inquiries and showings">
+          <div className="mx-auto max-w-3xl my-8 rounded-2xl bg-white p-4">
+            <button className="mb-3 rounded-lg border px-3 py-2 text-sm" onClick={() => setShowShowingHistory(false)}>Close</button>
+            <ListingInquiriesPanel listing={listing} />
           </div>
-        )
-      })()}
+        </div>
+      )}
 
       {paymentModal}
       {shareModal}
@@ -2704,6 +2988,7 @@ function ListingMap({ address, city, zip, customLat, customLng, allowedCategorie
   const [hoveredAmenityId, setHoveredAmenityId] = useState<string | null>(null)
   const [amenities, setAmenities] = useState<any[]>([])
   const [amenitiesLoading, setAmenitiesLoading] = useState(false)
+  const [amenitiesAvailable, setAmenitiesAvailable] = useState<boolean | null>(null)
   const markersRef = useRef<any[]>([])
   const listingMarkerRef = useRef<any | null>(null)
 
@@ -2748,10 +3033,11 @@ function ListingMap({ address, city, zip, customLat, customLng, allowedCategorie
     const leisure = String(tags?.leisure || '').toLowerCase()
     const railway = String(tags?.railway || '').toLowerCase()
     const publicTransport = String(tags?.public_transport || '').toLowerCase()
+    const highway = String(tags?.highway || '').toLowerCase()
 
     if (['cafe', 'restaurant', 'fast_food', 'bar', 'pub', 'food_court', 'ice_cream'].includes(amenity)) return 'food'
     if (['supermarket', 'convenience', 'greengrocer', 'mall'].includes(shop)) return 'groceries'
-    if (['station', 'subway_entrance', 'tram_stop', 'bus_station', 'bus_stop'].includes(amenity) || ['station', 'subway_entrance', 'tram_stop'].includes(railway) || ['stop_position', 'platform'].includes(publicTransport)) return 'transit'
+    if (['station', 'subway_entrance', 'tram_stop', 'bus_station', 'bus_stop'].includes(amenity) || ['station', 'subway_entrance', 'tram_stop'].includes(railway) || ['stop_position', 'platform'].includes(publicTransport) || highway === 'bus_stop') return 'transit'
     if (['park', 'playground', 'pitch', 'fitness_centre', 'sports_centre'].includes(leisure) || ['park', 'fitness_centre'].includes(amenity)) return 'parks'
     if (['school', 'college', 'university', 'kindergarten', 'library'].includes(amenity)) return 'education'
     return null
@@ -2759,36 +3045,21 @@ function ListingMap({ address, city, zip, customLat, customLng, allowedCategorie
 
   useEffect(() => {
     let cancelled = false
+    const controller = new AbortController()
+
     async function fetchAmenities() {
       setAmenitiesLoading(true)
+      setAmenitiesAvailable(null)
+      const timeoutId = setTimeout(() => controller.abort(), 12000)
       try {
-        const radius = 1200
-        const query = `[out:json][timeout:20];(
-          node(around:${radius},${coords.lat},${coords.lng})[amenity];
-          way(around:${radius},${coords.lat},${coords.lng})[amenity];
-          rel(around:${radius},${coords.lat},${coords.lng})[amenity];
-          node(around:${radius},${coords.lat},${coords.lng})[shop];
-          way(around:${radius},${coords.lat},${coords.lng})[shop];
-          rel(around:${radius},${coords.lat},${coords.lng})[shop];
-          node(around:${radius},${coords.lat},${coords.lng})[leisure];
-          way(around:${radius},${coords.lat},${coords.lng})[leisure];
-          rel(around:${radius},${coords.lat},${coords.lng})[leisure];
-          node(around:${radius},${coords.lat},${coords.lng})[railway];
-          way(around:${radius},${coords.lat},${coords.lng})[railway];
-          rel(around:${radius},${coords.lat},${coords.lng})[railway];
-          node(around:${radius},${coords.lat},${coords.lng})[public_transport];
-          way(around:${radius},${coords.lat},${coords.lng})[public_transport];
-          rel(around:${radius},${coords.lat},${coords.lng})[public_transport];
-        );out center 80;`
-
-        const res = await fetch('https://overpass-api.de/api/interpreter', {
-          method: 'POST',
-          headers: { 'Content-Type': 'text/plain' },
-          body: query,
+        const res = await fetch(`/api/public/amenities?lat=${coords.lat}&lng=${coords.lng}&radius=1000`, {
+          signal: controller.signal,
         })
+        if (!res.ok) throw new Error('Amenities service unavailable')
         const data = await res.json()
-        const rows = Array.isArray(data?.elements) ? data.elements : []
+        if (!cancelled) setAmenitiesAvailable(data?.available !== false)
 
+        const rows = Array.isArray(data?.elements) ? data.elements : []
         const mapped = rows
           .map((el: any) => {
             const lat = el.lat ?? el.center?.lat
@@ -2796,10 +3067,10 @@ function ListingMap({ address, city, zip, customLat, customLng, allowedCategorie
             if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null
             const category = mapAmenityCategory(el.tags)
             if (!category) return null
-            if (allowedCategories && !allowedCategories.includes(category)) return null
+            if (allowedCategories?.length && !allowedCategories.includes(category)) return null
             const dist = haversineMiles(coords.lat, coords.lng, lat, lng)
-            const name = el.tags?.name || el.tags?.brand || 'Nearby place'
-            const type = el.tags?.amenity || el.tags?.shop || el.tags?.leisure || el.tags?.railway || 'location'
+            const name = el.tags?.name || el.tags?.brand || (el.tags?.railway === 'subway_entrance' ? 'Subway Entrance' : 'Nearby place')
+            const type = el.tags?.facility_type || el.tags?.amenity || el.tags?.shop || el.tags?.leisure || el.tags?.railway || 'location'
             return {
               id: `${el.type}_${el.id}`,
               name,
@@ -2815,15 +3086,25 @@ function ListingMap({ address, city, zip, customLat, customLng, allowedCategorie
           .slice(0, 30)
 
         if (!cancelled) setAmenities(mapped)
-      } catch (e) {
-        console.error('Failed to fetch nearby amenities', e)
-        if (!cancelled) setAmenities([])
+      } catch (e: any) {
+        if (e.name !== 'AbortError' && !cancelled) {
+          console.warn('Could not load nearby amenities:', e.message || e)
+        }
+        if (!cancelled) {
+          setAmenities([])
+          setAmenitiesAvailable(false)
+        }
       } finally {
+        clearTimeout(timeoutId)
         if (!cancelled) setAmenitiesLoading(false)
       }
     }
+
     fetchAmenities()
-    return () => { cancelled = true }
+    return () => {
+      cancelled = true
+      controller.abort()
+    }
   }, [coords.lat, coords.lng, allowedCategories?.join('|')])
 
   // Initialize Map
@@ -2836,9 +3117,10 @@ function ListingMap({ address, city, zip, customLat, customLng, allowedCategorie
       scrollWheelZoom: false,
     }).setView([coords.lat, coords.lng], 15)
 
-    // Voyager theme tiles look clean and modern
-    L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
-      attribution: '&copy; OpenStreetMap contributors'
+    // OpenStreetMap standard tiles (clean, reliable, no API key required)
+    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
     }).addTo(map)
 
     L.control.zoom({ position: 'bottomright' }).addTo(map)
@@ -2952,7 +3234,7 @@ function ListingMap({ address, city, zip, customLat, customLng, allowedCategorie
     { key: 'transit', label: '🚇 Transit' },
     { key: 'parks', label: '🌳 Parks' },
     { key: 'education', label: '🏫 Education' },
-  ].filter(cat => cat.key === 'all' || !allowedCategories || allowedCategories.includes(cat.key))
+  ].filter(cat => cat.key === 'all' || !allowedCategories?.length || allowedCategories.includes(cat.key))
 
   const filteredAmenities = amenities.filter(item => selectedCategory === 'all' || item.category === selectedCategory)
 
@@ -2987,7 +3269,9 @@ function ListingMap({ address, city, zip, customLat, customLng, allowedCategorie
         </div>
         <div className="flex-1 overflow-y-auto space-y-1.5 pr-1 mt-1 scrollbar-hide">
           {filteredAmenities.length === 0 ? (
-            <div className="text-center py-8 text-xs text-gray-400">No matching amenities found.</div>
+            <div className="text-center py-8 text-xs text-gray-400">
+              {amenitiesLoading ? 'Loading nearby places…' : amenitiesAvailable === false ? 'Nearby places are temporarily unavailable.' : 'No matching amenities found.'}
+            </div>
           ) : (
             filteredAmenities.map(item => (
               <button
@@ -3018,12 +3302,15 @@ function ListingMap({ address, city, zip, customLat, customLng, allowedCategorie
 // ─────────────────────────────────────────────────────────────────────────────
 interface ListingStoryViewProps {
   listing: any
+  displayStreet?: string
   agent: any
   listingAgent: { name: string; email: string; phone: string; brokerage: string }
-  isSharedLeadView: boolean
+  isSharedLeadView?: boolean
   complianceDisclaimer: string
   mapSettings: { lat: number | null, lng: number | null, categories: string[] | null } | null
   effectiveMapCoords?: { lat: number | null; lng: number | null }
+  listingAreas: Array<{ label: string; value: string }>
+  listingSchools: Array<{ type: string; name: string }>
   mediaList: any[]
   activeIndex: number
   handleNextPhoto: () => void
@@ -3036,15 +3323,19 @@ interface ListingStoryViewProps {
   companyLogoUrl: string | null
   companyName: string
   onOpenInquiry: (l: any) => void
+  onPrintFlyer?: () => void
 }
 
 function ListingStoryView({
   listing,
+  displayStreet,
   agent,
   listingAgent,
   isSharedLeadView,
   mapSettings,
   effectiveMapCoords,
+  listingAreas,
+  listingSchools,
   mediaList,
   isStoryPaused,
   setIsStoryPaused,
@@ -3052,10 +3343,11 @@ function ListingStoryView({
   setActiveStorySlide,
   companyLogoUrl,
   companyName,
-  onOpenInquiry
+  onOpenInquiry,
+  onPrintFlyer
 }: ListingStoryViewProps) {
   const slideCount = 6
-  const residentialTemplate = isResidentialType(listing)
+  const presentation = useMemo(() => getListingPresentation(listing), [listing])
   const [showFullDesc, setShowFullDesc] = useState(false)
   const [isSaved, setIsSaved] = useState(false)
 
@@ -3071,9 +3363,11 @@ function ListingStoryView({
     const monthlyRate = storyRate / 100 / 12
     const n = 360
     const pAndI = loanAmount > 0 ? (loanAmount * (monthlyRate * Math.pow(1 + monthlyRate, n))) / (Math.pow(1 + monthlyRate, n) - 1) : 0
-    const taxes = Math.round((price * 0.0125) / 12)
+    const record = listing?.raw?.data || listing?.raw || {}
+    const annualTaxes = Number(firstNonEmpty(record.TaxAnnualAmount, record.taxAnnualAmount, listing.monthly_taxes ? listing.monthly_taxes * 12 : 0))
+    const taxes = Number.isFinite(annualTaxes) && annualTaxes > 0 ? Math.round(annualTaxes / 12) : 0
     const total = Math.round(pAndI + taxes)
-    return { pAndI: Math.round(pAndI), taxes, total }
+    return { pAndI: Math.round(pAndI), taxes, total, includesTaxes: taxes > 0 }
   }, [listing.price, storyDownPct, storyRate])
 
   const [touchStart, setTouchStart] = useState<number | null>(null)
@@ -3083,11 +3377,7 @@ function ListingStoryView({
 
   const currentPhotoIdx = (activeStorySlide + photoOffset) % Math.max(1, mediaList.length)
   const currentPhotoObj = mediaList[currentPhotoIdx]
-  const storyPhotoSrc = currentPhotoObj?.mediaUrl
-    ? (currentPhotoObj.mediaUrl.startsWith('http')
-        ? currentPhotoObj.mediaUrl
-        : `https://inventory.primeamericarealestate.com${currentPhotoObj.mediaUrl}`)
-    : 'https://images.unsplash.com/photo-1568605117036-5fe5e7bab0b7?auto=format&fit=crop&w=1200&q=80'
+  const storyPhotoSrc = resolveMediaUrl(currentPhotoObj?.mediaUrl, listing?.id) || 'https://images.unsplash.com/photo-1568605117036-5fe5e7bab0b7?auto=format&fit=crop&w=1200&q=80'
 
   const handleTouchStart = (e: React.TouchEvent) => {
     setTouchStart(e.targetTouches[0].clientX)
@@ -3151,35 +3441,8 @@ function ListingStoryView({
   }
 
   const dynamicStandoutFeatures = useMemo(() => {
-    if (!listing) return []
-    const r = listing?.raw?.data || listing?.raw || {}
-    const items: Array<{ category: string; value: string }> = []
-
-    if (listing.bedrooms || listing.bathrooms) {
-      items.push({ category: 'Layout', value: `${listing.bedrooms || '—'} Beds, ${listing.bathrooms || '—'} Baths` })
-    }
-    if (listing.sqft) {
-      items.push({ category: 'Size', value: `${Number(listing.sqft).toLocaleString()} Sq Ft Space` })
-    }
-    if (listing.yearBuilt || r.YearBuilt) {
-      items.push({ category: 'Architecture', value: `Built in ${listing.yearBuilt || r.YearBuilt}` })
-    }
-    if (listing.propertySubtype || listing.propertyType || r.PropertySubtype) {
-      items.push({ category: 'Property Type', value: String(listing.propertySubtype || listing.propertyType || r.PropertySubtype) })
-    }
-    if (r.Heating || r.Cooling || r.cooling) {
-      items.push({ category: 'HVAC', value: `${r.Heating || 'Heating'} / ${r.Cooling || 'AC'}` })
-    }
-    if (r.ParkingFeatures || r.GarageSpaces) {
-      items.push({ category: 'Parking', value: `${r.GarageSpaces ? `${r.GarageSpaces} Car Garage` : 'Off-Street Parking'}` })
-    }
-
-    if (items.length < 4) {
-      items.push({ category: 'Location', value: `Prime ${listing.city || 'Neighborhood'}` })
-      items.push({ category: 'Condition', value: 'Turn-Key Ready' })
-    }
-    return items.slice(0, 4)
-  }, [listing])
+    return presentation.primaryFacts.slice(1, 5).map((item) => ({ category: item.label, value: item.value }))
+  }, [presentation])
 
   return (
     <div
@@ -3202,15 +3465,18 @@ function ListingStoryView({
             <button
               key={idx}
               onClick={(e) => { e.stopPropagation(); setActiveStorySlide(idx); }}
-              className="h-1 bg-white/20 rounded-full flex-1 overflow-hidden focus:outline-none"
+              className="h-3 -my-1 py-1 flex-1 overflow-hidden focus:outline-none flex items-center"
+              aria-label={`Slide ${idx + 1}`}
             >
-              <div
-                className="h-full bg-amber-400 transition-all duration-[5000ms] ease-linear"
-                style={{
-                  width: idx < activeStorySlide ? '100%' : idx === activeStorySlide && !isStoryPaused ? '100%' : '0%',
-                  transitionDuration: idx === activeStorySlide && !isStoryPaused ? '5000ms' : '0s'
-                }}
-              />
+              <div className="h-1 w-full bg-white/20 rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-amber-400 transition-all duration-[5000ms] ease-linear"
+                  style={{
+                    width: idx < activeStorySlide ? '100%' : idx === activeStorySlide && !isStoryPaused ? '100%' : '0%',
+                    transitionDuration: idx === activeStorySlide && !isStoryPaused ? '5000ms' : '0s'
+                  }}
+                />
+              </div>
             </button>
           ))}
         </div>
@@ -3218,11 +3484,11 @@ function ListingStoryView({
         {/* Branding header */}
         <div className="flex justify-between items-center">
           <div className="flex items-center gap-2">
-            {companyLogoUrl ? (
-              <img src={companyLogoUrl} alt={companyName} className="h-7 w-auto object-contain bg-white/90 p-0.5 rounded border border-white/20" />
-            ) : (
-              <div className="h-7 w-7 rounded-full bg-amber-500 text-black font-black text-[10px] flex items-center justify-center">PA</div>
-            )}
+            <img
+              src={companyLogoUrl || '/prime-america-seal.png'}
+              alt={companyName}
+              className="h-7 w-7 rounded-full object-contain bg-white/90 p-0.5 border border-white/20"
+            />
             <div>
               <p className="text-xs font-bold text-white leading-none">{companyName}</p>
               <p className="text-[8px] text-amber-300/90 font-bold uppercase tracking-wider mt-0.5">Prime America Real Estate, Inc.</p>
@@ -3230,6 +3496,15 @@ function ListingStoryView({
           </div>
 
           <div className="flex items-center gap-2">
+            {onPrintFlyer && (
+              <button
+                onClick={(e) => { e.stopPropagation(); onPrintFlyer(); }}
+                className="text-[9px] bg-white/10 px-2.5 py-1 rounded-full font-bold uppercase tracking-wider text-gray-300 hover:text-white border border-white/10 flex items-center gap-1"
+                title="Print Property Flyer"
+              >
+                <Printer className="h-3 w-3" /> Print
+              </button>
+            )}
             <button
               onClick={(e) => { e.stopPropagation(); setIsStoryPaused(!isStoryPaused); }}
               className="text-[9px] bg-white/10 px-2.5 py-1 rounded-full font-bold uppercase tracking-wider text-gray-300 hover:text-white border border-white/10"
@@ -3261,28 +3536,26 @@ function ListingStoryView({
 
             <div className="space-y-1">
               <h2 className="text-xl font-serif text-white tracking-wide font-black leading-snug drop-shadow-lg">
-                {listing.address}
+                {displayStreet || listing.address}
               </h2>
               <p className="text-xs text-gray-300 flex items-center justify-center gap-1">
                 <MapPin className="h-3.5 w-3.5 text-amber-400" />
-                Middle Village, Queens, NY {listing.zip || '11379'}
+                {listing.city || ''}, {listing.state || 'NY'} {listing.zip || ''}
               </p>
             </div>
 
             <div className="grid grid-cols-3 gap-2 bg-white/10 backdrop-blur-md border border-white/15 rounded-2xl p-3.5 shadow-xl">
               <div>
-                <p className="text-[8.5px] text-gray-300 font-bold uppercase tracking-wider">Asking Price</p>
-                <p className="text-base font-black text-amber-400 mt-0.5">${listing.price?.toLocaleString() || '—'}</p>
+                <p className="text-[8.5px] text-gray-300 font-bold uppercase tracking-wider">{presentation.priceLabel}</p>
+                <p className="text-base font-black text-amber-400 mt-0.5">{presentation.primaryFacts[0]?.value || 'Not provided'}</p>
               </div>
               <div className="border-l border-white/15">
-                <p className="text-[8.5px] text-gray-300 font-bold uppercase tracking-wider">{residentialTemplate ? 'Bed / Bath' : 'Type'}</p>
-                <p className="text-base font-black text-white mt-0.5 capitalize">
-                  {residentialTemplate ? `${listing.bedrooms || '—'}/${listing.bathrooms || '—'}` : (listing.propertySubtype || listing.propertyType || 'Commercial')}
-                </p>
+                <p className="text-[8.5px] text-gray-300 font-bold uppercase tracking-wider">{presentation.primaryFacts[1]?.label || 'Listing Type'}</p>
+                <p className="text-base font-black text-white mt-0.5 capitalize">{presentation.primaryFacts[1]?.value || presentation.label}</p>
               </div>
               <div className="border-l border-white/15">
-                <p className="text-[8.5px] text-gray-300 font-bold uppercase tracking-wider">{residentialTemplate ? 'Total Size' : 'Building'}</p>
-                <p className="text-base font-black text-white mt-0.5">{listing.sqft ? `${listing.sqft.toLocaleString()} sf` : '—'}</p>
+                <p className="text-[8.5px] text-gray-300 font-bold uppercase tracking-wider">{presentation.primaryFacts[2]?.label || 'Property Type'}</p>
+                <p className="text-base font-black text-white mt-0.5">{presentation.primaryFacts[2]?.value || presentation.label}</p>
               </div>
             </div>
           </div>
@@ -3303,26 +3576,47 @@ function ListingStoryView({
               )}
 
               <div>
-                <h4 className="font-extrabold text-white text-lg leading-snug">{listingAgent?.name || agent?.name || 'Siddhartha Lama'}</h4>
+                <h4 className="font-extrabold text-white text-lg leading-snug">{listingAgent?.name || agent?.name || ''}</h4>
                 <p className="text-xs text-amber-300 font-bold mt-0.5">{isSharedLeadView ? 'Presented By' : 'Listing Agent'} • {listingAgent?.brokerage || companyName}</p>
-                <p className="text-[10px] text-gray-300 mt-1">License: {agent?.license_number || '10401340123'} (NY)</p>
+                {agent?.license_number && <p className="text-[10px] text-gray-300 mt-1">License: {agent.license_number} ({agent?.license_state || 'NY'})</p>}
               </div>
 
               <div className="grid grid-cols-2 gap-2 pt-2 border-t border-white/10 text-xs">
-                <a
-                  href={`tel:${listingAgent?.phone || agent?.phone || '9294248950'}`}
-                  onClick={(e) => e.stopPropagation()}
-                  className="min-h-[44px] bg-emerald-600 hover:bg-emerald-700 text-white py-2.5 rounded-xl font-bold flex items-center justify-center gap-1.5 shadow-md"
-                >
-                  <Phone className="h-4 w-4" /> Tap to Call
-                </a>
-                <a
-                  href={`mailto:${listingAgent?.email || agent?.email || 'info@primeamericany.com'}`}
-                  onClick={(e) => e.stopPropagation()}
-                  className="min-h-[44px] bg-blue-600 hover:bg-blue-700 text-white py-2.5 rounded-xl font-bold flex items-center justify-center gap-1.5 shadow-md"
-                >
-                  <Mail className="h-4 w-4" /> Tap to Email
-                </a>
+                {(listingAgent?.phone || agent?.phone) ? (
+                  <a
+                    href={`tel:${listingAgent?.phone || agent?.phone}`}
+                    onClick={(e) => e.stopPropagation()}
+                    className="min-h-[44px] bg-emerald-600 hover:bg-emerald-700 text-white py-2.5 rounded-xl font-bold flex items-center justify-center gap-1.5 shadow-md"
+                  >
+                    <Phone className="h-4 w-4" /> Tap to Call
+                  </a>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); onOpenInquiry(listing); }}
+                    className="min-h-[44px] bg-emerald-600 hover:bg-emerald-700 text-white py-2.5 rounded-xl font-bold flex items-center justify-center gap-1.5 shadow-md"
+                  >
+                    <Phone className="h-4 w-4" /> Request Info
+                  </button>
+                )}
+
+                {(listingAgent?.email || agent?.email) ? (
+                  <a
+                    href={`mailto:${listingAgent?.email || agent?.email}`}
+                    onClick={(e) => e.stopPropagation()}
+                    className="min-h-[44px] bg-blue-600 hover:bg-blue-700 text-white py-2.5 rounded-xl font-bold flex items-center justify-center gap-1.5 shadow-md"
+                  >
+                    <Mail className="h-4 w-4" /> Tap to Email
+                  </a>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); onOpenInquiry(listing); }}
+                    className="min-h-[44px] bg-blue-600 hover:bg-blue-700 text-white py-2.5 rounded-xl font-bold flex items-center justify-center gap-1.5 shadow-md"
+                  >
+                    <Mail className="h-4 w-4" /> Message
+                  </button>
+                )}
               </div>
             </div>
           </div>
@@ -3331,7 +3625,7 @@ function ListingStoryView({
         {/* SLIDE 2: Standout Features & Punchy Highlights */}
         {activeStorySlide === 2 && (
           <div className="w-full max-w-sm animate-fade-in-up space-y-4 text-left">
-            <h3 className="text-base font-serif font-black text-white text-center">Standout Home Features</h3>
+            <h3 className="text-base font-serif font-black text-white text-center">{presentation.highlightTitle}</h3>
 
             <div className="grid grid-cols-2 gap-2.5">
               {dynamicStandoutFeatures.map((feat, i) => (
@@ -3342,35 +3636,43 @@ function ListingStoryView({
               ))}
             </div>
 
-            <div className="bg-white/10 backdrop-blur-md border border-white/15 rounded-2xl p-4 space-y-2">
+            <div className="bg-white/10 backdrop-blur-md border border-white/15 rounded-2xl p-4 space-y-2 max-h-48 overflow-y-auto">
               <p className="text-xs text-gray-200 leading-relaxed">
-                {showFullDesc ? listing.description : `${(listing.description || '').substring(0, 180)}...`}
+                {showFullDesc ? listing.description : `${(listing.description || '').substring(0, 180)}${(listing.description || '').length > 180 ? '...' : ''}`}
               </p>
-              <button
-                onClick={(e) => { e.stopPropagation(); setShowFullDesc(!showFullDesc); }}
-                className="text-xs font-bold text-amber-400 hover:underline inline-flex items-center gap-1"
-              >
-                {showFullDesc ? 'Show less' : 'Read full description ↗'}
-              </button>
+              {(listing.description || '').length > 180 && (
+                <button
+                  onClick={(e) => { e.stopPropagation(); setShowFullDesc(!showFullDesc); }}
+                  className="text-xs font-bold text-amber-400 hover:underline inline-flex items-center gap-1 cursor-pointer"
+                >
+                  {showFullDesc ? 'Show less' : 'Read full description ↗'}
+                </button>
+              )}
             </div>
           </div>
         )}
 
-        {/* SLIDE 3: Interactive Affordability Calculator */}
-        {activeStorySlide === 3 && (
+        {/* SLIDE 3: Profile-specific financial or listing details */}
+        {activeStorySlide === 3 && presentation.showAffordability && (
           <div className="w-full max-w-sm animate-fade-in-up space-y-4 text-left">
             <h3 className="text-base font-serif font-black text-white text-center flex items-center justify-center gap-1.5">
               <Calculator className="h-4 w-4 text-amber-400" /> Interactive Affordability
             </h3>
 
-            <div onClick={(e) => e.stopPropagation()} className="bg-white/10 backdrop-blur-md border border-white/15 rounded-3xl p-4 space-y-3.5">
+            <div
+              onClick={(e) => e.stopPropagation()}
+              onTouchStart={(e) => e.stopPropagation()}
+              onTouchMove={(e) => e.stopPropagation()}
+              className="bg-white/10 backdrop-blur-md border border-white/15 rounded-3xl p-4 space-y-3.5"
+            >
               <div className="text-center bg-black/40 rounded-2xl p-3 border border-white/10">
                 <p className="text-[9px] text-gray-400 font-bold uppercase tracking-wider">Est. Monthly Payment</p>
                 <p className="text-2xl font-black text-amber-400 mt-0.5">
                   ${calculatedMonthly ? calculatedMonthly.total.toLocaleString() : '—'}<span className="text-xs text-gray-300 font-normal">/mo</span>
                 </p>
                 <p className="text-[10px] text-gray-300 mt-1">
-                  ${calculatedMonthly?.pAndI.toLocaleString()} P&I + ${calculatedMonthly?.taxes.toLocaleString()} taxes
+                  ${calculatedMonthly?.pAndI.toLocaleString()} P&amp;I
+                  {calculatedMonthly?.includesTaxes ? ` + $${calculatedMonthly.taxes.toLocaleString()} taxes` : ' · taxes not included'}
                 </p>
               </div>
 
@@ -3416,20 +3718,57 @@ function ListingStoryView({
           </div>
         )}
 
-        {/* SLIDE 4: Commute & Neighborhood Map */}
+        {activeStorySlide === 3 && !presentation.showAffordability && (
+          <div className="w-full max-w-sm animate-fade-in-up space-y-4 text-left">
+            <h3 className="text-base font-serif font-black text-white text-center">{presentation.label} Details</h3>
+            <div className="bg-white/10 backdrop-blur-md border border-white/15 rounded-3xl p-4 space-y-4 max-h-[60vh] overflow-y-auto">
+              {presentation.sections.length > 0 ? presentation.sections.map((section) => (
+                <div key={section.title}>
+                  <h4 className="text-[10px] font-extrabold uppercase tracking-wider text-amber-400 mb-2">{section.title}</h4>
+                  <dl className="space-y-2">
+                    {section.facts.map((item) => (
+                      <div key={item.id} className="flex items-start justify-between gap-3 border-b border-white/10 pb-2 text-xs">
+                        <dt className="text-gray-300">{item.label}</dt>
+                        <dd className="font-bold text-white text-right">{item.value}</dd>
+                      </div>
+                    ))}
+                  </dl>
+                </div>
+              )) : (
+                <p className="text-xs text-gray-300 text-center">Additional verified details have not been provided.</p>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* SLIDE 4: Neighborhood & Map */}
         {activeStorySlide === 4 && (
-          <div className="w-full max-w-sm animate-fade-in-up space-y-3.5">
+          <div className="w-full max-w-sm animate-fade-in-up space-y-3 max-h-[78vh] overflow-y-auto scrollbar-hide">
             <h3 className="text-base font-serif font-black text-white text-center flex items-center justify-center gap-1.5">
               <Compass className="h-4 w-4 text-amber-400" /> Neighborhood & Location
             </h3>
 
-            <div onClick={(e) => e.stopPropagation()} className="w-full text-left space-y-3">
+            <div
+              onClick={(e) => e.stopPropagation()}
+              onTouchStart={(e) => e.stopPropagation()}
+              onTouchMove={(e) => e.stopPropagation()}
+              className="w-full text-left space-y-3"
+            >
+              {listingAreas.length > 0 ? (
+                <div className="flex flex-wrap gap-1.5">
+                  {listingAreas.map((area) => (
+                    <span key={area.label} className="rounded-full border border-white/15 bg-white/10 px-2.5 py-1 text-[9px] text-gray-200">
+                      <strong className="text-amber-300">{area.label}:</strong> {area.value}
+                    </span>
+                  ))}
+                </div>
+              ) : null}
               <div className="bg-white/10 backdrop-blur-md border border-white/15 rounded-3xl overflow-hidden p-3">
                 <p className="text-xs font-bold text-amber-300 mb-2 flex items-center justify-between">
                   <span>{listing.city ? `${listing.city}${listing.state ? `, ${listing.state}` : ''}` : 'Neighborhood'}</span>
                   <span className="text-[10px] text-gray-300 font-normal">Walk Score: {getDynamicWalkScore(listing.zip, listing.city)}</span>
                 </p>
-                <div className="h-44 rounded-2xl overflow-hidden relative">
+                <div className="h-[380px] rounded-2xl overflow-hidden relative">
                   <ListingMap
                     address={listing.address}
                     city={listing.city}
@@ -3440,6 +3779,19 @@ function ListingStoryView({
                   />
                 </div>
               </div>
+              {presentation.showSchools && listingSchools.length > 0 ? (
+                <div className="bg-white/10 backdrop-blur-md border border-white/15 rounded-2xl p-3">
+                  <p className="text-[10px] font-extrabold uppercase tracking-wider text-amber-300 mb-2">Education</p>
+                  <div className="space-y-1.5">
+                    {listingSchools.map((school) => (
+                      <div key={school.type} className="flex items-start justify-between gap-3 text-[10px]">
+                        <span className="text-gray-400">{school.type}</span>
+                        <span className="font-bold text-white text-right">{school.name}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
             </div>
           </div>
         )}
@@ -3447,9 +3799,9 @@ function ListingStoryView({
         {/* SLIDE 5: Schedule Tour & Direct Inquiry */}
         {activeStorySlide === 5 && (
           <div className="w-full max-w-sm animate-fade-in-up space-y-4 text-center">
-            <h3 className="text-xl font-serif font-black text-amber-400">Schedule Your Private Tour</h3>
+            <h3 className="text-xl font-serif font-black text-amber-400">{presentation.inquiryTitle}</h3>
             <p className="text-xs text-gray-200 leading-relaxed">
-              Inquire directly with {listingAgent?.name || 'Siddhartha Lama'} to arrange a viewing for {listing.address}.
+              Inquire directly with {listingAgent?.name || 'our team'} to arrange a viewing for {listing.address}.
             </p>
 
             <div className="bg-white/10 backdrop-blur-md border border-white/15 rounded-3xl p-4 space-y-3" onClick={(e) => e.stopPropagation()}>
@@ -3458,15 +3810,17 @@ function ListingStoryView({
                 onClick={() => onOpenInquiry(listing)}
                 className="w-full min-h-[48px] bg-blue-600 hover:bg-blue-700 text-white font-extrabold py-3 rounded-2xl text-xs shadow-xl transition-all flex items-center justify-center gap-2"
               >
-                <Calendar className="h-4 w-4" /> Schedule Tour / Request Info
+                <Calendar className="h-4 w-4" /> {presentation.inquiryAction}
               </button>
 
-              <a
-                href={`tel:${listingAgent?.phone || '9294248950'}`}
-                className="w-full min-h-[44px] bg-white/10 hover:bg-white/20 text-white font-bold py-2.5 rounded-2xl text-xs border border-white/15 flex items-center justify-center gap-2"
-              >
-                <Phone className="h-4 w-4 text-emerald-400" /> Direct Call: (929) 424-8950
-              </a>
+              {(listingAgent?.phone || agent?.phone) && (
+                <a
+                  href={`tel:${listingAgent?.phone || agent?.phone}`}
+                  className="w-full min-h-[44px] bg-white/10 hover:bg-white/20 text-white font-bold py-2.5 rounded-2xl text-xs border border-white/15 flex items-center justify-center gap-2"
+                >
+                  <Phone className="h-4 w-4 text-emerald-400" /> Direct Call: {listingAgent?.phone || agent?.phone}
+                </a>
+              )}
             </div>
           </div>
         )}
@@ -3498,7 +3852,7 @@ function ListingStoryView({
           onClick={() => onOpenInquiry(listing)}
           className="flex-[1.5] py-2.5 rounded-xl text-xs font-extrabold bg-blue-600 hover:bg-blue-700 text-white shadow-lg flex items-center justify-center gap-1.5"
         >
-          <Calendar className="h-3.5 w-3.5" /> Schedule Tour
+          <Calendar className="h-3.5 w-3.5" /> {presentation.inquiryAction}
         </button>
       </div>
     </div>
@@ -3533,7 +3887,7 @@ function ListingMobileFeed({
   setShowInquiryModal,
   onOpenInquiry
 }: ListingMobileFeedProps) {
-  const residentialTemplate = isResidentialType(listing)
+  const presentation = useMemo(() => getListingPresentation(listing), [listing])
 
   return (
     <div className="bg-[#FAF9F6] min-h-[calc(100vh-48px)] text-gray-800 pb-20 flex flex-col font-sans">
@@ -3552,7 +3906,7 @@ function ListingMobileFeed({
         <div className="bg-white rounded-3xl border border-blue-500 overflow-hidden shadow-md">
           <div className="relative h-44 bg-gray-100">
             {listing.heroMediaUrl && (
-              <img src={listing.heroMediaUrl.startsWith('http') ? listing.heroMediaUrl : `https://inventory.primeamericarealestate.com${listing.heroMediaUrl}`} alt="Featured" className="w-full h-full object-cover" />
+              <img src={resolveMediaUrl(listing.heroMediaUrl, listing.id)} alt="Featured" className="w-full h-full object-cover" />
             )}
             <div className="absolute top-3 left-3 bg-blue-600 text-white font-bold text-[9px] px-2.5 py-0.5 rounded-full uppercase tracking-wider">
               Currently Viewing
@@ -3562,9 +3916,7 @@ function ListingMobileFeed({
             <h4 className="font-bold text-gray-900 text-xs truncate">{listing.address}</h4>
             <p className="text-[10px] text-gray-400">{listing.city}, {listing.state}</p>
             <p className="text-[9px] text-gray-500 mt-0.5">
-              {residentialTemplate
-                ? `${listing.bedrooms || '—'}b | ${listing.bathrooms || '—'}ba | ${listing.sqft?.toLocaleString() || '—'} sf`
-                : `${listing.propertySubtype || listing.propertyType || 'Commercial'} | ${listing.sqft?.toLocaleString() || '—'} sf`}
+              {presentation.primaryFacts.slice(1, 4).map((item) => `${item.label}: ${item.value}`).join(' | ') || presentation.label}
             </p>
             <div className="flex justify-between items-center pt-2">
               <span className="text-blue-600 font-extrabold text-sm">${listing.price?.toLocaleString()}</span>
@@ -3585,10 +3937,8 @@ function ListingMobileFeed({
             <p className="text-xs text-gray-400 italic">No other listings available in this category.</p>
           ) : (
             allListings.map((l: any) => {
-              const imgUrl = l.heroMediaUrl
-                ? (l.heroMediaUrl.startsWith('http') ? l.heroMediaUrl : `https://inventory.primeamericarealestate.com${l.heroMediaUrl}`)
-                : ''
-              const listIsResidential = isResidentialType(l)
+              const imgUrl = resolveMediaUrl(l.heroMediaUrl, l.id)
+              const listPresentation = getListingPresentation(l)
               return (
                 <div key={l.id} className="bg-white rounded-3xl border border-gray-150 overflow-hidden shadow-sm flex h-28 hover:border-gray-300 transition-colors">
                   <div className="w-28 flex-shrink-0 bg-gray-50 relative">
@@ -3603,9 +3953,7 @@ function ListingMobileFeed({
                       <h5 className="font-bold text-gray-800 text-xs truncate">{l.address}</h5>
                       <p className="text-[10px] text-gray-400 truncate">{l.city}, {l.state}</p>
                       <p className="text-[9px] text-gray-400 mt-0.5">
-                        {listIsResidential
-                          ? `${l.bedrooms || '—'}b | ${l.bathrooms || '—'}ba | ${l.sqft || '—'} sf`
-                          : `${l.propertySubtype || l.propertyType || 'Commercial'} | ${l.sqft || '—'} sf`}
+                        {listPresentation.primaryFacts.slice(1, 3).map((item) => `${item.label}: ${item.value}`).join(' | ') || listPresentation.label}
                       </p>
                     </div>
                     <div className="flex justify-between items-center">

@@ -41,14 +41,14 @@ const HABITS_BY_MODE: Record<OperationalMode, { title: string; subtitle: string;
       { id: 'b1', text: 'Review New MLS Listings matching Buyer criteria', actionLabel: 'MLS Search', actionUrl: '/inventory' },
       { id: 'b2', text: 'Schedule 2 Property Showings for Buyers', actionLabel: 'Calendar', actionUrl: '/transactions/pipeline' },
       { id: 'b3', text: 'Follow up on pre-approval status with Lenders', actionLabel: 'CRM Leads', actionUrl: '/marketing/crm' },
-      { id: 'b4', text: 'Draft or review Buyer Representation Agreements', actionLabel: 'Deals Pipeline', actionUrl: '/transactions/pipeline' },
+      { id: 'b4', text: 'Draft or review Buyer Representation Agreements', actionLabel: 'Deals', actionUrl: '/transactions/pipeline' },
     ],
   },
   transaction: {
     title: 'Transaction & Closing Pipeline Focus',
     subtitle: 'Track milestone deadlines, escrow deposits, attorney reviews, and contingencies.',
     tasks: [
-      { id: 't1', text: 'Verify Inspection & Appraisal Contingency Deadlines', actionLabel: 'Deals Pipeline', actionUrl: '/transactions/pipeline' },
+      { id: 't1', text: 'Verify Inspection & Appraisal Contingency Deadlines', actionLabel: 'Deals', actionUrl: '/transactions/pipeline' },
       { id: 't2', text: 'Confirm Title & Escrow Deposit Verification', actionLabel: 'View Deals', actionUrl: '/transactions/pipeline' },
       { id: 't3', text: 'Send Deal Status Update to Buyer/Seller & Attorney', actionLabel: 'Deal Details', actionUrl: '/transactions/pipeline' },
       { id: 't4', text: 'Review Closing Settlement Statements', actionLabel: 'Transactions', actionUrl: '/transactions/pipeline' },

@@ -1,0 +1,5 @@
+# Workspace owns Hub login; Hub retains business profile identity
+
+The Brand & Marketing Hub uses Workspace's active account authority through a browser-bound, single-use handoff, rather than maintaining separate passwords or switching to the pending central Better Auth service. A tenant-scoped mapping joins each canonical Workspace user to the existing Hub profile ID so headshots, uploaded assets, and historical marketing submissions retain their ownership; initial linking uses the authenticated Workspace email and refuses ambiguous or conflicting mappings. A dedicated Hub credential restricts token redemption and current-membership checks to this application and tenant, avoiding rotation of the shared credential used by other satellites.
+
+The Hub checks active Workspace membership and current role on every authenticated request. This makes Workspace availability a prerequisite for private Hub operations, deliberately favoring prompt revocation over an offline permission cache. Public brand references remain accessible to the team and LLM tools without a session.

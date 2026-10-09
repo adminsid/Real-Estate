@@ -52,10 +52,12 @@ describe('getEffectivePermissions — broker', () => {
 })
 
 describe('getEffectivePermissions — salesperson', () => {
-  it('grants crm:read and crm:write', async () => {
+  it('grants crm:read and crm:write, listings:read and listings:write', async () => {
     const perms = await getEffectivePermissions('u-sp', 'salesperson', makeDb())
     expect(perms.get('crm:read')).toBe(true)
     expect(perms.get('crm:write')).toBe(true)
+    expect(perms.get('listings:read')).toBe(true)
+    expect(perms.get('listings:write')).toBe(true)
   })
 
   it('does not grant reports:read or hr:read', async () => {

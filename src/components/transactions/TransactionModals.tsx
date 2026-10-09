@@ -1,6 +1,6 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useTransactionDetail } from './TransactionContext'
-import { Lock, Unlock, Mail } from 'lucide-react'
+import { Lock, Unlock, Mail, Loader2, AlertCircle } from 'lucide-react'
 import clsx from 'clsx'
 
 interface EditDetailsModalProps {
@@ -13,59 +13,134 @@ export function EditDetailsModal({ isOpen, onClose }: EditDetailsModalProps) {
   const tx = data?.transaction
 
   const [editType, setEditType] = useState(tx?.type || 'sale')
-  const [editPrice, setEditPrice] = useState(tx?.price || '')
-  const [editCommAmount, setEditCommAmount] = useState(tx?.commission_amount || '')
-  const [editCommRate, setEditCommRate] = useState(tx?.commission_rate || '')
-  const [editCloseDate, setEditCloseDate] = useState(tx?.target_close_date || '')
-  const [editActualCloseDate, setEditActualCloseDate] = useState(tx?.actual_close_date || '')
-  const [editAgreementType, setEditAgreementType] = useState(tx?.agreement_type || '')
-  const [editAgreementExpiry, setEditAgreementExpiry] = useState(tx?.agreement_expiration_date || '')
+  const [editPrice, setEditPrice] = useState(tx?.price ?? '')
+  const [editCommAmount, setEditCommAmount] = useState(tx?.commission_amount ?? '')
+  const [editCommRate, setEditCommRate] = useState(tx?.commission_rate ?? '')
+  const [editCloseDate, setEditCloseDate] = useState(tx?.target_close_date ?? '')
+  const [editActualCloseDate, setEditActualCloseDate] = useState(tx?.actual_close_date ?? '')
+  const [editAgreementType, setEditAgreementType] = useState(tx?.agreement_type ?? '')
+  const [editAgreementExpiry, setEditAgreementExpiry] = useState(tx?.agreement_expiration_date ?? '')
 
   // Overhauled business fields
-  const [editEarnestMoneyAmount, setEditEarnestMoneyAmount] = useState(tx?.earnest_money_amount || '')
+  const [editEarnestMoneyAmount, setEditEarnestMoneyAmount] = useState(tx?.earnest_money_amount ?? '')
   const [editEarnestMoneyStatus, setEditEarnestMoneyStatus] = useState(tx?.earnest_money_status || 'pending')
-  const [editEarnestMoneyNotes, setEditEarnestMoneyNotes] = useState(tx?.earnest_money_notes || '')
-  const [editSplitBuyerPercent, setEditSplitBuyerPercent] = useState(tx?.commission_split_buyer_percent || '')
-  const [editSplitCoBrokerPercent, setEditSplitCoBrokerPercent] = useState(tx?.commission_split_co_broker_percent || '')
-  const [editSplitReferralPercent, setEditSplitReferralPercent] = useState(tx?.commission_split_referral_percent || '')
-  const [editRepairCredit, setEditRepairCredit] = useState(tx?.repair_credit || '')
-  const [editAttorneyReviewStartDate, setEditAttorneyReviewStartDate] = useState(tx?.attorney_review_start_date || '')
+  const [editEarnestMoneyNotes, setEditEarnestMoneyNotes] = useState(tx?.earnest_money_notes ?? '')
+  const [editSplitBuyerPercent, setEditSplitBuyerPercent] = useState(tx?.commission_split_buyer_percent ?? '')
+  const [editSplitCoBrokerPercent, setEditSplitCoBrokerPercent] = useState(tx?.commission_split_co_broker_percent ?? '')
+  const [editSplitReferralPercent, setEditSplitReferralPercent] = useState(tx?.commission_split_referral_percent ?? '')
+  const [editRepairCredit, setEditRepairCredit] = useState(tx?.repair_credit ?? '')
+  const [editAttorneyReviewStartDate, setEditAttorneyReviewStartDate] = useState(tx?.attorney_review_start_date ?? '')
   const [editAttorneyReviewStatus, setEditAttorneyReviewStatus] = useState(tx?.attorney_review_status || 'pending')
-  const [editDealFailureReason, setEditDealFailureReason] = useState(tx?.deal_failure_reason || '')
-  const [editDealFailureNotes, setEditDealFailureNotes] = useState(tx?.deal_failure_notes || '')
-  const [editPostOccupancyDeadline, setEditPostOccupancyDeadline] = useState(tx?.post_occupancy_deadline || '')
-  const [editPostOccupancyDailyRate, setEditPostOccupancyDailyRate] = useState(tx?.post_occupancy_daily_rate || '')
-  const [editPostOccupancyEscrowHeld, setEditPostOccupancyEscrowHeld] = useState(tx?.post_occupancy_escrow_held || '')
+  const [editDealFailureReason, setEditDealFailureReason] = useState(tx?.deal_failure_reason ?? '')
+  const [editDealFailureNotes, setEditDealFailureNotes] = useState(tx?.deal_failure_notes ?? '')
+  const [editPostOccupancyDeadline, setEditPostOccupancyDeadline] = useState(tx?.post_occupancy_deadline ?? '')
+  const [editPostOccupancyDailyRate, setEditPostOccupancyDailyRate] = useState(tx?.post_occupancy_daily_rate ?? '')
+  const [editPostOccupancyEscrowHeld, setEditPostOccupancyEscrowHeld] = useState(tx?.post_occupancy_escrow_held ?? '')
+
+  // Timeline Milestones
+  const [editListedDate, setEditListedDate] = useState(tx?.listed_date ?? '')
+  const [editOfferDate, setEditOfferDate] = useState(tx?.offer_date ?? '')
+  const [editOfferAcceptedDate, setEditOfferAcceptedDate] = useState(tx?.offer_accepted_date ?? '')
+  const [editPendingDate, setEditPendingDate] = useState(tx?.pending_date ?? '')
+  const [editHomeInspectionDate, setEditHomeInspectionDate] = useState(tx?.home_inspection_date ?? '')
+  const [editPossessionDate, setEditPossessionDate] = useState(tx?.possession_date ?? '')
+  const [editEscrowDate, setEditEscrowDate] = useState(tx?.escrow_date ?? '')
+  const [editInspectionDeadline, setEditInspectionDeadline] = useState(tx?.inspection_deadline ?? '')
+  const [editAppraisalDate, setEditAppraisalDate] = useState(tx?.appraisal_date ?? '')
+  const [editClosingDate, setEditClosingDate] = useState(tx?.closing_date ?? '')
+
+  const [isSaving, setIsSaving] = useState(false)
+  const [errorMessage, setErrorMessage] = useState('')
+
+  useEffect(() => {
+    if (isOpen && tx) {
+      setEditType(tx.type || 'sale')
+      setEditPrice(tx.price ?? '')
+      setEditCommAmount(tx.commission_amount ?? '')
+      setEditCommRate(tx.commission_rate ?? '')
+      setEditCloseDate(tx.target_close_date ?? '')
+      setEditActualCloseDate(tx.actual_close_date ?? '')
+      setEditAgreementType(tx.agreement_type ?? '')
+      setEditAgreementExpiry(tx.agreement_expiration_date ?? '')
+      setEditEarnestMoneyAmount(tx.earnest_money_amount ?? '')
+      setEditEarnestMoneyStatus(tx.earnest_money_status || 'pending')
+      setEditEarnestMoneyNotes(tx.earnest_money_notes ?? '')
+      setEditSplitBuyerPercent(tx.commission_split_buyer_percent ?? '')
+      setEditSplitCoBrokerPercent(tx.commission_split_co_broker_percent ?? '')
+      setEditSplitReferralPercent(tx.commission_split_referral_percent ?? '')
+      setEditRepairCredit(tx.repair_credit ?? '')
+      setEditAttorneyReviewStartDate(tx.attorney_review_start_date ?? '')
+      setEditAttorneyReviewStatus(tx.attorney_review_status || 'pending')
+      setEditDealFailureReason(tx.deal_failure_reason ?? '')
+      setEditDealFailureNotes(tx.deal_failure_notes ?? '')
+      setEditPostOccupancyDeadline(tx.post_occupancy_deadline ?? '')
+      setEditPostOccupancyDailyRate(tx.post_occupancy_daily_rate ?? '')
+      setEditPostOccupancyEscrowHeld(tx.post_occupancy_escrow_held ?? '')
+      setEditListedDate(tx.listed_date ?? '')
+      setEditOfferDate(tx.offer_date ?? '')
+      setEditOfferAcceptedDate(tx.offer_accepted_date ?? '')
+      setEditPendingDate(tx.pending_date ?? '')
+      setEditHomeInspectionDate(tx.home_inspection_date ?? '')
+      setEditPossessionDate(tx.possession_date ?? '')
+      setEditEscrowDate(tx.escrow_date ?? '')
+      setEditInspectionDeadline(tx.inspection_deadline ?? '')
+      setEditAppraisalDate(tx.appraisal_date ?? '')
+      setEditClosingDate(tx.closing_date ?? '')
+      setErrorMessage('')
+    }
+  }, [isOpen, tx])
 
   if (!isOpen) return null
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    const success = await handleUpdateDetails({
-      type: editType,
-      price: editPrice ? parseFloat(String(editPrice)) : null,
-      commission_amount: editCommAmount ? parseFloat(String(editCommAmount)) : null,
-      commission_rate: editCommRate ? parseFloat(String(editCommRate)) : null,
-      target_close_date: editCloseDate || null,
-      actual_close_date: editActualCloseDate || null,
-      agreement_type: editAgreementType || null,
-      agreement_expiration_date: editAgreementExpiry || null,
-      earnest_money_amount: editEarnestMoneyAmount ? parseFloat(String(editEarnestMoneyAmount)) : null,
-      earnest_money_status: editEarnestMoneyStatus || 'pending',
-      earnest_money_notes: editEarnestMoneyNotes || null,
-      commission_split_buyer_percent: editSplitBuyerPercent ? parseFloat(String(editSplitBuyerPercent)) : null,
-      commission_split_co_broker_percent: editSplitCoBrokerPercent ? parseFloat(String(editSplitCoBrokerPercent)) : null,
-      commission_split_referral_percent: editSplitReferralPercent ? parseFloat(String(editSplitReferralPercent)) : null,
-      repair_credit: editRepairCredit ? parseFloat(String(editRepairCredit)) : null,
-      attorney_review_start_date: editAttorneyReviewStartDate || null,
-      attorney_review_status: editAttorneyReviewStatus || 'pending',
-      deal_failure_reason: editDealFailureReason || null,
-      deal_failure_notes: editDealFailureNotes || null,
-      post_occupancy_deadline: editPostOccupancyDeadline || null,
-      post_occupancy_daily_rate: editPostOccupancyDailyRate ? parseFloat(String(editPostOccupancyDailyRate)) : null,
-      post_occupancy_escrow_held: editPostOccupancyEscrowHeld ? parseFloat(String(editPostOccupancyEscrowHeld)) : null,
-    })
-    if (success) onClose()
+    setIsSaving(true)
+    setErrorMessage('')
+    try {
+      const success = await handleUpdateDetails({
+        type: editType,
+        price: editPrice !== '' ? parseFloat(String(editPrice)) : null,
+        commission_amount: editCommAmount !== '' ? parseFloat(String(editCommAmount)) : null,
+        commission_rate: editCommRate !== '' ? parseFloat(String(editCommRate)) : null,
+        target_close_date: editCloseDate || null,
+        actual_close_date: editActualCloseDate || null,
+        agreement_type: editAgreementType || null,
+        agreement_expiration_date: editAgreementExpiry || null,
+        earnest_money_amount: editEarnestMoneyAmount !== '' ? parseFloat(String(editEarnestMoneyAmount)) : null,
+        earnest_money_status: editEarnestMoneyStatus || 'pending',
+        earnest_money_notes: editEarnestMoneyNotes || null,
+        commission_split_buyer_percent: editSplitBuyerPercent !== '' ? parseFloat(String(editSplitBuyerPercent)) : null,
+        commission_split_co_broker_percent: editSplitCoBrokerPercent !== '' ? parseFloat(String(editSplitCoBrokerPercent)) : null,
+        commission_split_referral_percent: editSplitReferralPercent !== '' ? parseFloat(String(editSplitReferralPercent)) : null,
+        repair_credit: editRepairCredit !== '' ? parseFloat(String(editRepairCredit)) : null,
+        attorney_review_start_date: editAttorneyReviewStartDate || null,
+        attorney_review_status: editAttorneyReviewStatus || 'pending',
+        deal_failure_reason: editDealFailureReason || null,
+        deal_failure_notes: editDealFailureNotes || null,
+        post_occupancy_deadline: editPostOccupancyDeadline || null,
+        post_occupancy_daily_rate: editPostOccupancyDailyRate !== '' ? parseFloat(String(editPostOccupancyDailyRate)) : null,
+        post_occupancy_escrow_held: editPostOccupancyEscrowHeld !== '' ? parseFloat(String(editPostOccupancyEscrowHeld)) : null,
+        listed_date: editListedDate || null,
+        offer_date: editOfferDate || null,
+        offer_accepted_date: editOfferAcceptedDate || null,
+        pending_date: editPendingDate || null,
+        home_inspection_date: editHomeInspectionDate || null,
+        possession_date: editPossessionDate || null,
+        escrow_date: editEscrowDate || null,
+        inspection_deadline: editInspectionDeadline || null,
+        appraisal_date: editAppraisalDate || null,
+        closing_date: editClosingDate || null,
+      })
+      if (success) {
+        onClose()
+      } else {
+        setErrorMessage('Failed to save changes. Please ensure you have permission or try again.')
+      }
+    } catch (err: any) {
+      setErrorMessage(err.message || 'An error occurred while saving details.')
+    } finally {
+      setIsSaving(false)
+    }
   }
 
   return (
@@ -75,6 +150,13 @@ export function EditDetailsModal({ isOpen, onClose }: EditDetailsModalProps) {
           <h2 className="text-lg font-bold text-gray-900">Edit Deal Details</h2>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600">✕</button>
         </div>
+
+        {errorMessage && (
+          <div className="mx-6 mt-4 p-3 bg-red-50 border border-red-200 text-red-700 text-xs font-semibold rounded-xl flex items-center gap-2">
+            <AlertCircle className="h-4 w-4 flex-shrink-0" />
+            <span>{errorMessage}</span>
+          </div>
+        )}
 
         <form onSubmit={handleSubmit} className="p-6 space-y-5 overflow-y-auto flex-1">
           {/* Core Info */}
@@ -88,7 +170,7 @@ export function EditDetailsModal({ isOpen, onClose }: EditDetailsModalProps) {
               </select>
             </div>
 
-            <div className="grid grid-cols-3 gap-4">
+            {tx?.financials_version > 0 ? <p className="text-xs text-blue-700">Prices and compensation are managed in the Financials tab.</p> : <div className="grid grid-cols-3 gap-4">
               <div>
                 <label className="text-[10px] font-bold text-gray-500 mb-1 block">Target Price ($)</label>
                 <input type="number" value={editPrice} onChange={e => setEditPrice(e.target.value)} className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none" />
@@ -101,7 +183,7 @@ export function EditDetailsModal({ isOpen, onClose }: EditDetailsModalProps) {
                 <label className="text-[10px] font-bold text-gray-500 mb-1 block">Comm Fixed ($)</label>
                 <input type="number" value={editCommAmount} onChange={e => setEditCommAmount(e.target.value)} className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none" />
               </div>
-            </div>
+            </div>}
 
             <div className="grid grid-cols-2 gap-4">
               <div>
@@ -175,7 +257,7 @@ export function EditDetailsModal({ isOpen, onClose }: EditDetailsModalProps) {
           </div>
 
           {/* Commission Splits */}
-          <div className="border-t border-gray-100 pt-4 space-y-4">
+          {!tx?.financials_version && <div className="border-t border-gray-100 pt-4 space-y-4">
             <h3 className="text-xs font-extrabold uppercase tracking-wider text-gray-400">Commission Splits (%)</h3>
             <div className="grid grid-cols-3 gap-4">
               <div>
@@ -191,7 +273,7 @@ export function EditDetailsModal({ isOpen, onClose }: EditDetailsModalProps) {
                 <input type="number" step="0.1" value={editSplitReferralPercent} onChange={e => setEditSplitReferralPercent(e.target.value)} className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none" />
               </div>
             </div>
-          </div>
+          </div>}
 
           {/* Post-Closing Occupancy */}
           <div className="border-t border-gray-100 pt-4 space-y-4">
@@ -235,9 +317,59 @@ export function EditDetailsModal({ isOpen, onClose }: EditDetailsModalProps) {
             </div>
           )}
 
+          {/* Timeline Milestones */}
+          <div className="border-t border-gray-100 pt-4 space-y-4">
+            <h3 className="text-xs font-extrabold uppercase tracking-wider text-gray-400">Timeline Milestones</h3>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="text-[10px] font-bold text-gray-500 mb-1 block">Listed Date</label>
+                <input type="date" value={editListedDate} onChange={e => setEditListedDate(e.target.value)} className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none" />
+              </div>
+              <div>
+                <label className="text-[10px] font-bold text-gray-500 mb-1 block">Offer Date</label>
+                <input type="date" value={editOfferDate} onChange={e => setEditOfferDate(e.target.value)} className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none" />
+              </div>
+              <div>
+                <label className="text-[10px] font-bold text-gray-500 mb-1 block">Offer Accepted Date</label>
+                <input type="date" value={editOfferAcceptedDate} onChange={e => setEditOfferAcceptedDate(e.target.value)} className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none" />
+              </div>
+              <div>
+                <label className="text-[10px] font-bold text-gray-500 mb-1 block">Pending Date</label>
+                <input type="date" value={editPendingDate} onChange={e => setEditPendingDate(e.target.value)} className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none" />
+              </div>
+              <div>
+                <label className="text-[10px] font-bold text-gray-500 mb-1 block">Home Inspection Date</label>
+                <input type="date" value={editHomeInspectionDate} onChange={e => setEditHomeInspectionDate(e.target.value)} className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none" />
+              </div>
+              <div>
+                <label className="text-[10px] font-bold text-gray-500 mb-1 block">Possession Date</label>
+                <input type="date" value={editPossessionDate} onChange={e => setEditPossessionDate(e.target.value)} className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none" />
+              </div>
+              <div>
+                <label className="text-[10px] font-bold text-gray-500 mb-1 block">Escrow Deposit Date</label>
+                <input type="date" value={editEscrowDate} onChange={e => setEditEscrowDate(e.target.value)} className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none" />
+              </div>
+              <div>
+                <label className="text-[10px] font-bold text-gray-500 mb-1 block">Inspection Contingency Deadline</label>
+                <input type="date" value={editInspectionDeadline} onChange={e => setEditInspectionDeadline(e.target.value)} className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none" />
+              </div>
+              <div>
+                <label className="text-[10px] font-bold text-gray-500 mb-1 block">Appraisal Contingency Date</label>
+                <input type="date" value={editAppraisalDate} onChange={e => setEditAppraisalDate(e.target.value)} className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none" />
+              </div>
+              <div>
+                <label className="text-[10px] font-bold text-gray-500 mb-1 block">Closing Date</label>
+                <input type="date" value={editClosingDate} onChange={e => setEditClosingDate(e.target.value)} className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none" />
+              </div>
+            </div>
+          </div>
+
           <div className="flex justify-end gap-3 pt-4 border-t border-gray-100 flex-shrink-0">
-            <button type="button" onClick={onClose} className="rounded-lg px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-100">Cancel</button>
-            <button type="submit" className="rounded-lg bg-blue-600 hover:bg-blue-700 px-4 py-2 text-sm font-medium text-white">Save Changes</button>
+            <button type="button" disabled={isSaving} onClick={onClose} className="rounded-lg px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-100 disabled:opacity-50">Cancel</button>
+            <button type="submit" disabled={isSaving} className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 px-4 py-2 text-sm font-medium text-white disabled:opacity-50">
+              {isSaving && <Loader2 className="h-4 w-4 animate-spin" />}
+              {isSaving ? 'Saving Changes...' : 'Save Changes'}
+            </button>
           </div>
         </form>
       </div>

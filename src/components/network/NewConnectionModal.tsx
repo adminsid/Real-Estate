@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { X, Loader2 } from 'lucide-react'
+import { X, Loader2, AlertCircle } from 'lucide-react'
 
 interface ConnectionFormData {
   name?: string
@@ -104,93 +104,56 @@ export function NewConnectionModal({
   
   const [isScanningOCR, setIsScanningOCR] = useState(false)
   const [ocrSuccessMsg, setOcrSuccessMsg] = useState('')
+  const [ocrError, setOcrError] = useState('')
   const [parsedBadgeFields, setParsedBadgeFields] = useState<string[]>([])
 
   async function handleScanBusinessCard(file: File) {
     setIsScanningOCR(true)
     setOcrSuccessMsg('')
+    setOcrError('')
     setParsedBadgeFields([])
 
     try {
-      // 1. Store picture URL
-      await uploadPicture(file)
+      if (!file.type.startsWith('image/')) throw new Error('Choose a business-card photo or image.')
 
-      // 2. High-Precision Canvas Image Pre-Processing & Multi-Field Pattern Heuristics
-      const img = document.createElement('img')
-      const objectUrl = URL.createObjectURL(file)
+      const scanForm = new FormData()
+      scanForm.append('file', file)
+      const uploadForm = new FormData()
+      uploadForm.append('entity_type', 'network_business_card')
+      uploadForm.append('entity_id', connectionId || 'draft')
+      uploadForm.append('file', file)
 
-      img.onload = () => {
-        const canvas = document.createElement('canvas')
-        const ctx = canvas.getContext('2d')
-        canvas.width = img.width
-        canvas.height = img.height
+      const [scanResponse, uploadResponse] = await Promise.all([
+        fetch('/api/network/business-card-ocr', { method: 'POST', body: scanForm }),
+        fetch('/api/documents', { method: 'POST', body: uploadForm }),
+      ])
+      const [scanJson, uploadJson] = await Promise.all([scanResponse.json(), uploadResponse.json()])
+      if (!uploadResponse.ok || !uploadJson.success) throw new Error(uploadJson.error || 'The card image could not be saved.')
 
-        if (ctx) {
-          ctx.drawImage(img, 0, 0)
-          const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height)
-          const data = imageData.data
-          // Grayscale & contrast binarization enhancement
-          for (let i = 0; i < data.length; i += 4) {
-            const avg = (data[i] + data[i + 1] + data[i + 2]) / 3
-            const v = avg > 128 ? 255 : 0
-            data[i] = v
-            data[i + 1] = v
-            data[i + 2] = v
-          }
-          ctx.putImageData(imageData, 0, 0)
-        }
-        URL.revokeObjectURL(objectUrl)
+      const businessCardUrl = `/api/documents/${uploadJson.data.id}/download`
+      if (!scanResponse.ok || !scanJson.success) {
+        setForm((prev) => ({ ...prev, business_card_key: businessCardUrl }))
+        throw new Error(`${scanJson.error || 'The card could not be read.'} The image was saved so you can enter the details manually.`)
       }
-      img.src = objectUrl
 
-      // 3. Extract text content with fallback file reader & regex matcher
-      const reader = new FileReader()
-      reader.onload = async (e) => {
-        const text = String(e.target?.result || '')
-
-        // Regex pattern extractions
-        const emailMatch = text.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/)
-        const phoneMatch = text.match(/\(?\d{3}\)?[-. ]?\d{3}[-. ]?\d{4}/)
-        const webMatch = text.match(/(?:https?:\/\/)?(?:www\.)?[a-zA-Z0-9-]+\.(?:com|net|org|io|biz|co)/i)
-        const titleMatch = text.match(/(?:Attorney|Inspector|Broker|Mortgage|Lender|Loan Officer|Title Agent|Contractor|Appraiser|Agent|Partner|Counsel)/i)
-        const companyMatch = text.match(/[A-Z][A-Za-z0-9\s&,.-]+(?:LLC|Inc|Corp|Group|Realty|Law|Properties|Mortgage|Bank|Services)/i)
-        const addressMatch = text.match(/\d+\s+[A-Za-z0-9\s.,]+(?:Street|St|Avenue|Ave|Road|Rd|Blvd|Suite|Ste|NY|\d{5})/i)
-
-        // Line-based name heuristic filtering out contact lines
-        const lines = text.split(/[\r\n]+/).map(l => l.trim()).filter(l => l.length > 2)
-        const candidateName = lines.find(l => 
-          !l.includes('@') && 
-          !/\d/.test(l) && 
-          !/www|http|LLC|Inc|Realty|Law/i.test(l)
-        ) || lines[0] || ''
-
-        const badges: string[] = []
-        if (candidateName) badges.push(`Name: ${candidateName}`)
-        if (titleMatch) badges.push(`Title: ${titleMatch[0]}`)
-        if (companyMatch) badges.push(`Company: ${companyMatch[0]}`)
-        if (phoneMatch) badges.push(`Phone: ${phoneMatch[0]}`)
-        if (emailMatch) badges.push(`Email: ${emailMatch[0]}`)
-        if (webMatch) badges.push(`Website: ${webMatch[0]}`)
-        if (addressMatch) badges.push(`Address: ${addressMatch[0]}`)
-
-        setForm((prev) => ({
-          ...prev,
-          ...(candidateName && { name: candidateName }),
-          ...(titleMatch && { title: titleMatch[0] }),
-          ...(companyMatch && { company: companyMatch[0] }),
-          ...(emailMatch && { email: emailMatch[0] }),
-          ...(phoneMatch && { phone: phoneMatch[0] }),
-          ...(webMatch && { website: webMatch[0] }),
-          ...(addressMatch && { address: addressMatch[0] }),
-        }))
-
-        setParsedBadgeFields(badges)
-        setOcrSuccessMsg('✓ Business Card 99% Accuracy OCR Scan Complete!')
-        setIsScanningOCR(false)
+      const fields = scanJson.data || {}
+      const labels: Record<string, string> = {
+        name: 'Name', title: 'Title', company: 'Company', email: 'Email',
+        phone: 'Phone', website: 'Website', address: 'Address',
       }
-      reader.readAsText(file)
+      const badges = Object.entries(labels)
+        .filter(([key]) => typeof fields[key] === 'string' && fields[key].trim())
+        .map(([key, label]) => `${label}: ${fields[key]}`)
+      setForm((prev) => ({
+        ...prev,
+        ...Object.fromEntries(Object.keys(labels).filter((key) => fields[key]).map((key) => [key, fields[key]])),
+        business_card_key: businessCardUrl,
+      }))
+      setParsedBadgeFields(badges)
+      setOcrSuccessMsg(`Read ${badges.length} field${badges.length === 1 ? '' : 's'}. Please review before saving.`)
     } catch (err: any) {
-      setOcrSuccessMsg('Card uploaded successfully.')
+      setOcrError(err.message || 'The card could not be read. Try a clearer, well-lit photo.')
+    } finally {
       setIsScanningOCR(false)
     }
   }
@@ -220,7 +183,7 @@ export function NewConnectionModal({
         <div className="flex items-center justify-between border-b border-gray-100 p-6">
           <div>
             <h2 className="text-xl font-bold text-gray-900">{isEditing ? 'Edit Connection' : 'Add Connection'}</h2>
-            <p className="text-xs text-gray-500">Upload business card to OCR scan into form fields</p>
+            <p className="text-xs text-gray-500">Scan a card, verify the details, then save the connection</p>
           </div>
           <button onClick={onClose} className="rounded-lg p-2 text-gray-400 hover:bg-gray-100">
             <X className="h-5 w-5" />
@@ -232,7 +195,7 @@ export function NewConnectionModal({
           <div className="border-2 border-dashed border-brand-navy/30 bg-brand-navy/5 rounded-2xl p-4 text-center">
             <input
               type="file"
-              accept="image/*,.txt"
+              accept="image/*"
               id="business-card-ocr-input"
               className="hidden"
               onChange={(e) => {
@@ -241,10 +204,10 @@ export function NewConnectionModal({
             />
             <label htmlFor="business-card-ocr-input" className="cursor-pointer flex flex-col items-center justify-center">
               <span className="text-xs font-bold text-brand-navy uppercase tracking-wider block mb-1">
-                📷 Business Card OCR Scanner
+                📷 Scan or Import Business Card
               </span>
               <span className="text-xs text-gray-500">
-                Click to upload physical business card image — auto-fills Name, Phone, Email, Company
+                Take a clear photo or choose an image — contact fields will be filled for your review
               </span>
               {isScanningOCR && (
                 <span className="mt-2 text-xs font-bold text-brand-gold animate-pulse">Scanning business card with OCR...</span>
@@ -265,6 +228,11 @@ export function NewConnectionModal({
                   </div>
                 )}
               </div>
+            )}
+            {ocrError && (
+              <p className="mt-2 inline-flex items-center gap-1.5 rounded-xl border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-semibold text-red-700">
+                <AlertCircle className="h-3.5 w-3.5" /> {ocrError}
+              </p>
             )}
           </div>
         </div>

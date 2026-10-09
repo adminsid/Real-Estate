@@ -1,8 +1,9 @@
 import { useState, useEffect, useMemo } from 'react'
 import { Layout } from '@/components/layout/Layout'
-import { Home, Calendar, Clock, User, ExternalLink } from 'lucide-react'
+import { Home, Calendar, Clock, User, ExternalLink, ShieldAlert, Lock, X } from 'lucide-react'
 import { Pagination } from '@/components/common/Pagination'
 import { SkeletonCard } from '@/components/common/SkeletonLoader'
+import { useAuth } from '@/context/AuthContext'
 import clsx from 'clsx'
 
 function formatLocalTime(utcString: string, tz: string) {
@@ -35,18 +36,23 @@ interface OpenHouseEvent {
   photo_key?: string
   status: string
   public_token: string
+  /** Dedicated RSVP token — distinct from the sign-in portal token (public_token). */
+  rsvp_token?: string
 }
 
 export function OpenHousesPage() {
+  const { user } = useAuth()
   const [events, setEvents] = useState<OpenHouseEvent[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [page, setPage] = useState(1)
+  const [showRestrictedModal, setShowRestrictedModal] = useState(false)
+  const isBrokerOrAdmin = user && ['admin', 'broker'].includes(user.role)
   const PAGE_SIZE = 9
 
   const fetchOpenHouses = async () => {
     try {
-      const res = await fetch('/api/openhouses')
+      const res = await fetch('/api/openhouses', { credentials: 'include' })
       const json = await res.json()
       if (json.success && Array.isArray(json.data)) {
         setEvents(json.data)
@@ -96,6 +102,14 @@ export function OpenHousesPage() {
     return { live, scheduled, total: events.length }
   }, [events])
 
+  const handleCreateOpenHouseClick = () => {
+    if (isBrokerOrAdmin) {
+      window.open('/api/sso/redirect?app=openhouse&return_to=/admin', '_blank', 'noopener,noreferrer')
+    } else {
+      setShowRestrictedModal(true)
+    }
+  }
+
   return (
     <Layout title="Open Houses">
       <div className="mb-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -117,15 +131,23 @@ export function OpenHousesPage() {
             onChange={(e) => setSearch(e.target.value)}
             className="text-sm border border-gray-200 rounded-xl px-4 py-2 bg-white w-56 focus:outline-none focus:ring-1 focus:ring-brand-navy"
           />
-          <a
-            href="https://openhouse.primeamericarealestate.com"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-pink-600 hover:bg-pink-700 text-white text-xs font-bold shadow-sm transition-colors"
+          <button
+            type="button"
+            onClick={handleCreateOpenHouseClick}
+            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-pink-600 hover:bg-pink-700 text-white text-xs font-bold shadow-sm transition-colors cursor-pointer"
           >
-            <ExternalLink className="h-4 w-4" />
-            Create Open House
-          </a>
+            {isBrokerOrAdmin ? (
+              <>
+                <ExternalLink className="h-4 w-4" />
+                Create Open House (Admin)
+              </>
+            ) : (
+              <>
+                <Lock className="h-4 w-4" />
+                New Open House
+              </>
+            )}
+          </button>
         </div>
       </div>
 
@@ -240,7 +262,7 @@ export function OpenHousesPage() {
                       </div>
                     </div>
                   </div>
-                  {/* Actions */}
+                    {/* Actions */}
                   <div className="flex items-center gap-2 pt-4 border-t border-gray-100">
                     <a
                       href={`https://openhouse.primeamericarealestate.com/e/${event.public_token}`}
@@ -251,15 +273,25 @@ export function OpenHousesPage() {
                       Sign-In Portal
                       <ExternalLink className="h-3 w-3" />
                     </a>
-                    <a
-                      href={`https://openhouse.primeamericarealestate.com/rsvp/${event.public_token}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center justify-center gap-1 px-3 py-2 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-100 transition-all text-xs font-semibold"
-                      title="RSVP for Event"
-                    >
-                      RSVP
-                    </a>
+                    {/* RSVP requires its dedicated token; the sign-in token cannot resolve an RSVP page. */}
+                    {event.rsvp_token ? (
+                      <a
+                        href={`https://openhouse.primeamericarealestate.com/rsvp/${event.rsvp_token}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center justify-center gap-1 px-3 py-2 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-100 transition-all text-xs font-semibold"
+                        title="RSVP for Event"
+                      >
+                        RSVP
+                      </a>
+                    ) : (
+                      <span
+                        className="inline-flex items-center justify-center gap-1 px-3 py-2 rounded-xl bg-gray-50 text-gray-400 border border-gray-100 text-xs font-semibold cursor-not-allowed"
+                        title="RSVP link unavailable"
+                      >
+                        RSVP
+                      </span>
+                    )}
                     {event.listing_url && (
                       <a
                         href={event.listing_url}
@@ -288,6 +320,54 @@ export function OpenHousesPage() {
           onPageChange={setPage}
           className="border border-gray-100 bg-white rounded-xl px-4 py-3 flex items-center justify-between text-xs text-gray-500"
         />
+      )}
+
+      {/* ── Direct Access Restricted Modal (Salesperson) ──────────── */}
+      {showRestrictedModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-150">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-gray-100 relative">
+            <button
+              onClick={() => setShowRestrictedModal(false)}
+              className="absolute top-4 right-4 p-1.5 rounded-xl hover:bg-gray-100 text-gray-400 hover:text-gray-600 transition-colors"
+            >
+              <X className="h-5 w-5" />
+            </button>
+
+            <div className="flex items-center gap-3 mb-4">
+              <div className="h-12 w-12 rounded-2xl bg-amber-50 border border-amber-200 flex items-center justify-center flex-shrink-0 text-amber-600">
+                <ShieldAlert className="h-6 w-6" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-gray-900 leading-snug">
+                  Broker & Admin Portal
+                </h3>
+                <p className="text-xs font-semibold text-amber-600">Direct Access Restricted</p>
+              </div>
+            </div>
+
+            <p className="text-xs text-gray-600 leading-relaxed mb-4">
+              Open house event administration and public QR sign-in registration portals are provisioned centrally through the <strong>Prime America Broker & Admin Portal</strong>.
+            </p>
+
+            <div className="bg-gray-50 rounded-xl p-3.5 border border-gray-100 text-xs text-gray-700 space-y-2 mb-6">
+              <div className="flex items-start gap-2">
+                <span className="h-1.5 w-1.5 rounded-full bg-pink-500 mt-1.5 flex-shrink-0" />
+                <span>To schedule an open house for your listing, contact your <strong>Managing Broker</strong> or office administrator.</span>
+              </div>
+              <div className="flex items-start gap-2">
+                <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 mt-1.5 flex-shrink-0" />
+                <span>Once scheduled, your live event sign-in portal and RSVP links will automatically sync directly to this dashboard.</span>
+              </div>
+            </div>
+
+            <button
+              onClick={() => setShowRestrictedModal(false)}
+              className="w-full py-2.5 px-4 bg-brand-navy hover:bg-brand-navy-light text-white text-xs font-bold rounded-xl transition-colors shadow-sm"
+            >
+              Understood
+            </button>
+          </div>
+        </div>
       )}
     </Layout>
   )

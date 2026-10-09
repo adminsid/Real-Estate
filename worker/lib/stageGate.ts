@@ -37,16 +37,17 @@ export function validateStageTransition(
   targetStatus: string,
   fields: StageGateFields,
   complianceTasks: ComplianceTask[] = [],
+  workflowKey = 'legacy_v1',
 ): StageGateResult {
   const missing: string[] = []
 
   if (targetStatus === 'under_contract') {
-    if (!fields.escrowDate) missing.push('Escrow Deposit Date')
-    if (!fields.inspectionDeadline) missing.push('Inspection Contingency Deadline')
+    if (workflowKey !== 'lease_v1' && !fields.escrowDate) missing.push('Escrow Deposit Date')
+    if (workflowKey !== 'lease_v1' && !fields.inspectionDeadline) missing.push('Inspection Contingency Deadline')
   } else if (targetStatus === 'closed') {
-    if (!fields.escrowDate) missing.push('Escrow Deposit Date')
-    if (!fields.inspectionDeadline) missing.push('Inspection Contingency Deadline')
-    if (!fields.appraisalDate) missing.push('Appraisal Contingency Date')
+    if (workflowKey !== 'lease_v1' && !fields.escrowDate) missing.push('Escrow Deposit Date')
+    if (workflowKey !== 'lease_v1' && !fields.inspectionDeadline) missing.push('Inspection Contingency Deadline')
+    if (workflowKey !== 'lease_v1' && !fields.appraisalDate) missing.push('Appraisal Contingency Date')
 
     const missingDocs: string[] = []
     const unapprovedTasks: string[] = []

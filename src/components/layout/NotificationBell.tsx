@@ -28,43 +28,11 @@ export function NotificationBell() {
   useEffect(() => {
     fetchNotifications()
 
-    let eventSource: EventSource | null = null
-    let reconnectTimeout: any = null
+    const interval = setInterval(() => { if (document.visibilityState === 'visible') void fetchNotifications() }, 30000)
+    const onFocus = () => { void fetchNotifications() }
+    window.addEventListener('focus', onFocus)
+    return () => { clearInterval(interval); window.removeEventListener('focus', onFocus) }
 
-    const connectSSE = () => {
-      eventSource = new EventSource('/api/notifications/stream', { withCredentials: true })
-
-      eventSource.onmessage = (event) => {
-        try {
-          const row = JSON.parse(event.data)
-          if (row && row.id) {
-            setNotifications((prev) => {
-              if (prev.some((n) => n.id === row.id)) return prev
-              const next = [row, ...prev]
-              setUnreadCount(next.filter((n: any) => !n.is_read).length)
-              return next
-            })
-          }
-        } catch (e) {
-          // Ignore parse errors
-        }
-      }
-
-      eventSource.onerror = () => {
-        if (eventSource) {
-          eventSource.close()
-          eventSource = null
-        }
-        reconnectTimeout = setTimeout(connectSSE, 10000)
-      }
-    }
-
-    connectSSE()
-
-    return () => {
-      if (eventSource) eventSource.close()
-      if (reconnectTimeout) clearTimeout(reconnectTimeout)
-    }
   }, [])
 
   useEffect(() => {
@@ -79,7 +47,8 @@ export function NotificationBell() {
 
   const markAsRead = async (id: string) => {
     try {
-      await fetch(`/api/notifications/${id}/read`, { method: 'POST' })
+      const res = await fetch(`/api/notifications/${id}/read`, { method: 'POST' })
+      if (!res.ok) throw new Error('Unable to update notification')
       setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, is_read: 1 } : n)))
       setUnreadCount((prev) => Math.max(0, prev - 1))
     } catch (e) {
@@ -88,9 +57,10 @@ export function NotificationBell() {
   }
 
   const dismissNotification = async (id: string) => {
-    setNotifications((prev) => prev.filter((n) => n.id !== id))
     try {
-      await fetch(`/api/notifications/${id}`, { method: 'DELETE' })
+      const res = await fetch(`/api/notifications/${id}`, { method: 'DELETE' })
+      if (!res.ok) throw new Error('Unable to dismiss notification')
+      await fetchNotifications()
     } catch (e) {
       console.error(e)
     }
@@ -98,7 +68,8 @@ export function NotificationBell() {
 
   const markAllAsRead = async () => {
     try {
-      await fetch('/api/notifications/read-all', { method: 'POST' })
+      const res = await fetch('/api/notifications/read-all', { method: 'POST' })
+      if (!res.ok) throw new Error('Unable to update notifications')
       setNotifications((prev) => prev.map((n) => ({ ...n, is_read: 1 })))
       setUnreadCount(0)
     } catch (e) {

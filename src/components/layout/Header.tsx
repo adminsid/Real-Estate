@@ -1,9 +1,13 @@
-import { Menu } from 'lucide-react'
+import { UserAvatar } from '@/components/common/UserAvatar'
+import { ConnectionStatus } from './ConnectionStatus'
+import { Menu, Target } from 'lucide-react'
 import { useAuth } from '@/context/AuthContext'
 import { useWorkspace } from '@/context/WorkspaceContext'
 import { Link } from 'react-router-dom'
 import { WorkspaceSearch } from './WorkspaceSearch'
 import { NotificationBell } from './NotificationBell'
+import { AppsMenu } from './AppsMenu'
+import { HeaderStatusWidget } from './HeaderStatusWidget'
 
 interface HeaderProps {
   title?: string
@@ -11,10 +15,10 @@ interface HeaderProps {
 
 export function Header({ title }: HeaderProps) {
   const { user, branding } = useAuth()
-  const { toggleSidebar } = useWorkspace()
+  const { toggleSidebar, primeView } = useWorkspace()
 
   return (
-    <header className="sticky top-0 z-30 flex items-center gap-3 bg-white/95 backdrop-blur-sm border-b border-gray-100 px-4 py-3">
+    <header className="sticky top-0 z-30 flex items-center gap-3 bg-white border-b border-gray-200 px-4 py-3 shadow-xs">
       {/* Hamburger */}
       <button
         onClick={toggleSidebar}
@@ -36,6 +40,25 @@ export function Header({ title }: HeaderProps) {
       {/* Search (desktop) */}
       <WorkspaceSearch />
 
+      {/* Live Command Center Status: Time, Date, Weather */}
+      {user && <ConnectionStatus />}
+      {user && <HeaderStatusWidget />}
+
+      {/* Apps Launcher (Google Apps Style) */}
+      {user && <AppsMenu />}
+
+      {/* Prime View Trigger */}
+      {user && (
+        <button
+          onClick={primeView.togglePrimeView}
+          className="p-2 rounded-xl hover:bg-gray-100 transition-colors text-gray-600 hover:text-brand-navy"
+          aria-label="Open Prime View — Your Daily Lens"
+          title="Prime View — Your Daily Lens"
+        >
+          <Target className="h-5 w-5" />
+        </button>
+      )}
+
       {/* Notifications */}
       {user && <NotificationBell />}
 
@@ -45,12 +68,8 @@ export function Header({ title }: HeaderProps) {
           to="/settings"
           className="flex items-center gap-2 rounded-xl hover:bg-gray-50 transition-colors px-2 py-1.5"
         >
-          <div className="h-8 w-8 rounded-full bg-brand-navy flex items-center justify-center flex-shrink-0">
-            <span className="text-xs font-bold text-brand-gold uppercase">
-              {user.name.slice(0, 2)}
-            </span>
-          </div>
-          <span className="hidden sm:block text-sm font-medium text-gray-700 truncate max-w-[120px]">
+          <UserAvatar name={user.name} src={user.avatarUrl} className="h-8 w-8 text-xs" />
+          <span className="hidden xl:block text-sm font-medium text-gray-700 truncate max-w-[120px]">
             {user.name}
           </span>
         </Link>

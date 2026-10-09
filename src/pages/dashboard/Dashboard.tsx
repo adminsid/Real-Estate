@@ -1,10 +1,11 @@
+import { dealCommission } from '@/lib/commissionMetrics'
 import { useState, useEffect, useCallback } from 'react'
 import { Link } from 'react-router-dom'
 import { Layout } from '@/components/layout/Layout'
 import { AppTile } from '@/components/apps/AppTile'
 import { SkeletonMetricGrid } from '@/components/common/SkeletonLoader'
 import { useAuth } from '@/context/AuthContext'
-import { APP_MODULES, NAV_CATEGORIES, isCategoryVisible, isSubitemVisible } from '@/utils/constants'
+import { APP_MODULES, NAV_CATEGORIES, isCategoryVisible, isSubitemVisible, deduplicateAppModules } from '@/utils/constants'
 import { TodayActions } from '@/components/layout/TodayActions'
 import { WorkflowHabitEngine } from '@/components/dashboard/WorkflowHabitEngine'
 import { SalespersonDashboard } from '@/components/dashboard/roles/SalespersonDashboard'
@@ -24,9 +25,9 @@ interface CustomAppModule {
   status: 'active' | 'coming_soon' | 'under_construction'
   category: string
   color: string
+  adminOnly?: boolean
   visibility?: 'all' | 'admin' | 'broker' | 'admin_broker'
   showInNavigation?: boolean
-  adminOnly?: boolean
 }
 
 interface DashboardSettings {
@@ -53,31 +54,7 @@ const DEFAULT_DASHBOARD_SETTINGS: DashboardSettings = {
   quickLinks: [
     { id: 'primeamericany', label: 'Prime America NY', url: 'https://primeamericany.com', icon: 'Globe' },
   ],
-  customModules: [
-    {
-      id: 'openhouse',
-      name: 'Open House',
-      description: 'Manage open houses and visitor registrations',
-      icon: 'Home',
-      path: '/marketing/openhouses',
-      externalUrl: '/apps/openhouse',
-      status: 'active',
-      category: 'marketing',
-      color: '#EC4899',
-      adminOnly: true
-    },
-    {
-      id: 'prime-america-kb',
-      name: 'Prime America Knowledge Base',
-      description: 'Prime America Real Estate knowledge base hub for admin, broker, and team',
-      icon: 'BookOpen',
-      path: '/learning/kb',
-      externalUrl: '/apps/prime-america-kb',
-      status: 'active',
-      category: 'learning',
-      color: '#6366F1',
-    }
-  ]
+  customModules: []
 }
 
 // Extract list of all uppercase-starting keys from Lucide icons
@@ -319,17 +296,11 @@ export function DashboardPage() {
       const txJson = await txRes.json()
       if (txJson.success && Array.isArray(txJson.data)) {
         const allTx = txJson.data.filter((t: any) => t.status !== 'fallen_through')
-        const getComm = (t: any) => {
-          if (t.commission_amount && Number(t.commission_amount) > 0) return Number(t.commission_amount)
-          if (t.price && t.commission_rate && Number(t.price) > 0 && Number(t.commission_rate) > 0) {
-            return (Number(t.price) * Number(t.commission_rate)) / 100
-          }
-          return 0
-        }
+        const getComm = dealCommission
         const companyVol = allTx.reduce((acc: number, t: any) => acc + getComm(t), 0)
         const agentVol = allTx
           .filter((t: any) => String(t.assigned_to) === String(user?.id))
-          .reduce((acc: number, t: any) => acc + getComm(t), 0)
+          .reduce((acc: number, t: any) => acc + (t.my_compensation ?? 0), 0)
 
         const userTx = user && ['admin', 'broker'].includes(user.role)
           ? allTx
@@ -506,13 +477,7 @@ export function DashboardPage() {
     return true
   })
   const rawModules = [...APP_MODULES, ...(visibleCustomModules as unknown as AppModule[])]
-  const seenModuleKeys = new Set<string>()
-  const combinedAppModules = rawModules.filter((m) => {
-    const key = (m.id || m.name || m.path || '').toLowerCase()
-    if (seenModuleKeys.has(key)) return false
-    seenModuleKeys.add(key)
-    return true
-  })
+  const combinedAppModules = deduplicateAppModules(rawModules)
   const allowedAppModules = combinedAppModules.filter(m => isSubitemVisible(m.id, m.category, user, can))
 
   // Filtered icons in visual picker
@@ -651,7 +616,7 @@ export function DashboardPage() {
             </div>
             <span className="text-xs font-bold text-amber-700 bg-amber-50 px-2 py-0.5 rounded-full">$175K Goal</span>
           </div>
-          <p className="text-2xl font-bold text-gray-900">${Math.round(((user && ['admin', 'broker'].includes(user.role) ? stats.company.commissionVolume : stats.agent.commissionVolume) * 0.025) / 1000)}k GCI</p>
+          <p className="text-2xl font-bold text-gray-900">${Math.round(((user && ['admin', 'broker'].includes(user.role) ? stats.company.commissionVolume : stats.agent.commissionVolume)) / 1000)}k GCI</p>
           <p className="text-sm font-medium text-gray-600 mt-0.5">Estimated Commission Volume</p>
           <p className="text-xs text-gray-400 mt-1">Based on active deal pipeline @ 2.5% avg</p>
         </div>

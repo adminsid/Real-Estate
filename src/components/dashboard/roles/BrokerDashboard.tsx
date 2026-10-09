@@ -1,3 +1,4 @@
+import { dealCommission } from '@/lib/commissionMetrics'
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import * as Icons from 'lucide-react'
@@ -77,13 +78,7 @@ export function BrokerDashboard({
     return t >= now && t <= now + 14 * 24 * 60 * 60 * 1000
   }
 
-  const commission = (t: BrokerTx) => {
-    if (t.commission_amount && Number(t.commission_amount) > 0) return Number(t.commission_amount)
-    if (t.price && t.commission_rate && Number(t.price) > 0 && Number(t.commission_rate) > 0) {
-      return (Number(t.price) * Number(t.commission_rate)) / 100
-    }
-    return 0
-  }
+  const commission = dealCommission
 
   const closingSoon = useMemo(
     () =>

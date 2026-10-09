@@ -17,6 +17,7 @@ export type Module =
   | 'network'
   | 'learning'
   | 'marketing'
+  | 'openhouse.attendance'
   | 'storage'
   | 'reports'
   | 'hr'
@@ -33,11 +34,12 @@ const ROLE_DEFAULTS: Record<string, PermSet | '*'> = {
   admin: '*',
   broker: {
     crm:              ['read', 'write', 'delete', 'export'],
-    listings:         ['read', 'export'],
+    listings:         ['read', 'write', 'delete', 'export'],
     transactions:     ['read', 'write', 'delete', 'export'],
     network:          ['read', 'write', 'delete'],
     learning:         ['read'],
     marketing:        ['read', 'write'],
+    'openhouse.attendance': ['write'],
     storage:          ['read', 'write', 'delete'],
     reports:          ['read', 'export'],
     hr:               ['read', 'write'],
@@ -46,11 +48,12 @@ const ROLE_DEFAULTS: Record<string, PermSet | '*'> = {
   },
   salesperson: {
     crm:              ['read', 'write'],
-    listings:         ['read'],
+    listings:         ['read', 'write'],
     transactions:     ['read', 'write'],
     network:          ['read', 'write'],
     learning:         ['read'],
     marketing:        ['read'],
+    'openhouse.attendance': ['write'],
     storage:          ['read', 'write'],
     'settings.user':  ['read', 'write'],
   },

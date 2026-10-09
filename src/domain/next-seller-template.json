@@ -1,0 +1,1487 @@
+[
+  {
+    "id": "prelisting",
+    "name": "Pre-Listing",
+    "milestones": [
+      {
+        "id": "seller-v1-0-0",
+        "name": "Market Analysis & Pricing Strategy",
+        "description": "Conduct a comparative market analysis (CMA) that includes recent sales, active listings, and relevant market trends to help the seller understand local pricing dynamics. Use this data to guide a pricing strategy that balances their goals with current buyer expectations. Discuss potential pricing scenarios, positioning, and adjustments post-launch if needed. Document your recommendation in Next to maintain clarity and transparency throughout the process.",
+        "outcomes": [
+          {
+            "id": "seller-v1-0-0-0",
+            "name": "Analyzed local comps to set listing price",
+            "description": "",
+            "done": false,
+            "hidden": false
+          },
+          {
+            "id": "seller-v1-0-0-1",
+            "name": "Presented Comparative Market Analysis (CMA) to seller",
+            "description": "",
+            "done": false,
+            "hidden": false
+          },
+          {
+            "id": "seller-v1-0-0-2",
+            "name": "Reviewed listing services strategy analysis",
+            "description": "",
+            "done": false,
+            "hidden": false
+          },
+          {
+            "id": "seller-v1-0-0-3",
+            "name": "Visited active competing listings in market area",
+            "description": "",
+            "done": false,
+            "hidden": false
+          },
+          {
+            "id": "seller-v1-0-0-4",
+            "name": "Presented customized seller listing presentation",
+            "description": "",
+            "done": false,
+            "hidden": false
+          },
+          {
+            "id": "seller-v1-0-0-5",
+            "name": "Worked to maximize net-to-seller",
+            "description": "",
+            "done": false,
+            "hidden": false
+          }
+        ],
+        "hidden": false
+      },
+      {
+        "id": "seller-v1-0-1",
+        "name": "Pre-Listing",
+        "description": "This milestone covers all key actions needed before listing the property, including completing the listing agreement, gathering disclosures, finalizing pricing strategy, and advising the seller on home prep such as staging, cleaning, or minor repairs. You will also schedule photography and confirm marketing materials. Clear communication is essential — use Next to help the seller track what is done, what is next, and when the home will be ready to hit the market.",
+        "outcomes": [
+          {
+            "id": "seller-v1-0-1-0",
+            "name": "Dropped off pre-listing packet with seller",
+            "description": "",
+            "done": false,
+            "hidden": false
+          },
+          {
+            "id": "seller-v1-0-1-1",
+            "name": "Collected collateral for marketing (lifestyle)",
+            "description": "",
+            "done": false,
+            "hidden": false
+          },
+          {
+            "id": "seller-v1-0-1-2",
+            "name": "Ordered yard sign",
+            "description": "",
+            "done": false,
+            "hidden": false
+          },
+          {
+            "id": "seller-v1-0-1-3",
+            "name": "Ordered directional signs",
+            "description": "",
+            "done": false,
+            "hidden": false
+          },
+          {
+            "id": "seller-v1-0-1-4",
+            "name": "Requested property appraisal",
+            "description": "",
+            "done": false,
+            "hidden": false
+          },
+          {
+            "id": "seller-v1-0-1-5",
+            "name": "Requested property survey",
+            "description": "",
+            "done": false,
+            "hidden": false
+          }
+        ],
+        "hidden": false
+      },
+      {
+        "id": "seller-v1-0-2",
+        "name": "Pre-Listing Prep",
+        "description": "Assist the seller in completing all agreed-upon pre-listing preparations, including staging, cleaning, repairs, landscaping, and general decluttering. Coordinate and schedule professional photography and any other media assets. Provide guidance to help the seller prioritize tasks based on timing, budget, and return on investment. Use Next to document progress and keep the seller informed of upcoming steps before going live.",
+        "outcomes": [
+          {
+            "id": "seller-v1-0-2-0",
+            "name": "Conducted comprehensive property walkthrough",
+            "description": "",
+            "done": false,
+            "hidden": false
+          },
+          {
+            "id": "seller-v1-0-2-1",
+            "name": "Assessed interior systems & appliances",
+            "description": "",
+            "done": false,
+            "hidden": false
+          },
+          {
+            "id": "seller-v1-0-2-2",
+            "name": "Assessed curb appeal & improvements needs",
+            "description": "",
+            "done": false,
+            "hidden": false
+          },
+          {
+            "id": "seller-v1-0-2-3",
+            "name": "Provided seller with checklist",
+            "description": "",
+            "done": false,
+            "hidden": false
+          },
+          {
+            "id": "seller-v1-0-2-4",
+            "name": "Consulted on landscaping & curb appeal",
+            "description": "",
+            "done": false,
+            "hidden": false
+          },
+          {
+            "id": "seller-v1-0-2-5",
+            "name": "Consulted on moving & packing",
+            "description": "",
+            "done": false,
+            "hidden": false
+          },
+          {
+            "id": "seller-v1-0-2-6",
+            "name": "Consulted on house repair & upgrades",
+            "description": "",
+            "done": false,
+            "hidden": false
+          },
+          {
+            "id": "seller-v1-0-2-7",
+            "name": "Obtained bids",
+            "description": "",
+            "done": false,
+            "hidden": false
+          },
+          {
+            "id": "seller-v1-0-2-8",
+            "name": "Reviewed bids",
+            "description": "",
+            "done": false,
+            "hidden": false
+          },
+          {
+            "id": "seller-v1-0-2-9",
+            "name": "Completed moving & packing / cleaning & repairs",
+            "description": "",
+            "done": false,
+            "hidden": false
+          }
+        ],
+        "hidden": false
+      },
+      {
+        "id": "seller-v1-0-3",
+        "name": "Preparation & Staging",
+        "description": "Support the seller in completing all home preparation tasks that enhance presentation and market appeal. This may include recommending repairs, scheduling professional cleaning, advising on decluttering, and coordinating with a staging service to optimize layout and design. Tailor your recommendations to the property's condition, market expectations, and budget. Ensure that prep work aligns with the listing timeline, and track progress in Next for visibility and alignment.",
+        "outcomes": [
+          {
+            "id": "seller-v1-0-3-0",
+            "name": "Recommend staging services or DIY options",
+            "description": "",
+            "done": false,
+            "hidden": false
+          },
+          {
+            "id": "seller-v1-0-3-1",
+            "name": "Met with staging & design consultant",
+            "description": "",
+            "done": false,
+            "hidden": false
+          },
+          {
+            "id": "seller-v1-0-3-2",
+            "name": "Scheduled staging services",
+            "description": "",
+            "done": false,
+            "hidden": false
+          },
+          {
+            "id": "seller-v1-0-3-3",
+            "name": "Completed staging & design services",
+            "description": "",
+            "done": false,
+            "hidden": false
+          }
+        ],
+        "hidden": false
+      },
+      {
+        "id": "seller-v1-0-4",
+        "name": "Pre-Listing Due Diligence",
+        "description": "Conduct due diligence by gathering accurate property details and guiding the seller through completing required disclosures and listing documents. This includes reviewing the property condition, identifying material facts, and ensuring legal compliance for items such as lead-based paint, HOA documentation, and seller property disclosures. Clarify the importance of full transparency to protect both parties and reduce risk post-contract. Use Next to keep the seller on track and aware of what is needed before launch.",
+        "outcomes": [
+          {
+            "id": "seller-v1-0-4-0",
+            "name": "Reviewed disclosure documents with seller",
+            "description": "",
+            "done": false,
+            "hidden": false
+          },
+          {
+            "id": "seller-v1-0-4-1",
+            "name": "Collected utility information",
+            "description": "",
+            "done": false,
+            "hidden": false
+          },
+          {
+            "id": "seller-v1-0-4-2",
+            "name": "Collected information on existing leases or easements",
+            "description": "",
+            "done": false,
+            "hidden": false
+          },
+          {
+            "id": "seller-v1-0-4-3",
+            "name": "Collected information on HOA or Association",
+            "description": "",
+            "done": false,
+            "hidden": false
+          },
+          {
+            "id": "seller-v1-0-4-4",
+            "name": "Reviewed results from property appraisal",
+            "description": "",
+            "done": false,
+            "hidden": false
+          },
+          {
+            "id": "seller-v1-0-4-5",
+            "name": "Reviewed results from property survey",
+            "description": "",
+            "done": false,
+            "hidden": false
+          },
+          {
+            "id": "seller-v1-0-4-6",
+            "name": "Addressed concerns of appraisal & survey with seller",
+            "description": "",
+            "done": false,
+            "hidden": false
+          },
+          {
+            "id": "seller-v1-0-4-7",
+            "name": "Reviewed & signed listing agreement",
+            "description": "",
+            "done": false,
+            "hidden": false
+          }
+        ],
+        "hidden": false
+      }
+    ]
+  },
+  {
+    "id": "marketing",
+    "name": "Listing & Marketing",
+    "milestones": [
+      {
+        "id": "seller-v1-1-0",
+        "name": "Listing & Online Syndication",
+        "description": "Submit the listing to the MLS with accurate data, compelling copy, and high-quality media. Confirm that the listing is syndicated to key platforms such as Zillow, Realtor.com, Redfin, and your brokerage site. Double-check for consistency across sites and correct any errors quickly. Track engagement metrics and be ready to adjust strategy or pricing if market response is lower than expected. Use Next to provide the seller with updates and transparency throughout this phase.",
+        "outcomes": [
+          {
+            "id": "seller-v1-1-0-0",
+            "name": "Collected completed & signed disclosures",
+            "description": "",
+            "done": false,
+            "hidden": false
+          },
+          {
+            "id": "seller-v1-1-0-1",
+            "name": "Collected property information",
+            "description": "",
+            "done": false,
+            "hidden": false
+          },
+          {
+            "id": "seller-v1-1-0-2",
+            "name": "Coordinated with the seller for any special instructions",
+            "description": "",
+            "done": false,
+            "hidden": false
+          },
+          {
+            "id": "seller-v1-1-0-3",
+            "name": "Published listing to MLS",
+            "description": "",
+            "done": false,
+            "hidden": false
+          },
+          {
+            "id": "seller-v1-1-0-4",
+            "name": "Promoted listing on major home search websites",
+            "description": "",
+            "done": false,
+            "hidden": false
+          },
+          {
+            "id": "seller-v1-1-0-5",
+            "name": "Coordinated social media ads & email campaigns",
+            "description": "",
+            "done": false,
+            "hidden": false
+          },
+          {
+            "id": "seller-v1-1-0-6",
+            "name": "Submitted all listing documents to the broker",
+            "description": "",
+            "done": false,
+            "hidden": false
+          }
+        ],
+        "hidden": false
+      },
+      {
+        "id": "seller-v1-1-1",
+        "name": "Marketing Execution",
+        "description": "Execute the planned marketing strategy, leveraging digital channels (MLS, social media, paid ads), print media, email campaigns, and direct outreach to agents and buyer networks. Schedule and host open houses or private tours as needed. Monitor interest, collect feedback, and adjust messaging or targeting to optimize performance. Use Next to give sellers transparency into marketing activity and demonstrate your efforts in real time.",
+        "outcomes": [
+          {
+            "id": "seller-v1-1-1-0",
+            "name": "Scheduled professional photographer",
+            "description": "",
+            "done": false,
+            "hidden": false
+          },
+          {
+            "id": "seller-v1-1-1-1",
+            "name": "Completed 3D scan / floorplan",
+            "description": "",
+            "done": false,
+            "hidden": false
+          },
+          {
+            "id": "seller-v1-1-1-2",
+            "name": "Prepared digital & print marketing materials",
+            "description": "",
+            "done": false,
+            "hidden": false
+          },
+          {
+            "id": "seller-v1-1-1-3",
+            "name": "Prepared mailing lists for new listing announcement",
+            "description": "",
+            "done": false,
+            "hidden": false
+          },
+          {
+            "id": "seller-v1-1-1-4",
+            "name": "Placed for sale sign",
+            "description": "",
+            "done": false,
+            "hidden": false
+          },
+          {
+            "id": "seller-v1-1-1-5",
+            "name": "Placed lockbox",
+            "description": "",
+            "done": false,
+            "hidden": false
+          },
+          {
+            "id": "seller-v1-1-1-6",
+            "name": "Programmed lockbox",
+            "description": "",
+            "done": false,
+            "hidden": false
+          },
+          {
+            "id": "seller-v1-1-1-7",
+            "name": "Placed directional signs",
+            "description": "",
+            "done": false,
+            "hidden": false
+          },
+          {
+            "id": "seller-v1-1-1-8",
+            "name": "Placed QR code to contact info",
+            "description": "",
+            "done": false,
+            "hidden": false
+          },
+          {
+            "id": "seller-v1-1-1-9",
+            "name": "Placed flyerbox for flyers",
+            "description": "",
+            "done": false,
+            "hidden": false
+          },
+          {
+            "id": "seller-v1-1-1-10",
+            "name": "Placed homebook & counter display items",
+            "description": "",
+            "done": false,
+            "hidden": false
+          },
+          {
+            "id": "seller-v1-1-1-11",
+            "name": "Placed take-away brochures for buyers",
+            "description": "",
+            "done": false,
+            "hidden": false
+          },
+          {
+            "id": "seller-v1-1-1-12",
+            "name": "Placed feature cards",
+            "description": "",
+            "done": false,
+            "hidden": false
+          },
+          {
+            "id": "seller-v1-1-1-13",
+            "name": "Placed shoe covers at door",
+            "description": "",
+            "done": false,
+            "hidden": false
+          }
+        ],
+        "hidden": false
+      },
+      {
+        "id": "seller-v1-1-2",
+        "name": "Demand Creation",
+        "description": "Focus on driving qualified traffic and creating buyer urgency through strategic exposure. This includes agent-to-agent marketing, buyer database outreach, retargeting campaigns, social media pushes, and emphasizing listing highlights that differentiate the property. Encourage showings and gather feedback to adjust as needed. Use Next to show sellers how your demand-creation efforts are translating into real market activity and interest.",
+        "outcomes": [
+          {
+            "id": "seller-v1-1-2-0",
+            "name": "Hosted market exclusive open house",
+            "description": "",
+            "done": false,
+            "hidden": false
+          },
+          {
+            "id": "seller-v1-1-2-1",
+            "name": "Called top agent network & introduced listing",
+            "description": "",
+            "done": false,
+            "hidden": false
+          },
+          {
+            "id": "seller-v1-1-2-2",
+            "name": "Coordinated broker tour",
+            "description": "",
+            "done": false,
+            "hidden": false
+          },
+          {
+            "id": "seller-v1-1-2-3",
+            "name": "Updated or reversed MLS listing status",
+            "description": "",
+            "done": false,
+            "hidden": false
+          },
+          {
+            "id": "seller-v1-1-2-4",
+            "name": "Created ads & banners on social media",
+            "description": "",
+            "done": false,
+            "hidden": false
+          },
+          {
+            "id": "seller-v1-1-2-5",
+            "name": "Emailed local real estate professionals",
+            "description": "",
+            "done": false,
+            "hidden": false
+          },
+          {
+            "id": "seller-v1-1-2-6",
+            "name": "Distributed circle & neighborhood mailings",
+            "description": "",
+            "done": false,
+            "hidden": false
+          },
+          {
+            "id": "seller-v1-1-2-7",
+            "name": "Coordinated market agent open house",
+            "description": "",
+            "done": false,
+            "hidden": false
+          },
+          {
+            "id": "seller-v1-1-2-8",
+            "name": "Coordinated market public open house",
+            "description": "",
+            "done": false,
+            "hidden": false
+          },
+          {
+            "id": "seller-v1-1-2-9",
+            "name": "Prepared agent open house",
+            "description": "",
+            "done": false,
+            "hidden": false
+          },
+          {
+            "id": "seller-v1-1-2-10",
+            "name": "Prepared public open house",
+            "description": "",
+            "done": false,
+            "hidden": false
+          },
+          {
+            "id": "seller-v1-1-2-11",
+            "name": "Hosted public open house",
+            "description": "",
+            "done": false,
+            "hidden": false
+          },
+          {
+            "id": "seller-v1-1-2-12",
+            "name": "Hosted agent open house",
+            "description": "",
+            "done": false,
+            "hidden": false
+          },
+          {
+            "id": "seller-v1-1-2-13",
+            "name": "Followed-up with visitors after public open house",
+            "description": "",
+            "done": false,
+            "hidden": false
+          },
+          {
+            "id": "seller-v1-1-2-14",
+            "name": "Followed-up with agents after agent open house",
+            "description": "",
+            "done": false,
+            "hidden": false
+          }
+        ],
+        "hidden": false
+      },
+      {
+        "id": "seller-v1-1-3",
+        "name": "30 Day Check-in",
+        "description": "At the 30-day check-in, evaluate market performance with the seller, including showings, buyer feedback, online engagement, and any offers received. Discuss whether pricing, marketing tactics, or home presentation should be adjusted based on current results. Reinforce your value by presenting data and recommendations clearly. Use Next to document insights, track updates, and maintain visibility throughout the next phase of the listing.",
+        "outcomes": [
+          {
+            "id": "seller-v1-1-3-0",
+            "name": "Reviewed showing activity & feedback",
+            "description": "",
+            "done": false,
+            "hidden": false
+          },
+          {
+            "id": "seller-v1-1-3-1",
+            "name": "Reviewed offers retrospectively",
+            "description": "",
+            "done": false,
+            "hidden": false
+          },
+          {
+            "id": "seller-v1-1-3-2",
+            "name": "Reviewed marketing performance",
+            "description": "",
+            "done": false,
+            "hidden": false
+          },
+          {
+            "id": "seller-v1-1-3-3",
+            "name": "Reviewed pricing strategy for possible price adjustments",
+            "description": "",
+            "done": false,
+            "hidden": false
+          }
+        ],
+        "hidden": false
+      },
+      {
+        "id": "seller-v1-1-4",
+        "name": "60 Day Check-in",
+        "description": "Conduct a thorough review of listing performance at 60 days, focusing on market activity, buyer feedback, showing trends, and any shifts in local inventory. Use this milestone to propose meaningful updates to the listing — including pricing strategy, refreshed marketing assets, or repositioning in the MLS. Discuss all findings with the seller and document the updated strategy in Next for transparency and alignment.",
+        "outcomes": [
+          {
+            "id": "seller-v1-1-4-0",
+            "name": "Reviewed showing activity & feedback",
+            "description": "",
+            "done": false,
+            "hidden": false
+          },
+          {
+            "id": "seller-v1-1-4-1",
+            "name": "Reviewed offers retrospectively",
+            "description": "",
+            "done": false,
+            "hidden": false
+          },
+          {
+            "id": "seller-v1-1-4-2",
+            "name": "Reviewed marketing performance",
+            "description": "",
+            "done": false,
+            "hidden": false
+          },
+          {
+            "id": "seller-v1-1-4-3",
+            "name": "Reviewed pricing strategy for possible price adjustments",
+            "description": "",
+            "done": false,
+            "hidden": false
+          }
+        ],
+        "hidden": false
+      },
+      {
+        "id": "seller-v1-1-5",
+        "name": "90 Day Check-in",
+        "description": "After 90 days on market, conduct a deep performance analysis, considering cumulative buyer feedback, market changes, and listing fatigue. Discuss fresh strategies with the seller, which may include pricing adjustments, enhanced marketing, or repositioning the home with a new narrative or photos. Consider whether a temporary withdrawal and relaunch would be beneficial. Use Next to present data, manage expectations, and create a clear action plan moving forward.",
+        "outcomes": [
+          {
+            "id": "seller-v1-1-5-0",
+            "name": "Reviewed showing activity & feedback",
+            "description": "",
+            "done": false,
+            "hidden": false
+          },
+          {
+            "id": "seller-v1-1-5-1",
+            "name": "Reviewed offers retrospectively",
+            "description": "",
+            "done": false,
+            "hidden": false
+          },
+          {
+            "id": "seller-v1-1-5-2",
+            "name": "Reviewed marketing performance",
+            "description": "",
+            "done": false,
+            "hidden": false
+          },
+          {
+            "id": "seller-v1-1-5-3",
+            "name": "Reviewed pricing strategy for possible price adjustments",
+            "description": "",
+            "done": false,
+            "hidden": false
+          }
+        ],
+        "hidden": false
+      },
+      {
+        "id": "seller-v1-1-6",
+        "name": "120 Day Check-in",
+        "description": "Evaluate long-term listing performance at the 120-day mark with an emphasis on historical data, buyer trends, and feedback patterns. If the listing has stalled, consider recommending a full strategy refresh — potentially including price repositioning, new staging, updated visuals, or temporary withdrawal and relaunch. This milestone is critical for re-engaging seller motivation and resetting buyer perception. Document the discussion and next steps in Next to maintain clarity and alignment.",
+        "outcomes": [
+          {
+            "id": "seller-v1-1-6-0",
+            "name": "Reviewed showing activity & feedback",
+            "description": "",
+            "done": false,
+            "hidden": false
+          },
+          {
+            "id": "seller-v1-1-6-1",
+            "name": "Reviewed offers retrospectively",
+            "description": "",
+            "done": false,
+            "hidden": false
+          },
+          {
+            "id": "seller-v1-1-6-2",
+            "name": "Reviewed marketing performance",
+            "description": "",
+            "done": false,
+            "hidden": false
+          },
+          {
+            "id": "seller-v1-1-6-3",
+            "name": "Reviewed pricing strategy for possible price adjustments",
+            "description": "",
+            "done": false,
+            "hidden": false
+          }
+        ],
+        "hidden": false
+      },
+      {
+        "id": "seller-v1-1-7",
+        "name": "Offer Negotiations",
+        "description": "The Consultation & Client Needs milestone is an essential first step where you engage with the seller to clarify their objectives for the sale. Use this meeting to gather critical information about their timeline, expectations, and any concerns regarding the selling process. Discuss market trends and outline how your expertise and services can address their unique needs. This will enable you to develop a targeted strategy and ensure that both you and the seller are aligned for the next steps in the transaction.",
+        "outcomes": [
+          {
+            "id": "seller-v1-1-7-0",
+            "name": "Discussed seller goals, timeline & expectations",
+            "description": "",
+            "done": false,
+            "hidden": false
+          },
+          {
+            "id": "seller-v1-1-7-1",
+            "name": "Addressed seller's questions & concerns",
+            "description": "",
+            "done": false,
+            "hidden": false
+          },
+          {
+            "id": "seller-v1-1-7-2",
+            "name": "Identified key market-ready services",
+            "description": "",
+            "done": false,
+            "hidden": false
+          }
+        ],
+        "hidden": false
+      },
+      {
+        "id": "seller-v1-1-8",
+        "name": "Primary Offer / Counter / Negotiation",
+        "description": "Receive, review, and present buyer offers to the seller, breaking down all relevant terms such as price, closing timeline, financing, contingencies, and concessions. Advise the seller on possible responses — including counteroffers or strategic negotiations — based on market conditions and their goals. Communicate clearly with the buyer's agent to advocate for your client, and document all activity and updates in Next for full visibility and trust. An accepted offer is required to move to unlock Contract & Closing.",
+        "outcomes": [
+          {
+            "id": "seller-v1-1-8-0",
+            "name": "Received offer(s) & confirmed terms",
+            "description": "",
+            "done": false,
+            "hidden": false
+          },
+          {
+            "id": "seller-v1-1-8-1",
+            "name": "Received & reviewed offers with the seller",
+            "description": "",
+            "done": false,
+            "hidden": false
+          },
+          {
+            "id": "seller-v1-1-8-2",
+            "name": "Prepared a net-to-seller",
+            "description": "",
+            "done": false,
+            "hidden": false
+          },
+          {
+            "id": "seller-v1-1-8-3",
+            "name": "Presented offer summary & key terms to seller",
+            "description": "",
+            "done": false,
+            "hidden": false
+          },
+          {
+            "id": "seller-v1-1-8-4",
+            "name": "Advised on counteroffer strategy",
+            "description": "",
+            "done": false,
+            "hidden": false
+          },
+          {
+            "id": "seller-v1-1-8-5",
+            "name": "Negotiated terms with the buyer's agent",
+            "description": "",
+            "done": false,
+            "hidden": false
+          },
+          {
+            "id": "seller-v1-1-8-6",
+            "name": "Provided seller with negotiation updates",
+            "description": "",
+            "done": false,
+            "hidden": false
+          },
+          {
+            "id": "seller-v1-1-8-7",
+            "name": "Verified buyer pre-approved",
+            "description": "",
+            "done": false,
+            "hidden": false
+          },
+          {
+            "id": "seller-v1-1-8-8",
+            "name": "Confirmed buyer's financial position & readiness for sale",
+            "description": "",
+            "done": false,
+            "hidden": false
+          },
+          {
+            "id": "seller-v1-1-8-9",
+            "name": "Ensured buyer has necessary contingencies",
+            "description": "",
+            "done": false,
+            "hidden": false
+          },
+          {
+            "id": "seller-v1-1-8-10",
+            "name": "Offer accepted",
+            "description": "",
+            "done": false,
+            "hidden": false,
+            "gateway": true,
+            "star": true
+          }
+        ],
+        "hidden": false
+      }
+    ]
+  },
+  {
+    "id": "contract",
+    "name": "Contract",
+    "milestones": [
+      {
+        "id": "seller-v1-2-0",
+        "name": "Notifications",
+        "description": "Once the offer is accepted, update the MLS status to Pending/Under Contract and install the \"Pending Sale\" rider on the sign. Enter contract terms and key dates into your transaction management system (if applicable). Confirm due diligence, contingency removal, and closing timelines. Proactively notify the seller of next steps and use Next to track these updates and provide ongoing visibility.",
+        "outcomes": [
+          {
+            "id": "seller-v1-2-0-0",
+            "name": "Updated MLS status (pending/under contract)",
+            "description": "",
+            "done": false,
+            "hidden": false
+          },
+          {
+            "id": "seller-v1-2-0-1",
+            "name": "\"Pending Sale\" added to sign",
+            "description": "",
+            "done": false,
+            "hidden": false
+          },
+          {
+            "id": "seller-v1-2-0-2",
+            "name": "Added contract details into transaction management system (if applicable)",
+            "description": "",
+            "done": false,
+            "hidden": false
+          },
+          {
+            "id": "seller-v1-2-0-3",
+            "name": "Confirmed due diligence, contingency, & closing deadlines",
+            "description": "",
+            "done": false,
+            "hidden": false
+          },
+          {
+            "id": "seller-v1-2-0-4",
+            "name": "Notified sellers of next steps & timelines",
+            "description": "",
+            "done": false,
+            "hidden": false
+          }
+        ],
+        "hidden": false
+      },
+      {
+        "id": "seller-v1-2-1",
+        "name": "Open Escrow / Title",
+        "description": "Open escrow and initiate title services promptly after contract acceptance. Provide all necessary documents to the escrow officer, confirm buyer and seller information, and ensure contract terms are clearly communicated. Title will begin reviewing ownership records, confirming legal status, and issuing insurance. Coordinate timelines with both parties, and use Next to update the seller on escrow activity, title progress, and what is needed from them.",
+        "outcomes": [
+          {
+            "id": "seller-v1-2-1-0",
+            "name": "Scheduled signing with title/closing attorney",
+            "description": "",
+            "done": false,
+            "hidden": false
+          },
+          {
+            "id": "seller-v1-2-1-1",
+            "name": "Confirmed signatures & closing date",
+            "description": "",
+            "done": false,
+            "hidden": false
+          },
+          {
+            "id": "seller-v1-2-1-2",
+            "name": "EMD verified/collected",
+            "description": "",
+            "done": false,
+            "hidden": false
+          },
+          {
+            "id": "seller-v1-2-1-3",
+            "name": "Shared binding agreement & key documents with broker",
+            "description": "",
+            "done": false,
+            "hidden": false
+          },
+          {
+            "id": "seller-v1-2-1-4",
+            "name": "Updated the net-to-seller based on the binding contract",
+            "description": "",
+            "done": false,
+            "hidden": false
+          },
+          {
+            "id": "seller-v1-2-1-5",
+            "name": "Opened escrow/title account",
+            "description": "",
+            "done": false,
+            "hidden": false
+          },
+          {
+            "id": "seller-v1-2-1-6",
+            "name": "Confirmed title work ordered",
+            "description": "",
+            "done": false,
+            "hidden": false
+          },
+          {
+            "id": "seller-v1-2-1-7",
+            "name": "Confirmed title clear of issues",
+            "description": "",
+            "done": false,
+            "hidden": false
+          },
+          {
+            "id": "seller-v1-2-1-8",
+            "name": "Ensured buyer's financing is secure (lender confirmation)",
+            "description": "",
+            "done": false,
+            "hidden": false
+          },
+          {
+            "id": "seller-v1-2-1-9",
+            "name": "Verified HOA/condo dues & obtained documents for title company",
+            "description": "",
+            "done": false,
+            "hidden": false
+          },
+          {
+            "id": "seller-v1-2-1-10",
+            "name": "Requested & provided deposit instructions",
+            "description": "",
+            "done": false,
+            "hidden": false
+          },
+          {
+            "id": "seller-v1-2-1-11",
+            "name": "Requested & provided wiring instructions",
+            "description": "",
+            "done": false,
+            "hidden": false
+          },
+          {
+            "id": "seller-v1-2-1-12",
+            "name": "Submitted all pay-at-closing invoices & expenses",
+            "description": "",
+            "done": false,
+            "hidden": false
+          },
+          {
+            "id": "seller-v1-2-1-13",
+            "name": "Confirmed order of home warranty",
+            "description": "",
+            "done": false,
+            "hidden": false
+          },
+          {
+            "id": "seller-v1-2-1-14",
+            "name": "Requested mortgage payoff from seller's lender",
+            "description": "",
+            "done": false,
+            "hidden": false
+          },
+          {
+            "id": "seller-v1-2-1-15",
+            "name": "Confirmed need & documentation for attorney in fact at closing",
+            "description": "",
+            "done": false,
+            "hidden": false
+          },
+          {
+            "id": "seller-v1-2-1-16",
+            "name": "Collected earnest money deposit & verified delivery",
+            "description": "",
+            "done": false,
+            "hidden": false
+          },
+          {
+            "id": "seller-v1-2-1-17",
+            "name": "Provided contract timeline, key dates, & action items",
+            "description": "",
+            "done": false,
+            "hidden": false
+          }
+        ],
+        "hidden": false
+      },
+      {
+        "id": "seller-v1-2-2",
+        "name": "Inspection & Appraisal Management",
+        "description": "Coordinate access for the buyer's home inspection and appraisal, ensuring both are completed within the agreed timeline. Communicate clearly with inspectors, appraisers, and the buyer's agent. Once results are received, review inspection findings and appraisal value with the seller. Provide guidance on responding to any repair requests or valuation issues. Use Next to document milestones, share updates, and maintain transparency throughout this critical phase.",
+        "outcomes": [
+          {
+            "id": "seller-v1-2-2-0",
+            "name": "Ensured Appraisal is ordered & scheduled",
+            "description": "",
+            "done": false,
+            "hidden": false
+          },
+          {
+            "id": "seller-v1-2-2-1",
+            "name": "Ensured buyer receives required disclosures & reports",
+            "description": "",
+            "done": false,
+            "hidden": false
+          },
+          {
+            "id": "seller-v1-2-2-2",
+            "name": "Ensured HOA or Condo disclosures were provided & reviewed",
+            "description": "",
+            "done": false,
+            "hidden": false
+          },
+          {
+            "id": "seller-v1-2-2-3",
+            "name": "Coordinated access for appraiser",
+            "description": "",
+            "done": false,
+            "hidden": false
+          },
+          {
+            "id": "seller-v1-2-2-4",
+            "name": "Confirmed appraisal appointment was completed",
+            "description": "",
+            "done": false,
+            "hidden": false
+          },
+          {
+            "id": "seller-v1-2-2-5",
+            "name": "Coordinated access for home inspection",
+            "description": "",
+            "done": false,
+            "hidden": false
+          },
+          {
+            "id": "seller-v1-2-2-6",
+            "name": "Attended home inspection",
+            "description": "",
+            "done": false,
+            "hidden": false
+          },
+          {
+            "id": "seller-v1-2-2-7",
+            "name": "Coordinated access for pest inspection",
+            "description": "",
+            "done": false,
+            "hidden": false
+          },
+          {
+            "id": "seller-v1-2-2-8",
+            "name": "Attended pest inspection",
+            "description": "",
+            "done": false,
+            "hidden": false
+          },
+          {
+            "id": "seller-v1-2-2-9",
+            "name": "Coordinated access for additional inspection",
+            "description": "",
+            "done": false,
+            "hidden": false
+          },
+          {
+            "id": "seller-v1-2-2-10",
+            "name": "Attended additional inspection",
+            "description": "",
+            "done": false,
+            "hidden": false
+          }
+        ],
+        "hidden": false
+      },
+      {
+        "id": "seller-v1-2-3",
+        "name": "Credit Negotiations",
+        "description": "Post-inspection, review all repair requests or credit demands submitted by the buyer. Advise the seller on potential responses based on the contract, market leverage, and desired outcome. Facilitate negotiation with the buyer's agent to reach a fair resolution that minimizes seller concessions while keeping the transaction on track. Record agreements in writing and use Next to update and inform the seller in real time.",
+        "outcomes": [
+          {
+            "id": "seller-v1-2-3-0",
+            "name": "Reviewed itemized repair & credit summary",
+            "description": "",
+            "done": false,
+            "hidden": false
+          },
+          {
+            "id": "seller-v1-2-3-1",
+            "name": "Consulted with seller about repair requests or negotiations",
+            "description": "",
+            "done": false,
+            "hidden": false
+          },
+          {
+            "id": "seller-v1-2-3-2",
+            "name": "Delivered updated net-to-seller estimate",
+            "description": "",
+            "done": false,
+            "hidden": false
+          },
+          {
+            "id": "seller-v1-2-3-3",
+            "name": "Negotiated inspection results with buyers for repairs or credits",
+            "description": "",
+            "done": false,
+            "hidden": false
+          },
+          {
+            "id": "seller-v1-2-3-4",
+            "name": "Ordered any needed repair bids",
+            "description": "",
+            "done": false,
+            "hidden": false
+          },
+          {
+            "id": "seller-v1-2-3-5",
+            "name": "Reviewed repair bids with seller",
+            "description": "",
+            "done": false,
+            "hidden": false
+          },
+          {
+            "id": "seller-v1-2-3-6",
+            "name": "Countered buyer's repair addendum",
+            "description": "",
+            "done": false,
+            "hidden": false
+          },
+          {
+            "id": "seller-v1-2-3-7",
+            "name": "Reviewed buyer's response to counter",
+            "description": "",
+            "done": false,
+            "hidden": false
+          },
+          {
+            "id": "seller-v1-2-3-8",
+            "name": "Reviewed & signed repair request addendum",
+            "description": "",
+            "done": false,
+            "hidden": false
+          },
+          {
+            "id": "seller-v1-2-3-9",
+            "name": "Repair addendum contingency removed",
+            "description": "",
+            "done": false,
+            "hidden": false
+          },
+          {
+            "id": "seller-v1-2-3-10",
+            "name": "Rejected inspection response & terminate contract",
+            "description": "",
+            "done": false,
+            "hidden": false
+          },
+          {
+            "id": "seller-v1-2-3-11",
+            "name": "Rejected inspection response & buyer elects to proceed",
+            "description": "",
+            "done": false,
+            "hidden": false
+          },
+          {
+            "id": "seller-v1-2-3-12",
+            "name": "Assist seller with expediting repair items",
+            "description": "",
+            "done": false,
+            "hidden": false
+          }
+        ],
+        "hidden": false
+      },
+      {
+        "id": "seller-v1-2-4",
+        "name": "Financing",
+        "description": "Maintain communication with the buyer's agent and lender to monitor financing progress. Confirm key milestones, such as appraisal review, loan underwriting, and final approval. Ensure financing contingency deadlines are met and provide updates to the seller. Be prepared to manage any delays or issues proactively. Use Next to document lender status and maintain visibility throughout this critical phase of the transaction.",
+        "outcomes": [
+          {
+            "id": "seller-v1-2-4-0",
+            "name": "Buyer's property appraisal confirmed",
+            "description": "",
+            "done": false,
+            "hidden": false
+          },
+          {
+            "id": "seller-v1-2-4-1",
+            "name": "Appraised value confirmed",
+            "description": "",
+            "done": false,
+            "hidden": false
+          },
+          {
+            "id": "seller-v1-2-4-2",
+            "name": "Appraised value low",
+            "description": "",
+            "done": false,
+            "hidden": false
+          },
+          {
+            "id": "seller-v1-2-4-3",
+            "name": "Renegotiated purchase price based on low appraisal",
+            "description": "",
+            "done": false,
+            "hidden": false
+          },
+          {
+            "id": "seller-v1-2-4-4",
+            "name": "Signed amendment for new purchase price",
+            "description": "",
+            "done": false,
+            "hidden": false
+          },
+          {
+            "id": "seller-v1-2-4-5",
+            "name": "Provided updated contract to lender with all addenda & exhibits",
+            "description": "",
+            "done": false,
+            "hidden": false
+          },
+          {
+            "id": "seller-v1-2-4-6",
+            "name": "Received proof of funds from buyer",
+            "description": "",
+            "done": false,
+            "hidden": false
+          },
+          {
+            "id": "seller-v1-2-4-7",
+            "name": "Confirmed all financing conditions are approved",
+            "description": "",
+            "done": false,
+            "hidden": false
+          },
+          {
+            "id": "seller-v1-2-4-8",
+            "name": "Received loan commitment from lender",
+            "description": "",
+            "done": false,
+            "hidden": false
+          },
+          {
+            "id": "seller-v1-2-4-9",
+            "name": "Reviewed & signed closing disclosure at least 3 days prior to closing",
+            "description": "",
+            "done": false,
+            "hidden": false
+          }
+        ],
+        "hidden": false
+      }
+    ]
+  },
+  {
+    "id": "closing",
+    "name": "Closing",
+    "milestones": [
+      {
+        "id": "seller-v1-3-0",
+        "name": "Security & Utilities",
+        "description": "Coordinate with the seller to ensure utilities are scheduled for disconnection or transfer on the appropriate date. Confirm that all security items — such as keys, garage remotes, alarm codes, and access instructions — are accounted for and prepared for handoff. Provide a checklist to the seller to avoid last-minute issues. Use Next to track utility and security tasks as part of the closing prep process.",
+        "outcomes": [
+          {
+            "id": "seller-v1-3-0-0",
+            "name": "Provided buyer with utility information",
+            "description": "",
+            "done": false,
+            "hidden": false
+          },
+          {
+            "id": "seller-v1-3-0-1",
+            "name": "Instructions for utility transfer date",
+            "description": "",
+            "done": false,
+            "hidden": false
+          },
+          {
+            "id": "seller-v1-3-0-2",
+            "name": "Instructions & mail forwarding set up",
+            "description": "",
+            "done": false,
+            "hidden": false
+          },
+          {
+            "id": "seller-v1-3-0-3",
+            "name": "Security system scheduled for disconnect or transfer",
+            "description": "",
+            "done": false,
+            "hidden": false
+          },
+          {
+            "id": "seller-v1-3-0-4",
+            "name": "Canceled internet & cable",
+            "description": "",
+            "done": false,
+            "hidden": false
+          },
+          {
+            "id": "seller-v1-3-0-5",
+            "name": "Canceled propane or oil delivery",
+            "description": "",
+            "done": false,
+            "hidden": false
+          },
+          {
+            "id": "seller-v1-3-0-6",
+            "name": "Canceled landscaping services",
+            "description": "",
+            "done": false,
+            "hidden": false
+          },
+          {
+            "id": "seller-v1-3-0-7",
+            "name": "Canceled waste & recycling service",
+            "description": "",
+            "done": false,
+            "hidden": false
+          },
+          {
+            "id": "seller-v1-3-0-8",
+            "name": "Canceled pest control services",
+            "description": "",
+            "done": false,
+            "hidden": false
+          }
+        ],
+        "hidden": false
+      },
+      {
+        "id": "seller-v1-3-1",
+        "name": "Final Walkthrough",
+        "description": "Coordinate with the buyer's agent to schedule the final walkthrough, typically 24–72 hours before closing. Ensure all contract terms have been met, including repairs, removal of personal items, and overall property condition. Address any concerns quickly to avoid delays. Use Next to update the seller and confirm that the home is ready for final transfer.",
+        "outcomes": [
+          {
+            "id": "seller-v1-3-1-0",
+            "name": "Final walkthrough appointment confirmed",
+            "description": "",
+            "done": false,
+            "hidden": false
+          },
+          {
+            "id": "seller-v1-3-1-1",
+            "name": "Removed lockbox",
+            "description": "",
+            "done": false,
+            "hidden": false
+          },
+          {
+            "id": "seller-v1-3-1-2",
+            "name": "Removed sign",
+            "description": "",
+            "done": false,
+            "hidden": false
+          },
+          {
+            "id": "seller-v1-3-1-3",
+            "name": "Removed marketing materials",
+            "description": "",
+            "done": false,
+            "hidden": false
+          },
+          {
+            "id": "seller-v1-3-1-4",
+            "name": "Escrow/title company notified of any issues",
+            "description": "",
+            "done": false,
+            "hidden": false
+          },
+          {
+            "id": "seller-v1-3-1-5",
+            "name": "Additional credits negotiated",
+            "description": "",
+            "done": false,
+            "hidden": false
+          }
+        ],
+        "hidden": false
+      },
+      {
+        "id": "seller-v1-3-2",
+        "name": "Moving",
+        "description": "Confirm the seller's move-out timeline to ensure the property is vacated by the possession date in the contract. Advise on cleaning standards, removal of personal belongings, and any items required to remain with the property. Coordinate with the buyer's agent to prevent issues during the final walkthrough. Use Next to track moving status and provide reminders or resources to help the seller transition smoothly.",
+        "outcomes": [
+          {
+            "id": "seller-v1-3-2-0",
+            "name": "Moving company contracted & scheduled",
+            "description": "",
+            "done": false,
+            "hidden": false
+          },
+          {
+            "id": "seller-v1-3-2-1",
+            "name": "Cleaning service scheduled",
+            "description": "",
+            "done": false,
+            "hidden": false
+          },
+          {
+            "id": "seller-v1-3-2-2",
+            "name": "Carpet cleaning service scheduled",
+            "description": "",
+            "done": false,
+            "hidden": false
+          }
+        ],
+        "hidden": false
+      },
+      {
+        "id": "seller-v1-3-3",
+        "name": "Close Escrow / Transfer of Title",
+        "description": "Verify successful closing of escrow and legal transfer of title to the buyer. Ensure the seller receives final documentation, including the closing disclosure, settlement statement, and confirmation of proceeds. Notify all parties, update the MLS if needed, and mark the transaction as closed in Next. Provide a smooth wrap-up and post-closing guidance to maintain strong client relationships.",
+        "outcomes": [
+          {
+            "id": "seller-v1-3-3-0",
+            "name": "Closing document signing scheduled",
+            "description": "",
+            "done": false,
+            "hidden": false
+          },
+          {
+            "id": "seller-v1-3-3-1",
+            "name": "Confirmed all terms, stipulations, & contract obligations have been met",
+            "description": "",
+            "done": false,
+            "hidden": false
+          },
+          {
+            "id": "seller-v1-3-3-2",
+            "name": "Community covenants & HOA guidelines shared with buyer",
+            "description": "",
+            "done": false,
+            "hidden": false
+          },
+          {
+            "id": "seller-v1-3-3-3",
+            "name": "Facilitated attorney in fact signatures",
+            "description": "",
+            "done": false,
+            "hidden": false
+          },
+          {
+            "id": "seller-v1-3-3-4",
+            "name": "Signing of final documents",
+            "description": "",
+            "done": false,
+            "hidden": false,
+            "star": true
+          },
+          {
+            "id": "seller-v1-3-3-5",
+            "name": "All cash received & financing funded",
+            "description": "",
+            "done": false,
+            "hidden": false
+          },
+          {
+            "id": "seller-v1-3-3-6",
+            "name": "Delivered keys, remotes, & other home information",
+            "description": "",
+            "done": false,
+            "hidden": false
+          }
+        ],
+        "hidden": false
+      }
+    ]
+  }
+]

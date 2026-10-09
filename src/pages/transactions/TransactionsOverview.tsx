@@ -1,7 +1,7 @@
 import { ArrowLeftRight } from 'lucide-react'
 import { Layout } from '@/components/layout/Layout'
 import { AppTile } from '@/components/apps/AppTile'
-import { APP_MODULES, isSubitemVisible } from '@/utils/constants'
+import { APP_MODULES, isSubitemVisible, deduplicateAppModules } from '@/utils/constants'
 import { useAuth } from '@/context/AuthContext'
 import type { AppModule } from '@/types'
 
@@ -24,10 +24,11 @@ export function TransactionsOverviewPage() {
     return false
   })
   
-  const modules = [
-    ...APP_MODULES.filter((m) => m.category === 'transactions'),
+  const rawModules = [
+    ...APP_MODULES.filter((m) => m.category === 'transactions' || ['deals', 'cma'].includes(m.id)),
     ...(visibleCustomModules as unknown as AppModule[])
-  ].filter(m => isSubitemVisible(m.id, m.category, user, can))
+  ]
+  const modules = deduplicateAppModules(rawModules).filter(m => isSubitemVisible(m.id, m.category, user, can))
 
   return (
     <Layout title="Transactions">

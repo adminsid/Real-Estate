@@ -73,6 +73,7 @@ export type AppCategory =
   | 'network'
   | 'tools'
   | 'hr'
+  | 'operations'
 
 // ─── MLS / Listing ─────────────────────────────────────────────────────────
 export interface MLSListing {

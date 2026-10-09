@@ -1,3 +1,4 @@
+import { FinancialSummary, type FinancialRecord } from './TransactionFinancials'
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useTransactionDetail } from './TransactionContext'
@@ -5,12 +6,15 @@ import {
   ChevronDown, ChevronUp, CalendarDays
 } from 'lucide-react'
 import clsx from 'clsx'
+import { getLocalDateString } from '@/utils/date'
 
 interface TransactionLeftPanelProps {
+  financialRecord: FinancialRecord | null
+  openFinancials: () => void
   setIsOutlineEditOpen: (open: boolean) => void
 }
 
-export function TransactionLeftPanel({ setIsOutlineEditOpen }: TransactionLeftPanelProps) {
+export function TransactionLeftPanel({ setIsOutlineEditOpen, financialRecord, openFinancials }: TransactionLeftPanelProps) {
   const { data, historyDeals = [] } = useTransactionDetail()
   const { transaction: tx, parties = [] } = data
 
@@ -27,16 +31,6 @@ export function TransactionLeftPanel({ setIsOutlineEditOpen }: TransactionLeftPa
     }
     return {}
   })()
-
-  const calculatedCommission = tx.price && tx.commission_rate ? tx.price * (tx.commission_rate / 100) : null
-  const grossCommission = tx.commission_amount || calculatedCommission || 0
-  const buyerSplit = Math.round(grossCommission * ((tx.commission_split_buyer_percent || 0) / 100))
-  const coBrokerSplit = Math.round(grossCommission * ((tx.commission_split_co_broker_percent || 0) / 100))
-  const referralSplit = Math.round(grossCommission * ((tx.commission_split_referral_percent || 0) / 100))
-  const netBrokerShare = grossCommission - buyerSplit - coBrokerSplit - referralSplit
-
-  const repairCredit = tx.repair_credit || 0
-  const estNetToSeller = tx.price ? tx.price - grossCommission - repairCredit : null
 
   return (
     <div className="lg:col-span-1 space-y-3">
@@ -65,66 +59,12 @@ export function TransactionLeftPanel({ setIsOutlineEditOpen }: TransactionLeftPa
         {!cardCollapsed['financials'] && (
           <div className="px-5 pb-5 space-y-4 border-t border-gray-100">
             <div className="pt-3">
-              <p className="text-xs text-gray-500 mb-1">Target Price</p>
+              <p className="text-xs text-gray-500 mb-1">{tx.financial_price_label || 'Legacy target'} price</p>
               <p className="font-bold text-gray-900 text-xl">
                 {tx.price ? `$${tx.price.toLocaleString()}` : '—'}
               </p>
             </div>
-            <div className="grid grid-cols-2 gap-2">
-              <div>
-                <p className="text-xs text-gray-500 mb-1">Commission Rate</p>
-                <p className="font-semibold text-gray-900">
-                  {tx.commission_rate ? `${tx.commission_rate}%` : '—'}
-                </p>
-              </div>
-              <div>
-                <p className="text-xs text-gray-500 mb-1">Gross Commission</p>
-                <p className="font-semibold text-gray-900">
-                  {grossCommission ? `$${grossCommission.toLocaleString()}` : '—'}
-                </p>
-              </div>
-            </div>
-
-            {/* Automated Splits Breakdown */}
-            {grossCommission > 0 && (
-              <div className="bg-gray-50 rounded-lg p-2.5 text-xs text-gray-600 border border-gray-100 space-y-1.5">
-                <p className="font-bold text-[10px] uppercase text-gray-400 mb-1">Automated Commission Splits</p>
-                <div className="flex justify-between">
-                  <span>Buyer Agent ({tx.commission_split_buyer_percent || 0}%):</span>
-                  <span className="font-medium text-gray-800">${buyerSplit.toLocaleString()}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span>Co-Broker ({tx.commission_split_co_broker_percent || 0}%):</span>
-                  <span className="font-medium text-gray-800">${coBrokerSplit.toLocaleString()}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span>Referral Split ({tx.commission_split_referral_percent || 0}%):</span>
-                  <span className="font-medium text-gray-800">${referralSplit.toLocaleString()}</span>
-                </div>
-                <div className="flex justify-between border-t border-gray-200 pt-1.5 font-bold">
-                  <span className="text-gray-700">Net Brokerage Share:</span>
-                  <span className="text-brand-navy">${netBrokerShare.toLocaleString()}</span>
-                </div>
-              </div>
-            )}
-
-            {/* Repair credit */}
-            {repairCredit > 0 && (
-              <div className="flex justify-between items-center text-xs text-red-700 bg-red-50 p-2.5 rounded-lg border border-red-100">
-                <span className="font-bold">Inspection Repair Credit:</span>
-                <span className="font-extrabold">-${repairCredit.toLocaleString()}</span>
-              </div>
-            )}
-
-            {estNetToSeller !== null && (
-              <div className="bg-emerald-50 rounded-lg p-3 border border-emerald-100">
-                <p className="text-xs text-emerald-700 font-bold mb-1">Est. Net to Seller</p>
-                <p className="font-bold text-emerald-800 text-base">
-                  ${estNetToSeller.toLocaleString()}
-                </p>
-                <p className="text-[10px] text-emerald-600 mt-0.5">Price minus gross commission and credits</p>
-              </div>
-            )}
+            <FinancialSummary record={financialRecord} open={openFinancials} />
 
             <div className="pt-2 border-t border-gray-100 grid grid-cols-2 gap-2">
               <div>
@@ -226,7 +166,7 @@ export function TransactionLeftPanel({ setIsOutlineEditOpen }: TransactionLeftPa
                     "rounded-lg p-2.5 text-xs border mt-2",
                     isOverdue ? "bg-red-50 text-red-800 border-red-100" : "bg-blue-50 text-blue-800 border-blue-100"
                   )}>
-                    <p className="font-bold">Deadline: {deadlineDate.toISOString().split('T')[0]}</p>
+                    <p className="font-bold">Deadline: {getLocalDateString(deadlineDate)}</p>
                     <p className="mt-0.5">
                       {isOverdue
                         ? `⚠️ Review period is overdue by ${Math.abs(diffDays)} day(s)!`
@@ -285,7 +225,7 @@ export function TransactionLeftPanel({ setIsOutlineEditOpen }: TransactionLeftPa
           <div className="px-5 pb-5 space-y-3 text-sm border-t border-gray-100 pt-3">
             <div>
               <p className="text-xs text-gray-500 mb-1">Agreement Type</p>
-              <p className="font-semibold text-gray-900 text-sm">{tx.agreement_type || 'No signed agreement logged'}</p>
+              <p className="font-semibold text-gray-900 text-sm">{financialRecord?.financials.agreement || tx.agreement_type || 'No signed agreement logged'}</p>
             </div>
             <div>
               <p className="text-xs text-gray-500 mb-1">Agreement Expiration</p>
@@ -339,7 +279,7 @@ export function TransactionLeftPanel({ setIsOutlineEditOpen }: TransactionLeftPa
               <div className="grid grid-cols-2 gap-2">
                 <div>
                   <p className="text-gray-400 font-medium">Selling Price</p>
-                  <p className="font-semibold text-gray-800">{outlineFields.sellingPrice ? `$${parseFloat(outlineFields.sellingPrice).toLocaleString()}` : '—'}</p>
+                  <p className="font-semibold text-gray-800">{tx?.financials_version ? (tx.price == null ? '—' : `$${Number(tx.price).toLocaleString()}`) : outlineFields.sellingPrice ? `$${parseFloat(outlineFields.sellingPrice).toLocaleString()}` : '—'}</p>
                 </div>
                 <div>
                   <p className="text-gray-400 font-medium">Mortgage Amt</p>

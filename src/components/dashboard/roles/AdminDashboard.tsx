@@ -253,7 +253,7 @@ export function AdminDashboard({
 
   const quickActions = useMemo(() => [
     { label: 'Tenant Management', icon: Icons.Building2, href: '/user-management', color: '#3B82F6', canAccess: can('hr', 'read') },
-    { label: 'Deals Pipeline', icon: Icons.TrendingUp, href: '/transactions/pipeline', color: '#8B5CF6', canAccess: can('transactions', 'read') },
+    { label: 'Deals', icon: Icons.TrendingUp, href: '/transactions/pipeline', color: '#8B5CF6', canAccess: can('transactions', 'read') },
     { label: 'CRM', icon: Icons.Users, href: '/marketing/crm', color: '#8B5CF6', canAccess: can('crm', 'read') },
     { label: 'Listings', icon: Icons.Home, href: '/inventory', color: '#10B981', canAccess: can('listings', 'read') },
     { label: 'Settings', icon: Icons.Settings, href: '/settings', color: '#6B7280', canAccess: true },

@@ -1,4 +1,6 @@
-import { useEffect } from 'react'
+import { getSafeRedirectUrl } from './lib/login-redirect'
+import { OfflineNotesPage } from '@/pages/offline/OfflineNotes'
+import { lazy, Suspense, useEffect } from 'react'
 import { Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '@/context/AuthContext'
 import { LoginPage } from '@/components/auth/LoginPage'
@@ -8,6 +10,7 @@ import { ResetPasswordPage } from '@/components/auth/ResetPasswordPage'
 import { AcceptInvitePage } from '@/components/auth/AcceptInvitePage'
 import { ForgotPasswordPage } from '@/components/auth/ForgotPasswordPage'
 import { DashboardPage } from '@/pages/dashboard/Dashboard'
+const NextPage = lazy(() => import('@/pages/next/Next').then(module => ({ default: module.NextPage })))
 import { TransactionsPage } from '@/pages/transactions/Transactions'
 import { TransactionsOverviewPage } from '@/pages/transactions/TransactionsOverview'
 import { TransactionDetailPage } from '@/pages/transactions/TransactionDetail'
@@ -15,6 +18,8 @@ import { CMAPage } from '@/pages/transactions/CMA'
 import { InventoryPage } from '@/pages/inventory/Inventory'
 import { MLSPage } from '@/pages/inventory/MLS'
 import { MarketingPage } from '@/pages/marketing/Marketing'
+import { DirectorTerminal } from '@/pages/marketing/DirectorTerminal'
+import { AdminDirectorSettings } from '@/pages/admin/AdminDirectorSettings'
 import { CRMPage } from '@/pages/marketing/CRM'
 import { CRMContactDetailPage } from '@/pages/marketing/CRMContactDetail'
 import { CRMMailingListsPage } from '@/pages/marketing/CRMMailingLists'
@@ -22,6 +27,7 @@ import { LearningPage } from '@/pages/learning/Learning'
 import { OpenHousesPage } from '@/pages/marketing/OpenHouses'
 import { NetworkPage } from '@/pages/network/Network'
 import { NetworkContactDetailPage } from '@/pages/network/NetworkContactDetail'
+import { OperationsPage, OperationsProjectDetailPage } from '@/pages/operations/Operations'
 import { SettingsPage } from '@/pages/settings/Settings'
 import { HRPage } from '@/pages/hr/HR'
 import { UserManagementPage } from '@/pages/hr/UserManagement'
@@ -51,34 +57,6 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
   }
 
   return <>{children}</>
-}
-
-function getSafeRedirectUrl(urlStr: string | null): string | null {
-  if (!urlStr) return null
-  if (urlStr.startsWith('/') && !urlStr.startsWith('//')) {
-    return urlStr
-  }
-  try {
-    const parsed = new URL(urlStr)
-    const allowedHostnames = [
-      'workspace.primeamericany.com',
-      'inventory.primeamericarealestate.com',
-      'openhouse.primeamericarealestate.com',
-      'inside.primeamericarealestate.com',
-      're-workspace.lama-4db.workers.dev'
-    ]
-    if (
-      allowedHostnames.includes(parsed.hostname) ||
-      parsed.hostname.endsWith('.primeamericarealestate.com') ||
-      parsed.hostname.endsWith('.primeamericany.com') ||
-      parsed.hostname.endsWith('.workers.dev')
-    ) {
-      return urlStr
-    }
-  } catch {
-    // ignore
-  }
-  return null
 }
 
 function LoginRouteWrapper() {
@@ -124,6 +102,7 @@ export function AppRoutes() {
 
   return (
     <Routes>
+      <Route path="/offline" element={<OfflineNotesPage />} />
       {/* ── Public auth pages ────────────────────────────────────────── */}
       <Route path="/login" element={<LoginRouteWrapper />} />
       <Route path="/signup" element={isAuthenticated ? <Navigate to="/" replace /> : <SignupPage />} />
@@ -149,6 +128,10 @@ export function AppRoutes() {
       <Route path="/" element={isAuthenticated ? <DashboardPage /> : <LoginPage />} />
 
       {/* ── Protected workspace routes ─────────────────────────────── */}
+      <Route path="/operations" element={<ProtectedRoute><OperationsPage /></ProtectedRoute>} />
+      <Route path="/operations/calendar" element={<Navigate to="/operations" replace />} />
+      <Route path="/operations/projects/:id" element={<ProtectedRoute><OperationsProjectDetailPage /></ProtectedRoute>} />
+
       <Route path="/transactions" element={<ProtectedRoute><TransactionsOverviewPage /></ProtectedRoute>} />
       <Route path="/transactions/pipeline" element={<ProtectedRoute><TransactionsPage /></ProtectedRoute>} />
       <Route path="/transactions/:id" element={<ProtectedRoute><TransactionDetailPage /></ProtectedRoute>} />
@@ -159,6 +142,8 @@ export function AppRoutes() {
       <Route path="/inventory/mls" element={<ProtectedRoute><MLSPage /></ProtectedRoute>} />
       <Route path="/inventory/reporting" element={<ProtectedRoute><InventoryReportingPage /></ProtectedRoute>} />
       <Route path="/inventory/listings/:id/:slug?" element={<ListingDetailPage />} />
+      <Route path="/public/listings/:id/:slug?" element={<ListingDetailPage />} />
+      <Route path="/p/:id" element={<ListingDetailPage />} />
 
       <Route path="/marketing" element={<ProtectedRoute><MarketingPage /></ProtectedRoute>} />
       <Route path="/marketing/crm" element={<ProtectedRoute><CRMPage /></ProtectedRoute>} />
@@ -167,6 +152,10 @@ export function AppRoutes() {
       <Route path="/marketing/openhouse" element={<Navigate to="/marketing/openhouses" replace />} />
       <Route path="/marketing/openhouses" element={<ProtectedRoute><OpenHousesPage /></ProtectedRoute>} />
       <Route path="/marketing/brand-marketing-hub" element={<ProtectedRoute><MarketingPage /></ProtectedRoute>} />
+      <Route path="/marketing/director" element={<ProtectedRoute><DirectorTerminal /></ProtectedRoute>} />
+
+      {/* DIRECTOR.EXE Admin */}
+      <Route path="/admin/director" element={<ProtectedRoute><AdminDirectorSettings /></ProtectedRoute>} />
 
       <Route path="/learning" element={<ProtectedRoute><LearningPage /></ProtectedRoute>} />
       <Route path="/learning/academy" element={<ProtectedRoute><LearningPage /></ProtectedRoute>} />
@@ -181,6 +170,8 @@ export function AppRoutes() {
       <Route path="/tools/form-filler" element={<ProtectedRoute><FormFillerPage /></ProtectedRoute>} />
       <Route path="/apps/:appId" element={<ProtectedRoute><AppIframeShell /></ProtectedRoute>} />
 
+      <Route path="/next" element={<ProtectedRoute><Suspense fallback={<p>Loading Next…</p>}><NextPage /></Suspense></ProtectedRoute>} />
+      <Route path="/next/:id" element={<ProtectedRoute><Suspense fallback={<p>Loading Next…</p>}><NextPage /></Suspense></ProtectedRoute>} />
       {/* 404 fallback */}
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

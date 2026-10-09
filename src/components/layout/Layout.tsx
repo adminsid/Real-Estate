@@ -3,6 +3,8 @@ import clsx from 'clsx'
 import { Sidebar } from './Sidebar'
 import { Header } from './Header'
 import { ImpersonationBanner } from '@/components/ImpersonationBanner'
+import { PrimeViewPanel } from '@/components/prime-view'
+import { useAuth } from '@/context/AuthContext'
 import { useWorkspace } from '@/context/WorkspaceContext'
 
 interface LayoutProps {
@@ -11,7 +13,8 @@ interface LayoutProps {
 }
 
 export function Layout({ children, title }: LayoutProps) {
-  const { sidebarOpen, sidebarCollapsed, setSidebarOpen } = useWorkspace()
+  const { sidebarOpen, sidebarCollapsed, setSidebarOpen, primeView } = useWorkspace()
+  const { user } = useAuth()
 
   // Close sidebar on small screens when route changes
   useEffect(() => {
@@ -31,7 +34,7 @@ export function Layout({ children, title }: LayoutProps) {
         Skip to main content
       </a>
       <ImpersonationBanner />
-      <div className="flex flex-1 overflow-hidden min-h-0">
+      <div className="flex flex-1 overflow-hidden min-h-0 relative">
         {/* ── Sidebar overlay (mobile) ────────────────────────────────── */}
         {sidebarOpen && (
           <div
@@ -60,6 +63,16 @@ export function Layout({ children, title }: LayoutProps) {
           </main>
         </div>
       </div>
+
+      {/* ── Prime View Panel ─────────────────────────────────────────── */}
+      {user && (
+        <PrimeViewPanel
+          isOpen={primeView.isOpen}
+          onClose={primeView.closePrimeView}
+          userRole={user.role}
+          userId={user.id}
+        />
+      )}
     </div>
   )
 }

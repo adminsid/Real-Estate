@@ -1,10 +1,11 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import {
   X, Building2, MapPin, Bed, Bath, Maximize2,
   User, Phone, Mail, ExternalLink, Loader2
 } from 'lucide-react'
 
 import { Link } from 'react-router-dom'
+import { getListingPhotoUrls } from '@/domain/listingMedia'
 
 interface ListingDetailDrawerProps {
   listingId: string | null
@@ -19,6 +20,7 @@ export function ListingDetailDrawer({
 }: ListingDetailDrawerProps) {
   const [listing, setListing] = useState<any | null>(null)
   const [loading, setLoading] = useState(false)
+  const [activePhoto, setActivePhoto] = useState('')
 
   useEffect(() => {
     if (!isOpen || !listingId) {
@@ -26,30 +28,38 @@ export function ListingDetailDrawer({
       return
     }
 
+    const controller = new AbortController()
     async function fetchListing() {
       setLoading(true)
       try {
-        const res = await fetch(`/api/listings/${listingId}`)
+        const res = await fetch(`/api/listings/${listingId}`, { signal: controller.signal })
         const json = await res.json()
         if (json.success && json.data) {
           setListing(json.data)
         } else {
           // fallback search in list
-          const listRes = await fetch('/api/listings')
+          const listRes = await fetch('/api/listings', { signal: controller.signal })
           const listJson = await listRes.json()
           const data = listJson.listings || listJson.data || []
           const found = data.find((l: any) => l.id === listingId)
           if (found) setListing(found)
         }
-      } catch (e) {
-        console.error('Failed to fetch listing drawer data', e)
+      } catch (e: any) {
+        if (e?.name !== 'AbortError') console.error('Failed to fetch listing drawer data', e)
       } finally {
         setLoading(false)
       }
     }
 
     fetchListing()
+    return () => controller.abort()
   }, [listingId, isOpen])
+
+  const photoUrls = useMemo(() => getListingPhotoUrls(listing), [listing])
+
+  useEffect(() => {
+    setActivePhoto(photoUrls[0] || '')
+  }, [photoUrls])
 
   if (!isOpen) return null
 
@@ -90,9 +100,14 @@ export function ListingDetailDrawer({
                 {/* Hero / Cover Image */}
                 <div className="relative rounded-2xl overflow-hidden bg-gray-100 border border-gray-200 aspect-video">
                   <img
-                    src={listing.primary_photo_url || listing.photos?.[0] || 'https://images.unsplash.com/photo-1568605117036-5fe5e7bab0b7?auto=format&fit=crop&w=800&q=80'}
+                    src={activePhoto || '/prime-america-seal.png'}
                     alt={listing.title || listing.address || 'Property Listing'}
                     className="w-full h-full object-cover"
+                    onError={(event) => {
+                      event.currentTarget.onerror = null
+                      event.currentTarget.src = '/prime-america-seal.png'
+                      event.currentTarget.classList.add('object-contain', 'p-10')
+                    }}
                   />
                   <div className="absolute top-3 left-3">
                     <span className="px-3 py-1 rounded-full text-xs font-bold bg-emerald-500 text-white shadow-md uppercase tracking-wide">
@@ -103,6 +118,22 @@ export function ListingDetailDrawer({
                     ${listing.price ? Number(listing.price).toLocaleString() : 'Price TBD'}
                   </div>
                 </div>
+
+                {photoUrls.length > 1 ? (
+                  <div className="grid grid-cols-5 gap-2" aria-label="Listing photos">
+                    {photoUrls.slice(0, 10).map((photo, index) => (
+                      <button
+                        key={photo}
+                        type="button"
+                        onClick={() => setActivePhoto(photo)}
+                        className={`aspect-square overflow-hidden rounded-xl border-2 bg-gray-100 ${activePhoto === photo ? 'border-brand-gold' : 'border-transparent hover:border-gray-300'}`}
+                        aria-label={`View listing photo ${index + 1}`}
+                      >
+                        <img src={photo} alt="" className="h-full w-full object-cover" loading="lazy" />
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
 
                 {/* Title & Address */}
                 <div>
@@ -151,19 +182,19 @@ export function ListingDetailDrawer({
                       <User className="h-5 w-5" />
                     </div>
                     <div>
-                      <p className="text-sm font-bold">{listing.agent_name || listing.listing_agent_name || 'Prime America Agent'}</p>
-                      <p className="text-xs text-slate-300">{listing.brokerage || 'Prime America Real Estate'}</p>
+                      <p className="text-sm font-bold">{listing.listingAgentName || listing.agent_name || listing.listing_agent_name || 'Prime America Agent'}</p>
+                      <p className="text-xs text-slate-300">{listing.listingAgentBrokerage || listing.brokerage || 'Prime America Real Estate'}</p>
                     </div>
                   </div>
                   <div className="pt-2 border-t border-slate-800 flex items-center gap-4 text-xs text-slate-300">
-                    {listing.agent_phone && (
-                      <a href={`tel:${listing.agent_phone}`} className="flex items-center gap-1 hover:text-white">
-                        <Phone className="h-3.5 w-3.5 text-brand-gold" /> {listing.agent_phone}
+                    {(listing.listingAgentPhone || listing.agent_phone) && (
+                      <a href={`tel:${listing.listingAgentPhone || listing.agent_phone}`} className="flex items-center gap-1 hover:text-white">
+                        <Phone className="h-3.5 w-3.5 text-brand-gold" /> {listing.listingAgentPhone || listing.agent_phone}
                       </a>
                     )}
-                    {listing.agent_email && (
-                      <a href={`mailto:${listing.agent_email}`} className="flex items-center gap-1 hover:text-white">
-                        <Mail className="h-3.5 w-3.5 text-brand-gold" /> {listing.agent_email}
+                    {(listing.listingAgentEmail || listing.agent_email) && (
+                      <a href={`mailto:${listing.listingAgentEmail || listing.agent_email}`} className="flex items-center gap-1 hover:text-white">
+                        <Mail className="h-3.5 w-3.5 text-brand-gold" /> {listing.listingAgentEmail || listing.agent_email}
                       </a>
                     )}
                   </div>

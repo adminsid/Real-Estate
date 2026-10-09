@@ -36,12 +36,8 @@ export function ResetPasswordPage() {
       <div className="absolute inset-0 opacity-10" style={{ backgroundImage: 'radial-gradient(circle at 50% 0%, var(--brand-accent) 0%, transparent 60%)' }} />
       <div className="relative w-full max-w-md">
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center h-16 w-16 rounded-2xl mb-4 overflow-hidden bg-brand-gold">
-            {branding.logoUrl ? (
-              <img src={branding.logoUrl} alt="Brand Logo" className="h-full w-full object-cover" />
-            ) : (
-              <span className="text-brand-navy font-bold text-2xl">RE</span>
-            )}
+          <div className="inline-flex items-center justify-center h-16 w-16 rounded-2xl mb-4 overflow-hidden">
+            <img src={branding.logoUrl || '/prime-america-seal.png'} alt="Brand Logo" className="h-full w-full object-contain" />
           </div>
           <h1 className="text-2xl font-bold text-white">Set new password</h1>
           <p className="text-white/50 mt-1 text-sm">Choose a strong password for your account</p>

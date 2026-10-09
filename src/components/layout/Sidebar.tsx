@@ -1,6 +1,7 @@
+import { UserAvatar } from '@/components/common/UserAvatar'
 import { useMemo, useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
-import { ChevronDown, ChevronRight, X, LogOut, Settings, User2 } from 'lucide-react'
+import { ChevronDown, ChevronRight, X, LogOut, Settings } from 'lucide-react'
 import clsx from 'clsx'
 import * as Icons from 'lucide-react'
 import { NAV_CATEGORIES, isCategoryVisible, isSubitemVisible } from '@/utils/constants'
@@ -21,7 +22,6 @@ export function Sidebar({ collapsed = false, onClose }: SidebarProps) {
   const { expandedCategories, toggleCategory, toggleSidebarCollapsed } = useWorkspace()
   const [hoveredId, setHoveredId] = useState<string | null>(null)
   const [bridgeTarget, setBridgeTarget] = useState<{ name: string; url: string } | null>(null)
-  const isAdminOrBroker = user && ['admin', 'broker'].includes(user.role)
 
   const mergedCategories = useMemo(() => {
     type CustomModule = {
@@ -73,23 +73,6 @@ export function Sidebar({ collapsed = false, onClose }: SidebarProps) {
     })
   }, [branding.dashboardSettings, user])
 
-  const externalTools = useMemo(() => {
-    const tools: ExternalTool[] = []
-    for (const cat of NAV_CATEGORIES) {
-      for (const child of cat.children || []) {
-        if (child.externalUrl) {
-          tools.push({ id: child.id, label: child.label, externalUrl: child.externalUrl, categoryId: cat.id })
-        }
-      }
-    }
-    return tools
-  }, [])
-
-  const visibleExternalTools = useMemo(
-    () => externalTools.filter((tool) => isSubitemVisible(tool.id, tool.categoryId, user, can)),
-    [externalTools, user, can],
-  )
-
   async function handleLogout() {
     await logout()
     navigate('/login')
@@ -101,11 +84,11 @@ export function Sidebar({ collapsed = false, onClose }: SidebarProps) {
       <div className={clsx('flex items-center justify-between border-b border-white/10', collapsed ? 'px-3 py-4 lg:justify-center' : 'px-5 py-4')}>
         <Link to="/" className={clsx('flex items-center gap-3 min-w-0', collapsed && 'lg:gap-0')}>
           <div className="flex-shrink-0 h-9 w-9 rounded-xl overflow-hidden bg-brand-gold flex items-center justify-center">
-            {branding.logoUrl ? (
-              <img src={branding.logoUrl} alt="Logo" className="h-full w-full object-cover" />
-            ) : (
-              <span className="text-brand-navy font-bold text-sm">RE</span>
-            )}
+            <img
+              src={branding.logoUrl || '/prime-america-seal.png'}
+              alt={branding.companyName || 'Prime America Real Estate'}
+              className="h-full w-full object-cover"
+            />
           </div>
           <div className={clsx('min-w-0', collapsed && 'lg:hidden')}>
             <p className="font-bold text-sm leading-tight truncate">{branding.companyName}</p>
@@ -123,7 +106,7 @@ export function Sidebar({ collapsed = false, onClose }: SidebarProps) {
           </button>
           
           {onClose && (
-            <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-white/10 transition-colors lg:hidden">
+            <button onClick={onClose} aria-label="Close navigation" className="p-1.5 rounded-lg hover:bg-white/10 transition-colors lg:hidden">
               <X className="h-4 w-4" />
             </button>
           )}
@@ -151,8 +134,8 @@ export function Sidebar({ collapsed = false, onClose }: SidebarProps) {
       </div>
 
       {/* ── Categories ────────────────────────────────────────────────── */}
-      <nav className="flex-1 overflow-y-auto px-3 pb-4 space-y-0.5 scrollbar-hide">
-        {mergedCategories.filter(cat => isCategoryVisible(cat, user, can)).map((cat) => (
+      <nav className="flex-1 overflow-y-auto px-3 pb-8 space-y-0.5 scrollbar-hide">
+        {mergedCategories.filter(cat => isCategoryVisible(cat, user, can) && (cat.id !== 'transactions' || !!cat.children?.length)).map((cat) => (
           <CategoryItem
             key={cat.id}
             category={cat}
@@ -164,50 +147,22 @@ export function Sidebar({ collapsed = false, onClose }: SidebarProps) {
             collapsed={collapsed}
           />
         ))}
-
-        {/* ── External Tools ─────────────────────────────────────────── */}
-        {visibleExternalTools.length > 0 && (
-          <div className={clsx('pt-3', collapsed && 'lg:pt-4')}>
-            {!collapsed && (
-              <p className="px-3 pb-1 text-[10px] font-bold uppercase tracking-wider text-white/40">
-                External Tools
-              </p>
-            )}
-            <div className="space-y-0.5">
-              {visibleExternalTools.map((tool) => (
-                <ExternalToolItem key={tool.id} tool={tool} collapsed={collapsed} />
-              ))}
-            </div>
-          </div>
-        )}
       </nav>
 
       {/* ── Bottom Actions ────────────────────────────────────────────── */}
       <div className="border-t border-white/10 p-3 space-y-0.5">
-        {isAdminOrBroker && (
-          <>
-            {(!user || user.role === 'admin' || can('hr', 'read')) && (
-              <NavLink to="/hr" icon="Briefcase" label="HR" active={location.pathname === '/hr'} collapsed={collapsed} />
-            )}
-            {user && user.role === 'admin' && (
-              <NavLink to="/user-management" icon="Users" label="User-Management" active={location.pathname.startsWith('/user-management')} collapsed={collapsed} />
-            )}
-          </>
+        {user && user.role === 'admin' && (
+          <NavLink to="/user-management" icon="Users" label="Tenant Management" active={location.pathname.startsWith('/user-management')} collapsed={collapsed} />
         )}
-        <NavLink to="/settings" icon="Settings" label="Settings" active={location.pathname.startsWith('/settings')} collapsed={collapsed} />
+        {user && <NavLink to="/settings?tab=pilot" icon="MessageCirclePlus" label="Feedback" active={location.pathname === '/settings' && new URLSearchParams(location.search).get('tab') === 'pilot'} collapsed={collapsed} />}
+        <NavLink to="/settings" icon="Settings" label="Settings" active={location.pathname.startsWith('/settings') && new URLSearchParams(location.search).get('tab') !== 'pilot'} collapsed={collapsed} />
       </div>
 
       {/* ── User section ──────────────────────────────────────────────── */}
       <div className={clsx('border-t border-white/10', collapsed ? 'p-2 lg:p-3' : 'p-4')}>
         {user ? (
           <div className={clsx('flex items-center', collapsed ? 'lg:flex-col lg:gap-2' : 'gap-3')}>
-            <div className="h-8 w-8 rounded-full bg-brand-gold/20 border border-brand-gold/30 flex items-center justify-center flex-shrink-0 overflow-hidden">
-              {user.avatarUrl ? (
-                <img src={user.avatarUrl} alt="Avatar" className="h-full w-full object-cover" />
-              ) : (
-                <User2 className="h-4 w-4 text-brand-gold" />
-              )}
-            </div>
+            <UserAvatar name={user.name} src={user.avatarUrl} className="h-8 w-8 text-xs border border-brand-gold/30" />
             <div className={clsx('flex-1 min-w-0', collapsed && 'lg:hidden')}>
               <p className="text-sm font-medium truncate">{user.name}</p>
               <p className="text-xs text-white/40 truncate capitalize">{user.role}</p>
@@ -232,39 +187,6 @@ export function Sidebar({ collapsed = false, onClose }: SidebarProps) {
         />
       )}
     </aside>
-  )
-}
-
-interface ExternalTool {
-  id: string
-  label: string
-  externalUrl: string
-  categoryId: string
-}
-
-function ExternalToolItem({ tool, collapsed }: { tool: ExternalTool; collapsed?: boolean }) {
-  return (
-    <button
-      type="button"
-      title={tool.label}
-      onClick={() => window.open(tool.externalUrl, '_blank', 'noopener,noreferrer')}
-      className={clsx(
-        'flex items-center w-full rounded-lg text-xs font-medium transition-colors cursor-pointer',
-        collapsed ? 'gap-0 lg:justify-center' : 'gap-2 px-3 py-1.5',
-        'text-white/50 hover:text-white hover:bg-white/5',
-      )}
-    >
-      {collapsed ? (
-        <Icons.ExternalLink className="h-4 w-4 flex-shrink-0" />
-      ) : (
-        <>
-          <span className="truncate flex-1">{tool.label}</span>
-          <span className="flex items-center gap-1 text-[9px] font-bold text-amber-400 bg-amber-400/10 px-1 py-0.5 rounded border border-amber-400/20">
-            EXT <Icons.ExternalLink className="h-2.5 w-2.5" />
-          </span>
-        </>
-      )}
-    </button>
   )
 }
 
@@ -303,7 +225,10 @@ function CategoryItem({ category, expanded, onToggle, currentPath, onHover, coll
   const { user, can } = useAuth()
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const Icon = (Icons as Record<string, any>)[category.icon] as React.ComponentType<{ className?: string }>
-  const isActive = currentPath.startsWith(category.path)
+  const visibleChildren = (category.children || []).filter(child => isSubitemVisible(child.id, category.id, user, can))
+  const isActive = currentPath.startsWith(category.path) || visibleChildren.some(child => !child.externalUrl && (currentPath === child.path || currentPath.startsWith(`${child.path}/`)))
+  const destination = category.id === 'operations' && !isSubitemVisible('operations-projects', 'operations', user, can)
+    ? visibleChildren[0]?.path || category.path : category.path
 
   return (
     <div>
@@ -319,7 +244,7 @@ function CategoryItem({ category, expanded, onToggle, currentPath, onHover, coll
         )}
       >
         <Link
-          to={category.path}
+          to={destination}
           className={clsx('flex items-center flex-1 px-3 py-2 text-sm font-medium', collapsed ? 'gap-0 lg:justify-center' : 'gap-3')}
         >
           {Icon && (

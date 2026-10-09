@@ -1,3 +1,6 @@
+import { UserAvatar } from '@/components/common/UserAvatar'
+import { AgentAccountCharges } from '@/components/transactions/AgentAccountCharges'
+import { FinancialPlans } from '@/components/transactions/FinancialPlans'
 import { useState, useEffect, useCallback } from 'react'
 import {
   Users, CheckCircle2, Circle, AlertCircle, AlertTriangle,
@@ -20,6 +23,8 @@ interface Invitation {
 }
 
 interface HRUser {
+  avatar_url?: string
+
   id: string
   name: string
   email: string
@@ -124,8 +129,13 @@ export function HRPage() {
   // 1099 Generator state
   const [report1099Agent, setReport1099Agent] = useState<string>('')
   const [report1099Year, setReport1099Year] = useState<number>(new Date().getFullYear())
-  const [report1099Data, setReport1099Data] = useState<{ transactions: any[]; total: number; agentShare: number } | null>(null)
+  const [report1099Data, setReport1099Data] = useState<any | null>(null)
   const [isGenerating1099, setIsGenerating1099] = useState(false)
+  const [ledgerEntryType, setLedgerEntryType] = useState<'payment' | 'advance' | 'repayment' | 'chargeback' | 'adjustment'>('payment')
+  const [ledgerAmount, setLedgerAmount] = useState('')
+  const [ledgerPaidAt, setLedgerPaidAt] = useState(new Date().toISOString().slice(0, 10))
+  const [ledgerMemo, setLedgerMemo] = useState('')
+  const [isSavingLedger, setIsSavingLedger] = useState(false)
 
   const openAgentSetup = (u: HRUser) => {
     setSelectedUser(u)
@@ -149,6 +159,7 @@ export function HRPage() {
       const res = await fetch(`/api/hr/users/${selectedUser.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify(agentForm),
       })
       const data = await res.json()
@@ -169,7 +180,10 @@ export function HRPage() {
   const handleSyncRoster = async () => {
     setIsSyncingRoster(true)
     try {
-      const res = await fetch('/api/tenant/sync-ny-license', { method: 'POST' })
+      const res = await fetch('/api/tenant/sync-ny-license', {
+        method: 'POST',
+        credentials: 'include',
+      })
       const data = await res.json()
       if (!data.success) throw new Error(data.error || 'Failed to sync roster')
       
@@ -190,18 +204,74 @@ export function HRPage() {
     } catch (e) { console.error(e) }
   }
 
-  const loadCommissionSplits = () => {
+  const loadCommissionSplits = async () => {
     try {
-      const saved = localStorage.getItem('hr_commission_splits')
-      if (saved) setCommissionSplits(JSON.parse(saved))
+      const data = await api('/api/hr/commission-plans')
+      const mapped: Record<string, CommissionSplit> = {}
+      for (const plan of data.plans || []) {
+        mapped[plan.agent_id] = {
+          agentId: plan.agent_id,
+          splitType: plan.plan_type === 'flat_payout' ? 'flat' : 'percent',
+          agentPercent: Number(plan.agent_percent || 0),
+          flatFeePerDeal: Number(plan.flat_payout_cents || 0) / 100,
+        }
+      }
+      setCommissionSplits(mapped)
     } catch (e) { console.error(e) }
   }
 
-  const saveCommissionSplit = (agentId: string, split: Omit<CommissionSplit, 'agentId'>) => {
-    const updated = { ...commissionSplits, [agentId]: { agentId, ...split } }
-    setCommissionSplits(updated)
-    localStorage.setItem('hr_commission_splits', JSON.stringify(updated))
-    setCommissionEditAgent(null)
+  const saveCommissionSplit = async (agentId: string, split: Omit<CommissionSplit, 'agentId'>) => {
+    try {
+      await api(`/api/hr/commission-plans/${agentId}`, {
+        method: 'PUT',
+        body: JSON.stringify({
+          planType: split.splitType === 'flat' ? 'flat_payout' : 'percentage',
+          agentPercent: split.agentPercent,
+          flatPayout: split.flatFeePerDeal,
+        }),
+      })
+      await loadCommissionSplits()
+      setCommissionEditAgent(null)
+    } catch (e: any) {
+      alert(e.message || 'Unable to save commission plan')
+    }
+  }
+
+  const generate1099Report = async () => {
+    if (!report1099Agent) return
+    setIsGenerating1099(true)
+    try {
+      const data = await api(`/api/hr/1099-report?agent_id=${encodeURIComponent(report1099Agent)}&tax_year=${report1099Year}`)
+      setReport1099Data(data)
+    } catch (e: any) {
+      alert(e.message || 'Failed to generate report.')
+    } finally {
+      setIsGenerating1099(false)
+    }
+  }
+
+  const recordLedgerEntry = async () => {
+    if (!report1099Agent || !ledgerAmount || !ledgerPaidAt) return
+    setIsSavingLedger(true)
+    try {
+      await api('/api/hr/commission-ledger', {
+        method: 'POST',
+        body: JSON.stringify({
+          agentId: report1099Agent,
+          entryType: ledgerEntryType,
+          amount: Number(ledgerAmount),
+          paidAt: ledgerPaidAt,
+          memo: ledgerMemo,
+        }),
+      })
+      setLedgerAmount('')
+      setLedgerMemo('')
+      await generate1099Report()
+    } catch (e: any) {
+      alert(e.message || 'Unable to record ledger entry')
+    } finally {
+      setIsSavingLedger(false)
+    }
   }
 
   const saveChecklists = (newChecklists: Record<string, Record<string, boolean>>) => {
@@ -243,7 +313,7 @@ export function HRPage() {
   useEffect(() => {
     loadUsers()
     loadChecklists()
-    loadCommissionSplits()
+    void loadCommissionSplits()
   }, [loadUsers])
 
   const handleSendInvite = async (e: React.FormEvent) => {
@@ -415,12 +485,12 @@ export function HRPage() {
   const offboardingActive = users.filter(u => checklists[u.id]?.offboarding_started).length
 
   return (
-    <Layout title="HR Portal">
+    <Layout title="HR — Onboarding & Offboarding">
       <div className="space-y-6">
         <div className="flex items-center justify-between flex-wrap gap-4">
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">HR Agent Management</h1>
-            <p className="text-gray-500 text-sm mt-0.5">Manage agent onboarding checklists, offboarding tasks, and workspace access</p>
+            <h1 className="text-2xl font-bold text-gray-900">HR — Onboarding & Offboarding</h1>
+            <p className="text-gray-500 text-sm mt-0.5">Manage agent onboarding, offboarding checklists, and Broker of Record compliance for Prime America Real Estate</p>
           </div>
 
           <div className="flex items-center gap-3">
@@ -568,9 +638,7 @@ export function HRPage() {
                             {/* Agent Info */}
                             <td className="px-6 py-4">
                               <div className="flex items-center gap-3">
-                                <div className="h-10 w-10 rounded-xl bg-brand-navy/10 text-brand-navy font-bold text-sm flex items-center justify-center group-hover:bg-brand-navy group-hover:text-brand-gold transition-colors">
-                                  {u.name.split(' ').map(n => n[0]).join('')}
-                                </div>
+                                <UserAvatar name={u.name} src={u.avatar_url} className="h-10 w-10 text-sm" shape="square" />
                                 <div>
                                   <p className="font-bold text-gray-900 group-hover:text-brand-navy transition-colors">{u.name}</p>
                                   <div className="flex items-center gap-1.5 mt-0.5">
@@ -650,12 +718,14 @@ export function HRPage() {
           </>
         ) : tab === 'commission' ? (
           <div className="space-y-6">
+            <FinancialPlans users={users} />
+            <AgentAccountCharges users={users} />
             {/* Commission Split Config */}
             <div className="bg-white rounded-2xl border border-gray-100 shadow-card overflow-hidden">
               <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
                 <div>
-                  <h3 className="font-bold text-gray-900">Commission Split Configuration</h3>
-                  <p className="text-xs text-gray-500 mt-0.5">Set agent/company split per salesperson. Stored locally.</p>
+                  <h3 className="font-bold text-gray-900">Legacy Commission Plans</h3>
+                  <p className="text-xs text-gray-500 mt-0.5">Used only by deals not yet reviewed in Financials. Configure new financial plans above.</p>
                 </div>
               </div>
               <table className="w-full text-sm">
@@ -758,10 +828,47 @@ export function HRPage() {
               </table>
             </div>
 
+            {/* Payment and Advance Ledger */}
+            <div className="bg-white rounded-2xl border border-gray-100 shadow-card p-6">
+              <h3 className="font-bold text-gray-900 mb-1">Record Payment or Advance</h3>
+              <p className="text-xs text-gray-500 mb-5">Closing earns commission. Record cash movement separately so balances and tax-year reporting stay accurate.</p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 items-end">
+                <div>
+                  <label className="text-xs font-semibold text-gray-500 mb-1 block">Agent</label>
+                  <select value={report1099Agent} onChange={e => { setReport1099Agent(e.target.value); setReport1099Data(null) }} className="w-full rounded-xl border border-gray-200 px-3 py-2.5 text-sm bg-white">
+                    <option value="">Select an agent…</option>
+                    {users.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="text-xs font-semibold text-gray-500 mb-1 block">Entry Type</label>
+                  <select value={ledgerEntryType} onChange={e => setLedgerEntryType(e.target.value as typeof ledgerEntryType)} className="w-full rounded-xl border border-gray-200 px-3 py-2.5 text-sm bg-white">
+                    <option value="payment">Payment</option>
+                    <option value="advance">Advance</option>
+                    <option value="repayment">Advance Repayment</option>
+                    <option value="chargeback">Chargeback</option>
+                    <option value="adjustment">Adjustment</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="text-xs font-semibold text-gray-500 mb-1 block">Amount</label>
+                  <input type="number" min="0.01" step="0.01" value={ledgerAmount} onChange={e => setLedgerAmount(e.target.value)} placeholder="$0.00" className="w-full rounded-xl border border-gray-200 px-3 py-2.5 text-sm" />
+                </div>
+                <div>
+                  <label className="text-xs font-semibold text-gray-500 mb-1 block">Payment Date</label>
+                  <input type="date" value={ledgerPaidAt} onChange={e => setLedgerPaidAt(e.target.value)} className="w-full rounded-xl border border-gray-200 px-3 py-2.5 text-sm" />
+                </div>
+                <button onClick={recordLedgerEntry} disabled={isSavingLedger || !report1099Agent || !ledgerAmount} className="rounded-xl bg-emerald-700 px-4 py-2.5 text-sm font-bold text-white disabled:opacity-50">
+                  {isSavingLedger ? 'Saving…' : 'Post Entry'}
+                </button>
+              </div>
+              <input value={ledgerMemo} onChange={e => setLedgerMemo(e.target.value)} placeholder="Memo or payment reference (recommended)" className="mt-3 w-full rounded-xl border border-gray-200 px-3 py-2.5 text-sm" />
+            </div>
+
             {/* 1099 Report Generator */}
             <div className="bg-white rounded-2xl border border-gray-100 shadow-card p-6">
               <h3 className="font-bold text-gray-900 mb-1">1099-NEC Report Generator</h3>
-              <p className="text-xs text-gray-500 mb-5">Generate a printable 1099 summary for any agent based on their closed transaction commissions.</p>
+              <p className="text-xs text-gray-500 mb-5">Generate an internal preparation report from posted taxable payments in the selected year—not projected or merely earned commission.</p>
               <div className="flex flex-wrap gap-3 items-end mb-5">
                 <div>
                   <label className="text-xs font-semibold text-gray-500 mb-1 block">Agent</label>
@@ -788,31 +895,7 @@ export function HRPage() {
                   </select>
                 </div>
                 <button
-                  onClick={async () => {
-                    if (!report1099Agent) { alert('Please select an agent first.'); return }
-                    setIsGenerating1099(true)
-                    try {
-                      const res = await fetch(`/api/transactions?assigned_to=${report1099Agent}&status=closed`)
-                      const json = await res.json()
-                      const allTx = json.success && Array.isArray(json.data) ? json.data : []
-                      const yearTx = allTx.filter((t: any) => {
-                        const closeDate = t.target_close_date || t.created_at
-                        return closeDate && new Date(closeDate).getFullYear() === report1099Year
-                      })
-                      const total = yearTx.reduce((acc: number, t: any) => acc + (Number(t.commission_amount) || 0), 0)
-                      const split = commissionSplits[report1099Agent]
-                      const agentShare = split
-                        ? (split.splitType === 'percent'
-                          ? total * (split.agentPercent / 100)
-                          : yearTx.length * split.flatFeePerDeal)
-                        : total
-                      setReport1099Data({ transactions: yearTx, total, agentShare: Math.round(agentShare) })
-                    } catch (e) {
-                      alert('Failed to generate report.')
-                    } finally {
-                      setIsGenerating1099(false)
-                    }
-                  }}
+                  onClick={generate1099Report}
                   disabled={isGenerating1099 || !report1099Agent}
                   className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-brand-navy text-white text-sm font-semibold hover:bg-brand-navy-light transition-colors disabled:opacity-50"
                 >
@@ -822,14 +905,14 @@ export function HRPage() {
               </div>
 
               {report1099Data && (() => {
-                const agentUser = users.find(u => u.id === report1099Agent)
-                const split = commissionSplits[report1099Agent]
+                const agentUser = report1099Data.agent || users.find(u => u.id === report1099Agent)
+                const money = (cents: number) => (Number(cents || 0) / 100).toLocaleString(undefined, { style: 'currency', currency: 'USD' })
                 return (
                   <div className="border border-gray-200 rounded-xl overflow-hidden" id="form-1099-print">
                     <div className="bg-gray-50 px-6 py-4 border-b border-gray-200 flex items-center justify-between">
                       <div>
-                        <p className="font-black text-gray-900 text-lg">Form 1099-NEC</p>
-                        <p className="text-xs text-gray-500">Tax Year {report1099Year} · Nonemployee Compensation Summary</p>
+                        <p className="font-black text-gray-900 text-lg">1099-NEC Preparation Report</p>
+                        <p className="text-xs text-gray-500">Tax Year {report1099Year} · Payment-basis reconciliation</p>
                       </div>
                       <button
                         onClick={() => window.print()}
@@ -848,60 +931,68 @@ export function HRPage() {
                         </div>
                         <div>
                           <p className="text-xs text-gray-400 font-semibold uppercase">Payer (Company)</p>
-                          <p className="font-bold text-gray-900 mt-1">{user?.name || 'Prime America Real Estate'}</p>
-                          <p className="text-sm text-gray-600">{user?.email || ''}</p>
+                          <p className="font-bold text-gray-900 mt-1">{report1099Data.payer?.legal_name || report1099Data.payer?.name || 'Not configured'}</p>
+                          <p className="text-sm text-gray-600">{report1099Data.payer?.company_address || ''}</p>
+                          <p className="text-xs text-gray-500">Tax ID ending {report1099Data.payer?.tax_id_last_four || 'not configured'}</p>
                         </div>
                       </div>
 
-                      <div className="bg-emerald-50 border border-emerald-100 rounded-xl p-4 grid grid-cols-1 sm:grid-cols-3 gap-4">
+                      <div className="bg-emerald-50 border border-emerald-100 rounded-xl p-4 grid grid-cols-1 sm:grid-cols-4 gap-4">
                         <div>
-                          <p className="text-xs text-gray-400 uppercase font-semibold">Closed Transactions</p>
-                          <p className="text-2xl font-black text-gray-900 mt-1">{report1099Data.transactions.length}</p>
+                          <p className="text-xs text-gray-400 uppercase font-semibold">Earned</p>
+                          <p className="text-2xl font-black text-gray-900 mt-1">{money(report1099Data.totals.earnedCents)}</p>
                         </div>
                         <div>
-                          <p className="text-xs text-gray-400 uppercase font-semibold">Total Commission</p>
-                          <p className="text-2xl font-black text-gray-900 mt-1">${report1099Data.total.toLocaleString()}</p>
+                          <p className="text-xs text-gray-400 uppercase font-semibold">Cash Ledger</p>
+                          <p className="text-2xl font-black text-gray-900 mt-1">{money(report1099Data.totals.paidCents)}</p>
                         </div>
                         <div>
-                          <p className="text-xs text-gray-400 uppercase font-semibold">Agent Earned (Box 1)</p>
-                          <p className="text-2xl font-black text-emerald-700 mt-1">${report1099Data.agentShare.toLocaleString()}</p>
-                          {split && <p className="text-[10px] text-gray-400 mt-0.5">{split.splitType === 'percent' ? `${split.agentPercent}% split` : `$${split.flatFeePerDeal}/deal flat`}</p>}
+                          <p className="text-xs text-gray-400 uppercase font-semibold">Box 1 Candidate</p>
+                          <p className="text-2xl font-black text-emerald-700 mt-1">{money(report1099Data.totals.taxableCents)}</p>
+                        </div>
+                        <div>
+                          <p className="text-xs text-gray-400 uppercase font-semibold">Filing Threshold</p>
+                          <p className="text-2xl font-black text-gray-900 mt-1">{money(report1099Data.thresholdCents)}</p>
+                          <p className="text-[10px] font-bold text-gray-500">{report1099Data.filingThresholdMet ? 'Threshold met' : 'Below threshold'}</p>
                         </div>
                       </div>
 
-                      {report1099Data.transactions.length > 0 && (
+                      {report1099Data.issues?.length > 0 && (
+                        <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
+                          <p className="text-xs font-black uppercase text-amber-900">Review required before filing</p>
+                          <ul className="mt-2 list-disc pl-5 text-xs text-amber-800">
+                            {report1099Data.issues.map((issue: string) => <li key={issue}>{issue}</li>)}
+                          </ul>
+                        </div>
+                      )}
+
+                      {report1099Data.payments.length > 0 && (
                         <div>
-                          <p className="text-xs font-semibold text-gray-500 uppercase mb-2">Transaction Detail</p>
+                          <p className="text-xs font-semibold text-gray-500 uppercase mb-2">Posted Payment Detail</p>
                           <table className="w-full text-xs">
                             <thead>
                               <tr className="text-gray-400 border-b border-gray-100">
-                                <th className="text-left pb-2">Transaction</th>
-                                <th className="text-right pb-2">Sale Price</th>
-                                <th className="text-right pb-2">Commission</th>
-                                <th className="text-right pb-2">Agent Earned</th>
+                                <th className="text-left pb-2">Date / Entry</th>
+                                <th className="text-left pb-2">Reference</th>
+                                <th className="text-right pb-2">Cash Amount</th>
+                                <th className="text-right pb-2">Taxable</th>
                               </tr>
                             </thead>
                             <tbody className="divide-y divide-gray-50">
-                              {report1099Data.transactions.map((t: any) => {
-                                const commAmt = Number(t.commission_amount) || 0
-                                const agentAmt = split
-                                  ? (split.splitType === 'percent' ? commAmt * (split.agentPercent / 100) : split.flatFeePerDeal)
-                                  : commAmt
-                                return (
-                                  <tr key={t.id}>
-                                    <td className="py-2 text-gray-700 font-medium">{t.name}</td>
-                                    <td className="py-2 text-right text-gray-600">{t.price ? `$${Number(t.price).toLocaleString()}` : '—'}</td>
-                                    <td className="py-2 text-right text-gray-600">{commAmt ? `$${commAmt.toLocaleString()}` : '—'}</td>
-                                    <td className="py-2 text-right font-semibold text-emerald-700">{agentAmt ? `$${Math.round(agentAmt).toLocaleString()}` : '—'}</td>
-                                  </tr>
-                                )
-                              })}
+                              {report1099Data.payments.map((entry: any) => (
+                                <tr key={entry.id}>
+                                  <td className="py-2 text-gray-700 font-medium">{entry.paid_at} · {String(entry.entry_type).replace('_', ' ')}</td>
+                                  <td className="py-2 text-gray-600">{entry.transaction_name || entry.memo || 'General'}</td>
+                                  <td className="py-2 text-right text-gray-600">{money(entry.amount_cents)}</td>
+                                  <td className="py-2 text-right font-semibold text-emerald-700">{money(entry.taxable_amount_cents)}</td>
+                                </tr>
+                              ))}
                             </tbody>
                           </table>
                         </div>
                       )}
 
-                      <p className="text-[10px] text-gray-400 border-t border-gray-100 pt-3">This is an internal estimate only. Consult a licensed tax professional for IRS Form 1099-NEC filing requirements. The payer must file with the IRS if total nonemployee compensation is $600 or more in a tax year.</p>
+                      <p className="text-[10px] text-gray-400 border-t border-gray-100 pt-3">Internal preparation report only—not an official information return. Verify W-9 data, payment classifications, corrections, and current filing instructions with a qualified tax professional before filing.</p>
                     </div>
                   </div>
                 )
@@ -1031,9 +1122,7 @@ export function HRPage() {
             {/* Header */}
             <div className="p-6 bg-brand-navy text-white flex items-center justify-between">
               <div className="flex items-center gap-4">
-                <div className="h-12 w-12 rounded-2xl bg-brand-gold text-brand-navy font-bold text-xl flex items-center justify-center">
-                  {selectedUser.name.slice(0, 2).toUpperCase()}
-                </div>
+                <UserAvatar name={selectedUser.name} src={selectedUser.avatar_url} className="h-12 w-12 text-xl" shape="square" />
                 <div>
                   <h2 className="text-xl font-bold">{selectedUser.name}</h2>
                   <p className="text-xs text-white/70 flex items-center gap-2">
