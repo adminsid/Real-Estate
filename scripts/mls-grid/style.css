@@ -310,3 +310,5 @@ body>footer .brand-open{margin:0;color:var(--muted);font-size:13px;min-height:44
 @media(max-width:380px){.results-toolbar{align-items:start;flex-direction:column}.result-actions{justify-content:start;flex-wrap:nowrap}.browse-layout{flex-wrap:wrap;justify-content:space-between}.primary-filters .more-filters{margin-left:0}.price-filter .popover-content{left:0}.hero{grid-template-rows:250px}}
 @media(max-width:560px){.primary-filters{position:relative}.primary-filters .price-filter{position:static}.price-filter .popover-content{left:0;right:auto;top:calc(100% + 8px)}.hero button:not(:first-child):not(.all-photos){display:none}}
 @media(prefers-reduced-motion:reduce){.listing-card,.photo-step{transition:none}}
+
+.listing-sources{display:flex;align-items:center;gap:24px;margin:16px 0}.listing-sources img{width:auto;max-width:140px;height:56px;object-fit:contain}body[data-environment=production] .disclosures{font-size:var(--reading-size);color:var(--ink)}body[data-environment=production] .attribution{color:var(--ink)}

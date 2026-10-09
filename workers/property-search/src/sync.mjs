@@ -1,0 +1,49 @@
+import { createClient } from '../../../scripts/mls-grid/client.mjs';
+import { replica } from './replica.mjs';
+import { downloadPhotos } from './live-media.mjs';
+
+export async function syncLive(env,{fetcher=fetch,pause,now=()=>Date.now(),maxPages=5,maxPhotos=12}={}) {
+  if(env.LIVE_SYNC_ENABLED!=='true' || !env.MLS_GRID_ACCESS_TOKEN || !env.LIVE_DB || !env.LIVE_MEDIA)return {status:'disabled'};
+  const repo=replica(env.LIVE_DB),lease=await repo.acquire(now());if(!lease)return {status:'busy_or_backoff'};
+  const wait=pause || (ms=>new Promise(resolve=>setTimeout(resolve,ms)));
+  const beforeRequest=async(bytes)=>{await wait(Math.max(550,await repo.request(lease,now(),bytes)));};
+  const client=createClient({token:env.MLS_GRID_ACCESS_TOKEN,source:'onekey2',endpoint:'https://api.mlsgrid.com/v2',fetcher,beforeRequest,pageSize:20});
+  let pages=0,records=0,photos=0;
+  const start=now(),seen=new Set();
+  try {
+    const state=await repo.state();
+    if(!state.initial_complete && state.bootstrap_started && now()-state.bootstrap_started>6*86400000)return {status:'reconciliation_required'};
+    if(state.last_complete && now()-Date.parse(state.last_complete)>6*86400000)return {status:'reconciliation_required'};
+    if(state.next_url || !state.initial_complete || !state.last_complete || now()-Date.parse(state.last_complete)>=15*60000) {
+      let next=state.next_url || client.initial(state.watermark,{viewOnly:state.phase==='initial'});
+      while(next && pages<maxPages && now()-start<150000) {
+        if(seen.has(next))throw Error('Repeated feed page');seen.add(next);
+        const page=await client.page(next);
+        if(page.rows.length>20)throw Error('Feed page exceeds production processing bound');
+        // facts and permission removals commit before any slow or failed photo downloads.
+        await repo.apply(page.rows,page.next,lease,now());pages++;records+=page.rows.length;next=page.next;
+        const result=await downloadPhotos(page.rows,env,beforeRequest,{fetcher,maxDownloads:Math.max(0,maxPhotos-photos),now});photos+=result.attempted;
+      }
+    }
+    if(now()-start<150000 && photos<maxPhotos) {
+      // Regenerate missing media URLs only after one hour. No signed URLs are persisted for retry.
+      const missing=await env.LIVE_DB.prepare("SELECT DISTINCT l.provider_id FROM listing_media m JOIN listings l ON l.source=m.source AND l.id=m.listing_id WHERE m.state<>'ready' AND m.attempted_at<=? AND l.provider_id IS NOT NULL LIMIT 5").bind(now()-3600000).all();
+      const ids=missing.results.map(row=>row.provider_id).filter(id=>/^[A-Za-z0-9_-]+$/.test(id));
+      if(ids.length) {
+        await env.LIVE_DB.prepare("UPDATE listing_media SET state='failed' WHERE state='downloading' AND attempted_at<=?").bind(now()-3600000).run();
+        const page=await client.page(client.properties(ids));
+        // Backfill may reveal price/status/permission changes too; do not alter the replication watermark.
+        await repo.apply(page.rows,null,lease,now(),false);
+        const result=await downloadPhotos(page.rows,env,beforeRequest,{fetcher,maxDownloads:maxPhotos-photos,now});photos+=result.attempted;
+      }
+    }
+    return {status:'ok',pages,records,photoAttempts:photos,initialComplete:Boolean((await repo.state()).initial_complete)};
+  } catch(error) {
+    const reason=await repo.failure(lease,error,now());return {status:reason,pages,records,photoAttempts:photos};
+  } finally {await repo.release(lease);}
+}
+export async function feedReady(db,now=Date.now()) {
+  const state=await db.prepare('SELECT initial_complete,last_complete,failure FROM feed_state WHERE source=?').bind('onekey2').first();
+  const time=Date.parse(state?.last_complete);
+  return Boolean(state?.initial_complete && Number.isFinite(time) && time<=now+60000 && now-time<=12*3600000 && state.failure!=='credentials');
+}

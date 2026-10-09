@@ -1,7 +1,7 @@
 import { recentListingDates } from './consumer.mjs';
 
 // Shared parameterized filter contract for local SQLite and Cloudflare D1.
-export function searchQuery(params = {}, now = new Date()) {
+export function searchQuery(params = {}, now = new Date(), indexed = false) {
   const conditions = ['1=1'];
   const values = [];
   const query = String(params.q || '').trim().toLowerCase().slice(0, 200);
@@ -9,10 +9,16 @@ export function searchQuery(params = {}, now = new Date()) {
     const boroughs = { Manhattan: ['New York', 'New York County', 'New York (Manhattan)', 'Manhattan'], Brooklyn: ['Kings', 'Kings County', 'Kings (Brooklyn)', 'Brooklyn'], Queens: ['Queens', 'Queens County'], Bronx: ['Bronx', 'Bronx County'], 'Staten Island': ['Richmond', 'Richmond County', 'Richmond (Staten Island)', 'Staten Island'] };
     const county = params.borough === 'NYC' ? Object.values(boroughs).flat() : boroughs[params.borough];
     if (!county) throw new Error('Invalid borough');
-    conditions.push(`json_extract(public_json,'$.CountyOrParish') IN (${county.map(() => '?').join(',')}) AND state='NY'`); values.push(...county);
+    if (indexed) { conditions.push(params.borough === 'NYC' ? "borough IS NOT NULL AND state='NY'" : "borough=? AND state='NY'"); if(params.borough !== 'NYC') values.push(params.borough); }
+    else { conditions.push(`json_extract(public_json,'$.CountyOrParish') IN (${county.map(() => '?').join(',')}) AND state='NY'`); values.push(...county); }
   }
-  if (query) { conditions.push("search_text LIKE ? ESCAPE '\\'"); values.push(`%${query.replace(/[\\%_]/g, '\\$&')}%`); }
-  if (params.photosOnly === '1') conditions.push('EXISTS (SELECT 1 FROM listing_media m WHERE m.source=listings.source AND m.listing_id=listings.id)');
+  if (query && indexed) {
+    const tokens = query.match(/[\p{L}\p{N}]+/gu)?.slice(0,20) || [];
+    if (tokens.length) { conditions.push('rowid IN (SELECT rowid FROM listing_search WHERE listing_search MATCH ?)'); values.push(tokens.map(token => `"${token}"*`).join(' AND ')); }
+    else conditions.push('0=1');
+  }
+  if (query && !indexed) { conditions.push("search_text LIKE ? ESCAPE '\\'"); values.push(`%${query.replace(/[\\%_]/g, '\\$&')}%`); }
+  if (params.photosOnly === '1') conditions.push(indexed ? 'has_photos=1' : 'EXISTS (SELECT 1 FROM listing_media m WHERE m.source=listings.source AND m.listing_id=listings.id)');
   for (const [param, column] of [['status', 'status'], ['type', 'property_type'], ['source', 'source']]) {
     if (params[param]) { conditions.push(`${column}=?`); values.push(String(params[param])); }
   }
@@ -24,10 +30,10 @@ export function searchQuery(params = {}, now = new Date()) {
     }
   }
   if (params.minPrice && params.maxPrice && Number(params.minPrice) > Number(params.maxPrice)) throw new Error('Minimum price exceeds maximum price');
-  const mediaCondition = 'EXISTS (SELECT 1 FROM listing_media m WHERE m.source=listings.source AND m.listing_id=listings.id)';
-  const belowCondition = "price>0 AND json_type(public_json,'$.OriginalListPrice') IN ('integer','real') AND json_extract(public_json,'$.OriginalListPrice')>price";
+  const mediaCondition = indexed ? 'has_photos=1' : 'EXISTS (SELECT 1 FROM listing_media m WHERE m.source=listings.source AND m.listing_id=listings.id)';
+  const belowCondition = indexed ? "below_original=1" : "price>0 AND json_type(public_json,'$.OriginalListPrice') IN ('integer','real') AND json_extract(public_json,'$.OriginalListPrice')>price";
   const dates = recentListingDates(now);
-  const recentCondition = `substr(json_extract(public_json,'$.OnMarketDate'),1,10) IN (${dates.map(d => `'${d}'`).join(',')})`;
+  const recentCondition = `${indexed ? 'on_market_date' : "substr(json_extract(public_json,'$.OnMarketDate'),1,10)"} IN (${dates.map(d => `'${d}'`).join(',')})`;
   if (params.belowOriginal === '1') conditions.push(belowCondition);
   if (params.recent === '1') conditions.push(recentCondition);
   if (params.savedOnly === '1') {
@@ -41,12 +47,14 @@ export function searchQuery(params = {}, now = new Date()) {
   const requestedOffset = Number(params.offset || 0);
   if (!Number.isSafeInteger(requestedOffset) || requestedOffset < 0) throw new Error('Invalid offset');
   const sorts = { priceAsc: 'price IS NULL,price ASC', priceDesc: 'price IS NULL,price DESC', newest: "json_extract(public_json,'$.OnMarketDate') IS NULL,json_extract(public_json,'$.OnMarketDate') DESC" };
+  if(indexed) { sorts.priceAsc='missing_price,price ASC'; sorts.priceDesc='missing_price,price DESC'; sorts.newest='missing_date,on_market_date DESC'; }
   const sort = params.sort || 'priceAsc';
   if (!Object.hasOwn(sorts, sort)) throw new Error('Invalid sort');
   const where = conditions.join(' AND ');
   return { where, values, limit, requestedOffset, sort, sortExpression: sorts[sort], mediaCondition, belowCondition, recentCondition };
 }
 
-export function mediaQuery(listings) {
-  return { sql: `SELECT source,listing_id,file,caption FROM listing_media WHERE EXISTS (SELECT 1 FROM json_each(?) wanted WHERE json_extract(wanted.value,'$[0]')=source AND json_extract(wanted.value,'$[1]')=listing_id) ORDER BY position,media_key`, values: [JSON.stringify(listings.map(listing => [listing.source, listing.id]))] };
+export function mediaQuery(listings, indexed = false) {
+  const wanted = [...new Map(listings.map(listing => [JSON.stringify([listing.source,listing.id]),[listing.source,listing.id]])).values()];
+  return { sql: `SELECT m.source,m.listing_id,m.file,m.caption FROM json_each(?) wanted JOIN listing_media m ON m.source=json_extract(wanted.value,'$[0]') AND m.listing_id=json_extract(wanted.value,'$[1]') ${indexed ? "WHERE m.state='ready'" : ''} ORDER BY m.position,m.media_key`, values: [JSON.stringify(wanted)] };
 }

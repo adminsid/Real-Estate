@@ -1,3 +1,7 @@
+import { handleProduction } from './production.mjs';
+import { replica } from './replica.mjs';
+import { syncLive } from './sync.mjs';
+import { escapeHTML } from '../../../scripts/mls-grid/pages.mjs';
 import { authorized } from './access.mjs';
 import { checkFeed, feedPage } from './feed-check.mjs';
 import { searchStore } from './store.mjs';
@@ -32,18 +36,36 @@ function secure(response) {
 
 export async function handleRequest(request, env, {authorize = authorized, feedFetcher = fetch} = {}) {
   try {
-    const url = new URL(request.url), feedOperations = url.pathname === '/ops/mls-grid';
+    const url = new URL(request.url), feedOperations = ['/ops/mls-grid','/ops/mls-sync'].includes(url.pathname);
     if (feedOperations && !env.FEED_OPERATOR_EMAIL) return secure(json(403,{error:'Feed operator is not configured.'}));
     if (!await authorize(request,env,undefined,Date.now(),feedOperations ? env.FEED_OPERATOR_EMAIL : null)) return secure(json(403,{error:'Private staging. Sign in through Cloudflare Access.'}));
     const origin = publicOrigin(env.PUBLIC_ORIGIN);
     if (url.origin !== origin) return secure(json(403,{error:'Unrecognized staging origin'}));
-    if (env.APP_ENV !== 'staging' || env.DATASET !== 'synthetic') return secure(json(503,{error:'Staging configuration is incomplete'}));
+    if (env.APP_ENV !== 'staging' || !['synthetic','live'].includes(env.DATASET)) return secure(json(503,{error:'Staging configuration is incomplete'}));
     if (feedOperations) {
       if (!['GET','HEAD','POST'].includes(request.method)) return secure(json(405,{error:'Method not allowed'}));
       if (request.method === 'POST' && request.headers.get('Origin') !== origin) return secure(json(403,{error:'Request origin rejected'}));
-      const result = request.method === 'POST' ? await checkFeed(env,feedFetcher) : null;
+      if(url.pathname==='/ops/mls-sync') {
+        if(!env.LIVE_DB)return secure(json(503,{error:'Live replica is not configured.'}));
+        const result=request.method==='POST'?await syncLive(env,{fetcher:feedFetcher}):null;
+        const state=await env.LIVE_DB.prepare('SELECT initial_complete,last_complete,last_attempt,failure FROM feed_state WHERE source=?').bind('onekey2').first();
+        const totals=await env.LIVE_DB.prepare("SELECT COUNT(*) AS listings,SUM(has_photos) AS photographed FROM listings").first();
+        const safe=escapeHTML;
+        const html=`<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Live listing replica</title><link rel="stylesheet" href="/style.css"><main class="integration-demo"><h1>Live listing replica</h1><p>OneKey MLS · production connection · owner-only operations</p><p>Public release remains closed. A completed import does not establish website approval.</p><dl><dt>Initial import</dt><dd>${state.initial_complete?'Complete':'In progress / not started'}</dd><dt>NYC listings</dt><dd>${safe(totals.listings)}</dd><dt>Listings with photos</dt><dd>${safe(totals.photographed||0)}</dd><dt>Last complete feed check</dt><dd>${safe(state.last_complete||'Not yet completed')}</dd><dt>Last attempt</dt><dd>${safe(state.last_attempt||'Not started')}</dd><dt>Feed health</dt><dd>${safe(state.failure||'No recorded failure')}</dd></dl>${result?`<p role="status">Pass: ${safe(result.status)} · ${safe(result.records||0)} source records · ${safe(result.photoAttempts||0)} photo attempts</p>`:''}<form method="post"><button type="submit">Run one sync pass</button></form><p><a href="/ops/mls-sync">Refresh status</a> · <a href="/ops/mls-grid">Check connection</a> · <a href="/">Search preview</a></p></main></html>`;
+        return secure(new Response(request.method==='HEAD'?null:html,{headers:{'Content-Type':'text/html; charset=utf-8'}}));
+      }
+      let result=null;
+      if(request.method==='POST' && env.LIVE_SYNC_ENABLED==='true') {
+        const repo=replica(env.LIVE_DB),lease=await repo.acquire();
+        if(!lease)return secure(json(409,{error:'A feed sync is already running or paused. Try again later.'}));
+        try {
+          const delay=await repo.request(lease);await new Promise(resolve=>setTimeout(resolve,Math.max(550,delay)));
+          result=await checkFeed(env,feedFetcher);
+        }finally{await repo.release(lease);}
+      } else if(request.method==='POST')result=await checkFeed(env,feedFetcher);
       return secure(new Response(request.method === 'HEAD' ? null : feedPage(env,result),{headers:{'Content-Type':'text/html; charset=utf-8'}}));
     }
+    if(env.DATASET==='live')return handleProduction(request,{...env,SEARCH_DB:env.LIVE_DB,SEARCH_MEDIA:env.LIVE_MEDIA},{privateReview:true});
     const store = searchStore(env.SEARCH_DB), brand = {...DEFAULT_BRAND,name:'Property search',descriptor:'Staging',tagline:'Synthetic inventory · private testing'};
     if (request.method === 'POST' && url.pathname === '/api/inquiries') {
       if (request.headers.get('Origin') !== origin || request.headers.get('Content-Type')?.split(';')[0] !== 'application/json') return secure(json(403,{error:'Request origin or content type rejected'}));

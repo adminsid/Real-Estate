@@ -18,7 +18,7 @@ describe('MLS Grid replication boundaries', () => {
     let calls = 0
     const client = createClient({ token, source, pause: async () => {}, fetcher: async (_url, options) => {
       calls++
-      expect(options.redirect).toBe('error')
+      expect(options.redirect).toBe('manual')
       return Response.json({ value: [row()], '@odata.nextLink': 'https://attacker.example/v2/Property' })
     } })
     await expect(client.page(client.initial())).rejects.toThrow('unsafe')

@@ -9,21 +9,21 @@ export function createRequestPacer(pause = ms => new Promise(resolve => setTimeo
   };
 }
 
-export function createClient({ token, source, endpoint = 'https://api-demo.mlsgrid.com/v2', fetcher = fetch, pause, beforeRequest = createRequestPacer(pause) }) {
-  if (!token || !/^[a-z0-9_-]+$/.test(source || '') || !ENDPOINTS.has(endpoint)) {
+export function createClient({ token, source, endpoint = 'https://api-demo.mlsgrid.com/v2', fetcher = fetch, pause, beforeRequest = createRequestPacer(pause), pageSize = 20 }) {
+  if (!token || !/^[a-z0-9_-]+$/.test(source || '') || !ENDPOINTS.has(endpoint) || !Number.isInteger(pageSize) || pageSize<1 || pageSize>1000) {
     throw new Error('Provide a token, valid source, and approved MLS Grid endpoint');
   }
-  const initial = (timestamp = null) => {
+  const initial = (timestamp = null, {viewOnly = true} = {}) => {
     const url = new URL(`${endpoint}/Property`);
     let filter = `OriginatingSystemName eq '${source}'`;
     if (timestamp) {
       if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/.test(timestamp) || !Number.isFinite(Date.parse(timestamp))) throw new Error('Invalid replication timestamp');
       filter += ` and ModificationTimestamp gt ${timestamp}`;
-    } else filter += ' and MlgCanView eq true';
+    } else if(viewOnly) filter += ' and MlgCanView eq true';
     url.searchParams.set('$filter', filter);
     url.searchParams.set('$expand', 'Media,Rooms,UnitTypes');
     // Small media-expanded pages can be downloaded before their signed URLs expire.
-    url.searchParams.set('$top', '20');
+    url.searchParams.set('$top', String(pageSize));
     return url.href;
   };
   const validateLink = link => {
@@ -48,7 +48,7 @@ export function createClient({ token, source, endpoint = 'https://api-demo.mlsgr
       try {
         response = await fetcher(url, {
           headers: { Authorization: `Bearer ${token}`, Accept: 'application/json', 'Accept-Encoding': 'gzip,deflate' },
-          redirect: 'error', signal: AbortSignal.timeout(30_000),
+          redirect: 'manual', signal: AbortSignal.timeout(30_000),
         });
       } catch { throw new Error('MLS Grid connection failed; checkpoint retained'); }
       if (!response.ok) throw new Error(`MLS Grid returned HTTP ${response.status}; checkpoint retained`);
