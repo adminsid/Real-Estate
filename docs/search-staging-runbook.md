@@ -11,7 +11,7 @@ This is a private, synthetic-data installation of the consumer search. Placester
 - Configuration: `workers/property-search/wrangler.jsonc`
 - Schema: `workers/property-search/migrations/0001_search_staging.sql`
 
-No binding points to `re-workspace-db`. The Worker has no MLS credential or delivery integration. Staging inquiries are demo records.
+No binding points to `re-workspace-db`. The Worker has a server-side MLS GRID credential for a bounded connection check, but no live replication or delivery integration. Staging inquiries are demo records.
 
 ## Owner access configuration
 
@@ -49,3 +49,24 @@ The browser dashboard confirmed saving the exact-email policy and application. T
 Worker version `9ff1a169-452d-46a6-8db5-63d291012457` connects this application to the preview. Verification covered anonymous requests to the home page, listing route, search API, JavaScript, HTML template, embed page and media; each returned HTTP 302 to the matching Access login. After the owner completed sign-in, the browser showed the deployed search results and synthetic gallery images successfully. No real inquiry was submitted.
 
 The isolated release passed all 452 tests, Workspace and search type checks, production and search builds, and the explicit search deployment dry run. No production service, database migration or live MLS dataset changed in this release.
+
+## OneKey production connection — October 9, 2026
+
+The account owner reported OneKey approval and added `MLS_GRID_ACCESS_TOKEN` with Wrangler's interactive secret prompt. Only the binding name is visible through `wrangler secret list`; the value is never read back, copied to local files, or included in this repository. The search Worker declares the secret as required for deployments and type generation.
+
+`/ops/mls-grid` is a private operator page. Both the normal Access signature checks and the signed JWT email matching `FEED_OPERATOR_EMAIL` are required; an identity header alone is insufficient. GET/HEAD do not contact MLS GRID. A same-origin POST makes exactly one production request to `https://api.mlsgrid.com/v2/Property`, filtered to `onekey2` and `MlgCanView eq true`, selecting only `OriginatingSystemName`, `MlgCanView`, and `MlgCanUse`, with `$top=1` and no expansion. The check does not follow pagination, redirects or retries. The response is limited to 1 MiB and a 15-second request timeout. Token, listing payloads, provider errors and signed URLs never appear in the operator result, database, logs or consumer assets.
+
+Results distinguish missing credentials, 401 authentication failure, 403 source/subscription denial, 429 quota suspension, transport failure, invalid response, an accepted empty result, and a returned OneKey permission sample. A returned IDX permission verifies only that sample. It does not prove complete inventory coverage, NYStateMLS access, display rules, AI authorization or approval for a different installation/domain.
+
+Production synchronization is not enabled by this release. Before enabling it:
+
+1. Record the approved subscription, installation/domain and permitted public-field/media inventory, and verify production media host and download behavior against current provider documentation.
+2. Provision separate live-feed storage, with source/environment/resource checkpoints, run health and quota accounting; retain the synthetic dataset for design testing.
+3. Add version-aware writes and removal evidence so older repairs cannot regress prices or restore revoked listings. Commit facts, eligibility, child manifests and page progress atomically.
+4. Separate media readiness from fact replication; old/removed assets must become ineligible before replacement downloads. Do not let one expired picture block later removals.
+5. Validate restart/resume, equal timestamps, permission changes, reconciliation after an extended outage, and source failures. Enable scheduled replication only after these checks pass.
+6. Wire the approved projection and media into the private preview, then complete display validation for the approved installation before public publication.
+
+The existing local importer remains fixed to the demo endpoint and demo storage. Do not give it the production token or mix its checkpoint/database with production.
+
+Worker version `f64ed4da-933e-4758-a5fe-73d78a6925dc` deploys the private operator check. At `2026-10-09T16:20:05.936Z`, the authenticated owner-session check returned upstream HTTP 200, one matching OneKey permission sample, and `sampleAllowsIdx=true`. No listing payload or photo was persisted. The release passed 61 test files / 457 tests, both type checks, both builds and the explicit deployment dry run. Live replication/publication remain pending.

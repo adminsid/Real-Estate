@@ -1,4 +1,5 @@
 import { authorized } from './access.mjs';
+import { checkFeed, feedPage } from './feed-check.mjs';
 import { searchStore } from './store.mjs';
 import { validateInquiry } from '../../../scripts/mls-grid/consumer.mjs';
 import { DEFAULT_BRAND, brandCSS } from '../../../scripts/mls-grid/brand.mjs';
@@ -29,12 +30,20 @@ function secure(response) {
   return new Response(response.body,{status:response.status,headers});
 }
 
-export async function handleRequest(request, env, {authorize = authorized} = {}) {
+export async function handleRequest(request, env, {authorize = authorized, feedFetcher = fetch} = {}) {
   try {
-    if (!await authorize(request,env)) return secure(json(403,{error:'Private staging. Sign in through Cloudflare Access.'}));
-    const url = new URL(request.url), origin = publicOrigin(env.PUBLIC_ORIGIN);
+    const url = new URL(request.url), feedOperations = url.pathname === '/ops/mls-grid';
+    if (feedOperations && !env.FEED_OPERATOR_EMAIL) return secure(json(403,{error:'Feed operator is not configured.'}));
+    if (!await authorize(request,env,undefined,Date.now(),feedOperations ? env.FEED_OPERATOR_EMAIL : null)) return secure(json(403,{error:'Private staging. Sign in through Cloudflare Access.'}));
+    const origin = publicOrigin(env.PUBLIC_ORIGIN);
     if (url.origin !== origin) return secure(json(403,{error:'Unrecognized staging origin'}));
     if (env.APP_ENV !== 'staging' || env.DATASET !== 'synthetic') return secure(json(503,{error:'Staging configuration is incomplete'}));
+    if (feedOperations) {
+      if (!['GET','HEAD','POST'].includes(request.method)) return secure(json(405,{error:'Method not allowed'}));
+      if (request.method === 'POST' && request.headers.get('Origin') !== origin) return secure(json(403,{error:'Request origin rejected'}));
+      const result = request.method === 'POST' ? await checkFeed(env,feedFetcher) : null;
+      return secure(new Response(request.method === 'HEAD' ? null : feedPage(env,result),{headers:{'Content-Type':'text/html; charset=utf-8'}}));
+    }
     const store = searchStore(env.SEARCH_DB), brand = {...DEFAULT_BRAND,name:'Property search',descriptor:'Staging',tagline:'Synthetic inventory · private testing'};
     if (request.method === 'POST' && url.pathname === '/api/inquiries') {
       if (request.headers.get('Origin') !== origin || request.headers.get('Content-Type')?.split(';')[0] !== 'application/json') return secure(json(403,{error:'Request origin or content type rejected'}));

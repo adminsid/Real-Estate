@@ -11,3 +11,7 @@ Protect the proposed `preview-search.primeamericany.com` host with Cloudflare Ac
 Demo inquiries persist in the dedicated staging database and do not create CRM Contacts, schedule showings, or send messages. Tests use fictional contact information. A public production environment and the communications engine are separate releases, with separate resources and explicit publication/consent policies.
 
 Cloudflare Access application creation was denied to the current Wrangler OAuth identity with HTTP 403. Deploying a closed Worker is safe; a usable private preview requires the account owner to provide the Access team domain and application AUD after configuring the owner-only Access application. Do not remove verification to get around this limitation.
+
+## October 9, 2026: bounded production connection check
+
+Following the owner’s report of OneKey approval, the search Worker now holds `MLS_GRID_ACCESS_TOKEN` as a Cloudflare secret. An operator-only `/ops/mls-grid` page verifies the approved production source through one bounded permission-field request. It requires the signed Access JWT email to match the configured owner in addition to the normal signature, issuer, audience and time checks. It does not import listings, download media, or enable scheduled replication. The synthetic search dataset remains separate. A production import adapter and source-specific display validation are still required before live publication.
