@@ -13,15 +13,18 @@ This is a private, synthetic-data installation of the consumer search. Placester
 
 No binding points to `re-workspace-db`. The Worker has no MLS credential or delivery integration. Staging inquiries are demo records.
 
-## Access setup needed from the account owner
+## Owner access configuration
 
-The current Wrangler OAuth login can provision/deploy the Worker and storage but was denied Access application creation (HTTP 403). Its read-only Access application list was empty; organization settings were inaccessible, so the organization's actual configuration has not been verified.
+The approved self-hosted application is **Property search private staging**, covering the entire `preview-search.primeamericany.com` hostname with no path restriction. Its only policy is **Preview owner — lama@primeamericany.com** (`b70424b9-c9a5-4ddf-9da2-714b2255172c`): Allow, Include exact email `lama@primeamericany.com`. Login uses the existing One-time PIN provider, with six-hour application sessions. No Everyone, Bypass, service-token or other Allow rule is attached.
 
-In [Cloudflare Zero Trust](https://one.dash.cloudflare.com/), select the existing account and open Access applications. Add a Self-hosted application for **the entire** `preview-search.primeamericany.com` hostname, with no path restriction. Allow only `lama@primeamericany.com` initially; do not use an Everyone or Bypass rule. Use the existing login provider or email one-time PIN as appropriate. If setup requires accepting terms or choosing a plan, the account owner must complete that step.
+- Team domain: `primeamerica.cloudflareaccess.com`
+- Application audience: `aeb5d1a3e1aacaf377f99f5297ba88a71b1ac4d3fb6c7466a557897aea823755`
 
-Provide the team domain (`…cloudflareaccess.com`) and the application's AUD tag. These are public configuration identifiers, not credentials. Set `ACCESS_TEAM_DOMAIN` and `ACCESS_AUD` in the search config, regenerate binding types, and redeploy. Keep workers.dev and preview URLs disabled. No page, asset, API or image is served while the settings are missing.
+These are public configuration identifiers, not credentials. The audience was read from the published Access login URL after Cloudflare confirmed creation. Both values are committed in the Worker config; generated binding types must match. Workers.dev and version preview URLs remain disabled. Native signature verification still runs before every page, API, asset and media read. JWKS requests use the edge-supported manual redirect mode and reject non-success responses, including redirects.
 
-Verify an anonymous request reaches the Access login; a signed-in allowed user can browse results, open a direct Listing URL, use the gallery and save a synthetic inquiry; forged JWTs and unapproved origins remain denied. Verify a revoked listing's page and media return unavailable. Never enable public indexing on this host.
+Open the preview URL, enter the allowed email, and enter the emailed sign-in code directly in Cloudflare's page. Do not commit, log or send the code to another service. Anonymous requests should reach the Access login. An allowed user should be able to browse results, open a direct Listing URL, use the gallery and save a synthetic inquiry. Unapproved identities must remain denied. Never enable public indexing on this host.
+
+For rollback, restore the previous Worker version while keeping the Access application enabled. Clearing the Worker audience also closes every route. Do not remove verification to recover access.
 
 ## Local development and deployment
 
@@ -38,3 +41,11 @@ GitHub CI validates code, tests, the Workspace build and the search bundle. It d
 ## Deployment record — October 8, 2026
 
 Worker version `46a5a5c3-725e-477f-b623-4da23e9af95e` is deployed to the custom hostname. Anonymous requests return HTTP 403 with private/no-store and noindex headers. Access configuration is deliberately empty until the account owner supplies the team domain and application AUD, so even the owner cannot yet browse remotely. The local design preview remains available separately.
+
+## Owner-access update — October 8, 2026
+
+The browser dashboard confirmed saving the exact-email policy and application. The preview hostname now redirects to the correct application login at `primeamerica.cloudflareaccess.com`. The dashboard subsequently reported an application-list permission error; that administrative view needs separate investigation if future changes are required. No alternative administrator credential was used to get around it.
+
+Worker version `9ff1a169-452d-46a6-8db5-63d291012457` connects this application to the preview. Verification covered anonymous requests to the home page, listing route, search API, JavaScript, HTML template, embed page and media; each returned HTTP 302 to the matching Access login. After the owner completed sign-in, the browser showed the deployed search results and synthetic gallery images successfully. No real inquiry was submitted.
+
+The isolated release passed all 452 tests, Workspace and search type checks, production and search builds, and the explicit search deployment dry run. No production service, database migration or live MLS dataset changed in this release.

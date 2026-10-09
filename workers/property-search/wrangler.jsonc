@@ -17,8 +17,8 @@
   "vars": {
     "APP_ENV": "staging",
     "PUBLIC_ORIGIN": "https://preview-search.primeamericany.com",
-    "ACCESS_TEAM_DOMAIN": "",
-    "ACCESS_AUD": "",
+    "ACCESS_TEAM_DOMAIN": "primeamerica.cloudflareaccess.com",
+    "ACCESS_AUD": "aeb5d1a3e1aacaf377f99f5297ba88a71b1ac4d3fb6c7466a557897aea823755",
     "DATASET": "synthetic"
   },
   "d1_databases": [{

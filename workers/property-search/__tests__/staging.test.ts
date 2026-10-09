@@ -84,6 +84,8 @@ describe('Cloudflare Access verification',()=>{
     }
     const fetcher=vi.fn(async()=>Response.json({keys:[jwk]})),request=(jwt: string)=>new Request(origin,{headers:{'Cf-Access-Jwt-Assertion':jwt}})
     expect(await authorized(request(await token()),env,fetcher,now)).toBe(true)
+    expect(fetcher).toHaveBeenCalledWith('https://test.cloudflareaccess.com/cdn-cgi/access/certs',expect.objectContaining({redirect:'manual'}))
+    expect(await authorized(request(await token()),env,async()=>new Response(null,{status:302,headers:{Location:'https://untrusted.example/certs'}}),now)).toBe(false)
     for(const claims of [{aud:['other']},{iss:'https://other.cloudflareaccess.com'},{exp:now/1000-1},{iat:now/1000+120},{nbf:now/1000+120}])expect(await authorized(request(await token(claims)),env,fetcher,now)).toBe(false)
     expect(await authorized(request(await token({},'HS256')),env,fetcher,now)).toBe(false)
     const forged=(await token()).split('.');forged[1]=encode(JSON.stringify({iss:'https://test.cloudflareaccess.com',aud:['expected'],exp:now/1000+10000,iat:now/1000-60}))

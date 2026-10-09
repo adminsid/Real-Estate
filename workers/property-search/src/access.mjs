@@ -13,7 +13,7 @@ export async function authorized(request, env, fetcher = fetch, now = Date.now()
     const read = part => JSON.parse(new TextDecoder().decode(decode(part)));
     const header = read(parts[0]), payload = read(parts[1]), issuer = `https://${team}`;
     if (header.alg !== 'RS256' || typeof header.kid !== 'string' || payload.iss !== issuer || !Array.isArray(payload.aud) || !payload.aud.includes(audience) || typeof payload.exp !== 'number' || payload.exp <= now / 1000 || typeof payload.iat !== 'number' || payload.iat > now / 1000 + 30 || (payload.nbf != null && (typeof payload.nbf !== 'number' || payload.nbf > now / 1000))) return false;
-    const response = await fetcher(`${issuer}/cdn-cgi/access/certs`, {redirect:'error',signal:AbortSignal.timeout(5000)});
+    const response = await fetcher(`${issuer}/cdn-cgi/access/certs`, {redirect:'manual',signal:AbortSignal.timeout(5000)});
     if (!response.ok) return false;
     if (!response.body) return false;
     const reader=response.body.getReader(),chunks=[];let size=0;
