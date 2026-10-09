@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { GraduationCap, ExternalLink, CheckCircle2, Calendar, AlertTriangle, Info } from 'lucide-react'
 import clsx from 'clsx'
 import { Layout } from '@/components/layout/Layout'
-import { APP_MODULES, NY_LAW_RESOURCES, isSubitemVisible } from '@/utils/constants'
+import { APP_MODULES, NY_LAW_RESOURCES, isSubitemVisible, deduplicateAppModules } from '@/utils/constants'
 import { AppTile } from '@/components/apps/AppTile'
 import { useAuth } from '@/context/AuthContext'
 import type { AppModule } from '@/types'
@@ -30,10 +30,11 @@ export function LearningPage() {
     return false
   })
 
-  const modules = [
+  const rawModules = [
     ...APP_MODULES.filter((m) => m.category === 'learning'),
     ...(visibleCustomModules as unknown as AppModule[])
-  ].filter(m => isSubitemVisible(m.id, m.category, user, can))
+  ]
+  const modules = deduplicateAppModules(rawModules).filter(m => isSubitemVisible(m.id, m.category, user, can))
 
   useEffect(() => {
     if (!expiryStorageKey) return

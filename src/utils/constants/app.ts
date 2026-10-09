@@ -1,11 +1,12 @@
 import type { WorkspaceBranding } from '@/types'
 
-export const APP_NAME = 'RE Workspace'
+export const APP_NAME = 'Prime America Real Estate Workspace'
 export const APP_TAGLINE = 'Your Real Estate Command Center'
 export const APP_VERSION = '1.0.0'
 
 export const DEFAULT_BRANDING: WorkspaceBranding = {
-  companyName: 'Prime America Realty',
+  companyName: 'Prime America Real Estate',
+  logoUrl: '/prime-america-seal.png',
   companyAddress: '100 Wall Street, 12th Floor, New York, NY 10005',
   companyTelephone: '(212) 555-0100',
   companyFax: '',

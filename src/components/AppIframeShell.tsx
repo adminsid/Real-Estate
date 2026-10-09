@@ -1,65 +1,87 @@
-import { useState, useEffect } from 'react'
-import { useParams } from 'react-router-dom'
+import { useEffect } from 'react'
+import { useNavigate, useParams } from 'react-router-dom'
 import { Layout } from '@/components/layout/Layout'
 import { Loader2 } from 'lucide-react'
 
 export default function AppIframeShell() {
   const { appId } = useParams<{ appId: string }>()
-  const [loading, setLoading] = useState(true)
+  const navigate = useNavigate()
 
-  useEffect(() => {
-    setLoading(true)
-  }, [appId])
+  // ── Map appId → target details ─────────────────────────────────────────────
+  type AppEntry =
+    | { kind: 'embed'; src: string; title: string }
+    | { kind: 'external'; url: string; title: string }
 
-  let targetApp = ''
-  let title = 'App Portal'
+  function resolveApp(id: string | undefined): AppEntry {
+    switch (id) {
+      // Internal embed — served from same origin, OK in iframe
+      case 'form-filler':
+      case 'tools-form-filler':
+        return { kind: 'embed', src: '/tools/form-filler?embed=true', title: 'Interactive Form Filler' }
 
-  if (appId === 'inventory' || appId === 'listing-input') {
-    targetApp = 'listing-input'
-    title = 'Listing Inventory'
-  } else if (appId === 'openhouse' || appId === 'open-house') {
-    targetApp = 'open-house'
-    title = 'Open House Portal'
-  } else if (appId === 'branding' || appId === 'inside' || appId === 'branding-hub') {
-    targetApp = 'branding-hub'
-    title = 'Brand & Marketing Hub'
-  } else if (appId === 'kb' || appId === 'cabinet' || appId === 'company-brain' || appId === 'prime-america-kb') {
-    targetApp = 'prime-america-kb'
-    title = 'Company Brain KB'
-  } else if (appId === 'form-filler' || appId === 'tools-form-filler') {
-    targetApp = 'form-filler'
-    title = 'Interactive Form Filler'
-  } else if (appId === 'transactiondesk' || appId === 'transaction-desk') {
-    targetApp = 'transactiondesk'
-    title = 'TransactionDesk'
-  } else if (appId === 'academy') {
-    targetApp = 'academy'
-    title = 'CE Shop Academy'
+      // External apps — must open in new tab, NOT iframe
+      case 'inventory':
+      case 'listing-input':
+        return { kind: 'external', url: '/api/sso/redirect?app=listing-input', title: 'Listing Inventory' }
+      case 'openhouse':
+      case 'open-house':
+        return { kind: 'external', url: 'https://openhouse.primeamericarealestate.com', title: 'Open House Portal' }
+      case 'branding':
+      case 'inside':
+      case 'branding-hub':
+      case 'brand-hub':
+      case 'brand-marketing-hub':
+        return { kind: 'external', url: '/api/sso/redirect?app=brand-hub&return_to=%2Fdashboard', title: 'Brand & Marketing Hub' }
+      case 'kb':
+      case 'cabinet':
+      case 'company-brain':
+      case 'prime-america-kb':
+        return { kind: 'external', url: 'https://prime-america-kb.lama-4db.workers.dev/hub/', title: 'Company Brain KB' }
+      case 'transactiondesk':
+      case 'transaction-desk':
+        return { kind: 'external', url: 'https://pr.transactiondesk.com/', title: 'TransactionDesk' }
+      case 'academy':
+        return { kind: 'external', url: 'https://primeamerica.theceshop.com/real-estate/', title: 'CE Shop Academy' }
+      default:
+        return { kind: 'external', url: '#', title: 'App Portal' }
+    }
   }
 
-  // Generate the SSO redirect URL for the iframe src
-  const iframeSrc = targetApp === 'form-filler'
-    ? '/tools/form-filler?embed=true'
-    : targetApp === 'transactiondesk'
-    ? 'https://pr.transactiondesk.com/'
-    : targetApp === 'academy'
-    ? 'https://primeamerica.theceshop.com/real-estate/'
-    : `/api/sso/redirect?app=${encodeURIComponent(targetApp)}`
+  const app = resolveApp(appId)
 
+  // Open external apps in a new tab and navigate the user back to dashboard
+  useEffect(() => {
+    if (app.kind === 'external') {
+      if (app.url !== '#') {
+        window.open(app.url, '_blank', 'noopener,noreferrer')
+      }
+      // Navigate back — don't leave user on a blank redirect shell
+      navigate(-1)
+    }
+  }, [app, navigate])
+
+  // For external apps the useEffect fires window.open() + navigate(-1); render nothing
+  if (app.kind === 'external') {
+    return null
+  }
+
+  // Embed mode (form-filler only)
   return (
-    <Layout title={title}>
+    <Layout title={app.title}>
       <div className="relative w-full h-[calc(100vh-140px)] bg-gray-50 rounded-2xl overflow-hidden border border-gray-100 shadow-inner">
-        {loading && (
-          <div className="absolute inset-0 bg-white/70 backdrop-blur-sm flex flex-col items-center justify-center z-10">
-            <Loader2 className="h-10 w-10 text-brand-navy animate-spin mb-4" />
-            <p className="text-sm font-semibold text-gray-600">Connecting via Secure Single Sign-On...</p>
-          </div>
-        )}
+        <div className="absolute inset-0 bg-white/70 backdrop-blur-sm flex flex-col items-center justify-center z-10 pointer-events-none" id="iframe-loader">
+          <Loader2 className="h-10 w-10 text-brand-navy animate-spin mb-4" />
+          <p className="text-sm font-semibold text-gray-600">Loading…</p>
+        </div>
         <iframe
-          src={iframeSrc}
+          src={app.src}
           className="w-full h-full border-0"
-          onLoad={() => setLoading(false)}
+          onLoad={() => {
+            const loader = document.getElementById('iframe-loader')
+            if (loader) loader.style.display = 'none'
+          }}
           allow="geolocation; microphone; camera; midi; encrypted-media; clipboard-write;"
+          title={app.title}
         />
       </div>
     </Layout>

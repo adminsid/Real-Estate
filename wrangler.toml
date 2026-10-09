@@ -10,8 +10,10 @@ bucket = "./dist"
 
 # ── Environment variables (non-secret) ───────────────────────────────────────
 [vars]
+BRAND_HUB_TENANT_ID = "tenant_primeamerica"
 APP_NAME    = "RE Workspace"
 APP_ENV     = "production"
+APP_BASE_URL = "https://workspace.primeamericany.com"
 
 # PLATFORM_HOSTNAME: The canonical workers.dev URL — used as internal fallback.
 # This is NOT the tenant identity hostname. workspace.primeamericany.com is the
@@ -28,6 +30,14 @@ INVENTORY_WORKER_URL = "https://inventory.primeamericarealestate.com"
 # workspace.primeamericany.com/openhouse was the old URL — this points to the actual Worker.
 OPENHOUSE_WORKER_URL = "https://openhouse.primeamericarealestate.com"
 
+# DIRECTOR.EXE Marketing OS
+DIRECTOR_DEFAULT_QUOTA = "5"
+DIRECTOR_MONTHLY_BUDGET_USD = "15.00"
+
+# ── Cloudflare Workers AI Binding ─────────────────────────────
+[ai]
+binding = "AI"
+
 # ── D1 Database — re-workspace-db ────────────────────────────────────────────
 [[d1_databases]]
 binding = "DB"
@@ -42,11 +52,17 @@ id = "d932bf6f7c1f4f24a0c9a27914cb9249"
 
 # ── Service Bindings — module workers (private, no public URL) ────────────────
 [[services]]
+binding = "AUTH"
+service = "prime-america-auth"
+[[services]]
 binding = "CRM"
 service = "re-crm"
 [[services]]
 binding = "TRANSACTIONS"
 service = "re-transactions"
+[[services]]
+binding = "PRIME_VIEW"
+service = "prime-view"
 
 # ── R2 — file storage ─────────────────────────────────────────────────────────
 [[r2_buckets]]
@@ -89,7 +105,10 @@ zone_name = "searchtolive.com"
 # INTERNAL_API_SECRET — shared secret for inter-worker calls
 # INVENTORY_SYNC_SECRET — secret for inventory sync operations
 
+[triggers]
+crons = ["*/5 * * * *"]
+
 # ── Staging environment ───────────────────────────────────────────────────────
 [env.staging]
 name = "re-workspace-staging"
-vars = { APP_ENV = "staging", PLATFORM_HOSTNAME = "re-workspace-staging.lama-4db.workers.dev" }
+vars = { APP_ENV = "staging", PLATFORM_HOSTNAME = "re-workspace-staging.lama-4db.workers.dev", APP_BASE_URL = "https://re-workspace-staging.lama-4db.workers.dev" }

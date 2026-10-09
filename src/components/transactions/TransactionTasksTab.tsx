@@ -2,10 +2,12 @@ import { useState } from 'react'
 import { useAuth } from '@/context/AuthContext'
 import { useTransactionDetail } from './TransactionContext'
 import {
-  Plus, CheckCircle2, Circle, MoreHorizontal, Trash2, FileText, Upload, Check, X
+  Plus, CheckCircle2, Circle, MoreHorizontal, Trash2, FileText, Upload, Check, X,
+  SlidersHorizontal, CheckSquare
 } from 'lucide-react'
 import clsx from 'clsx'
 import confetti from 'canvas-confetti'
+import { CreateTaskModal } from './CreateTaskModal'
 
 export function TransactionTasksTab() {
   const { user } = useAuth()
@@ -25,36 +27,45 @@ export function TransactionTasksTab() {
   const isBrokerOrAdmin = user && ['admin', 'broker'].includes(user.role)
 
   const [selectedTemplateId, setSelectedTemplateId] = useState('')
-  const [newTaskTitle, setNewTaskTitle] = useState('')
-  const [newTaskGroup, setNewTaskGroup] = useState('')
-  const [newTaskDueDate, setNewTaskDueDate] = useState('')
-  const [newTaskReqAttach, setNewTaskReqAttach] = useState(false)
-  const [newTaskReqBroker, setNewTaskReqBroker] = useState(false)
-  const [isAddingTask, setIsAddingTask] = useState(false)
   const [taskMenuOpen, setTaskMenuOpen] = useState<string | null>(null)
   const [uploadProgress, setUploadProgress] = useState<Record<string, number>>({})
 
-  const compatibleTemplates = availableTemplates.filter((t) => t.type === tx.type)
+  // Modal State
+  const [isModalOpen, setIsModalOpen] = useState(false)
+  const [modalDefaultGroup, setModalDefaultGroup] = useState('')
+  const [modalDefaultTitle, setModalDefaultTitle] = useState('')
 
-  const handleSubmitTask = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!newTaskTitle.trim()) return
-    setIsAddingTask(true)
+  // Quick inline add state
+  const [quickAddGroup, setQuickAddGroup] = useState<string | null>(null)
+  const [quickAddTitle, setQuickAddTitle] = useState('')
+  const [isQuickAdding, setIsQuickAdding] = useState(false)
+
+  const compatibleTemplates = availableTemplates.filter((t) => t.type === tx.type)
+  const existingGroupNames = Array.from(
+    new Set(tasks.map((t: any) => t.group_name).filter(Boolean))
+  ) as string[]
+
+  const handleOpenModal = (group = '', title = '') => {
+    setModalDefaultGroup(group)
+    setModalDefaultTitle(title)
+    setIsModalOpen(true)
+  }
+
+  const handleQuickAddSubmit = async (groupName: string) => {
+    if (!quickAddTitle.trim() || isQuickAdding) return
+    setIsQuickAdding(true)
     const success = await handleCreateTask({
-      title: newTaskTitle,
-      attachment_required: newTaskReqAttach,
-      broker_approval_required: newTaskReqBroker,
-      group_name: newTaskGroup || null,
-      due_date: newTaskDueDate || null
+      title: quickAddTitle.trim(),
+      attachment_required: false,
+      broker_approval_required: false,
+      group_name: groupName === 'Ungrouped Tasks' ? null : groupName,
+      due_date: null
     })
     if (success) {
-      setNewTaskTitle('')
-      setNewTaskGroup('')
-      setNewTaskDueDate('')
-      setNewTaskReqAttach(false)
-      setNewTaskReqBroker(false)
+      setQuickAddTitle('')
+      setQuickAddGroup(null)
     }
-    setIsAddingTask(false)
+    setIsQuickAdding(false)
   }
 
   const handleUploadFile = async (taskId: string, e: React.ChangeEvent<HTMLInputElement>) => {
@@ -87,13 +98,16 @@ export function TransactionTasksTab() {
   if (tasks.length === 0) {
     return (
       <div className="rounded-xl border border-gray-200 bg-white shadow-sm p-6 overflow-hidden">
-        <div className="border-b border-gray-100 pb-4 flex items-center justify-between no-print">
-          <h3 className="font-semibold text-gray-900">Compliance & Tasks Journey</h3>
-          <div className="flex gap-2">
+        <div className="border-b border-gray-100 pb-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 no-print">
+          <div>
+            <h3 className="font-semibold text-gray-900">Compliance & Tasks Journey</h3>
+            <p className="text-xs text-gray-500">Track deal milestones, requirements, and compliance files</p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
             <select
               value={selectedTemplateId}
               onChange={(e) => setSelectedTemplateId(e.target.value)}
-              className="text-sm bg-white border border-gray-200 px-3 py-1.5 rounded-lg text-gray-700"
+              className="text-xs sm:text-sm bg-white border border-gray-200 px-3 py-1.5 rounded-lg text-gray-700 focus:border-blue-500 outline-none"
             >
               <option value="">Select template...</option>
               {compatibleTemplates.map((t) => (
@@ -103,36 +117,45 @@ export function TransactionTasksTab() {
             <button
               onClick={() => selectedTemplateId && applyTemplate(selectedTemplateId, true)}
               disabled={!selectedTemplateId}
-              className="text-sm font-medium text-blue-700 bg-blue-50 border border-blue-200 px-3 py-1.5 rounded-lg hover:bg-blue-100 disabled:opacity-50"
+              className="text-xs sm:text-sm font-medium text-blue-700 bg-blue-50 border border-blue-200 px-3 py-1.5 rounded-lg hover:bg-blue-100 disabled:opacity-50 transition-colors"
             >
               Apply Template
+            </button>
+            <button
+              onClick={() => handleOpenModal()}
+              className="text-xs sm:text-sm font-medium text-white bg-blue-600 px-3.5 py-1.5 rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-1.5 shadow-xs"
+            >
+              <Plus className="h-4 w-4" /> Add Task
             </button>
           </div>
         </div>
 
-        <div className="border-b border-gray-100 py-4 bg-white no-print">
-          <form onSubmit={handleSubmitTask} className="flex flex-col sm:flex-row gap-3 items-center justify-between">
-            <input
-              type="text"
-              placeholder="Manual task name..."
-              className="w-full sm:w-1/4 rounded-lg border border-gray-200 px-3 py-1.5 text-sm focus:border-blue-500 bg-white"
-              value={newTaskTitle}
-              onChange={e => setNewTaskTitle(e.target.value)}
-              disabled={isAddingTask}
-            />
+        <div className="text-center py-16 px-4">
+          <div className="mx-auto w-12 h-12 rounded-2xl bg-blue-50 text-blue-600 flex items-center justify-center mb-3">
+            <CheckSquare className="h-6 w-6" />
+          </div>
+          <h4 className="text-sm font-semibold text-gray-900">No journey tasks assigned</h4>
+          <p className="text-xs text-gray-500 mt-1 max-w-sm mx-auto">
+            Get started by applying a standard compliance template or adding custom tasks to this deal.
+          </p>
+          <div className="mt-5 flex justify-center gap-2.5">
             <button
-              type="submit"
-              disabled={isAddingTask || !newTaskTitle.trim()}
-              className="text-sm font-medium text-white bg-gray-900 border border-gray-900 px-3 py-1.5 rounded-lg hover:bg-gray-800 disabled:opacity-50 flex items-center gap-1"
+              onClick={() => handleOpenModal()}
+              className="text-xs font-medium text-white bg-blue-600 px-4 py-2 rounded-xl hover:bg-blue-700 transition-colors flex items-center gap-1.5 shadow-xs"
             >
-              <Plus className="h-4 w-4" /> Add Task
+              <Plus className="h-4 w-4" /> Add First Task
             </button>
-          </form>
+          </div>
         </div>
 
-        <div className="text-center py-12 px-4">
-          <h4 className="text-sm font-medium text-gray-900">No journey tasks assigned.</h4>
-        </div>
+        <CreateTaskModal
+          isOpen={isModalOpen}
+          onClose={() => setIsModalOpen(false)}
+          existingGroups={existingGroupNames}
+          defaultGroup={modalDefaultGroup}
+          defaultTitle={modalDefaultTitle}
+          onCreateTask={handleCreateTask}
+        />
       </div>
     )
   }
@@ -141,13 +164,17 @@ export function TransactionTasksTab() {
 
   return (
     <div className="rounded-xl border border-gray-200 bg-white shadow-sm overflow-hidden">
-      <div className="border-b border-gray-100 px-6 py-4 flex items-center justify-between bg-gray-50/50 no-print">
-        <h3 className="font-semibold text-gray-900">Compliance & Tasks Journey</h3>
-        <div className="flex gap-2">
+      {/* Header Toolbar */}
+      <div className="border-b border-gray-100 px-6 py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-gray-50/50 no-print">
+        <div>
+          <h3 className="font-semibold text-gray-900">Compliance & Tasks Journey</h3>
+          <p className="text-xs text-gray-500">Track deal milestones, requirements, and compliance files</p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
           <select
             value={selectedTemplateId}
             onChange={(e) => setSelectedTemplateId(e.target.value)}
-            className="text-sm bg-white border border-gray-200 px-3 py-1.5 rounded-lg text-gray-700"
+            className="text-xs sm:text-sm bg-white border border-gray-200 px-3 py-1.5 rounded-lg text-gray-700 focus:border-blue-500 outline-none"
           >
             <option value="">Select template...</option>
             {compatibleTemplates.map((t) => (
@@ -157,101 +184,62 @@ export function TransactionTasksTab() {
           <button
             onClick={() => selectedTemplateId && applyTemplate(selectedTemplateId, true)}
             disabled={!selectedTemplateId}
-            className="text-sm font-medium text-blue-700 bg-blue-50 border border-blue-200 px-3 py-1.5 rounded-lg hover:bg-blue-100 disabled:opacity-50"
+            className="text-xs sm:text-sm font-medium text-blue-700 bg-blue-50 border border-blue-200 px-3 py-1.5 rounded-lg hover:bg-blue-100 disabled:opacity-50 transition-colors"
           >
             Apply Template
           </button>
-        </div>
-      </div>
-
-      <div className="border-b border-gray-100 px-6 py-4 bg-white no-print">
-        <form onSubmit={handleSubmitTask} className="flex flex-col sm:flex-row gap-3 items-center justify-between">
-          <input
-            type="text"
-            placeholder="Manual task name..."
-            className="w-full sm:w-1/4 rounded-lg border border-gray-200 px-3 py-1.5 text-sm focus:border-blue-500 bg-white"
-            value={newTaskTitle}
-            onChange={e => setNewTaskTitle(e.target.value)}
-            disabled={isAddingTask}
-          />
-          <select
-            value={newTaskGroup}
-            onChange={e => setNewTaskGroup(e.target.value)}
-            className="w-full sm:w-1/5 rounded-lg border border-gray-200 px-3 py-1.5 text-sm focus:border-blue-500 bg-white"
-            disabled={isAddingTask}
+          <button
+            onClick={() => handleOpenModal()}
+            className="text-xs sm:text-sm font-medium text-white bg-blue-600 px-3.5 py-1.5 rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-1.5 shadow-xs"
           >
-            <option value="">No Group</option>
-            {Array.from(new Set(tasks.map((t: any) => t.group_name).filter(Boolean))).map(g => (
-              <option key={g as string} value={g as string}>{g as string}</option>
-            ))}
-          </select>
-          <input
-            type="date"
-            value={newTaskDueDate}
-            onChange={e => setNewTaskDueDate(e.target.value)}
-            className="w-full sm:w-auto rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs text-gray-700 focus:border-blue-500 bg-white"
-            disabled={isAddingTask}
-            title="Task Due Date"
-          />
-          <div className="flex gap-4 items-center flex-wrap">
-            <label className="flex items-center gap-2 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={newTaskReqAttach}
-                onChange={e => setNewTaskReqAttach(e.target.checked)}
-                className="h-4 w-4 rounded border-gray-300 text-blue-600"
-              />
-              <span className="text-xs font-medium text-gray-700">Require Attachment</span>
-            </label>
-            <label className="flex items-center gap-2 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={newTaskReqBroker}
-                onChange={e => setNewTaskReqBroker(e.target.checked)}
-                className="h-4 w-4 rounded border-gray-300 text-blue-600"
-              />
-              <span className="text-xs font-medium text-gray-700">Require Broker Approval</span>
-            </label>
-            <button
-              type="submit"
-              disabled={isAddingTask || !newTaskTitle.trim()}
-              className="text-sm font-medium text-white bg-gray-900 border border-gray-900 px-3 py-1.5 rounded-lg hover:bg-gray-800 disabled:opacity-50 flex items-center gap-1"
-            >
-              <Plus className="h-4 w-4" /> Add Task
-            </button>
-          </div>
-        </form>
+            <Plus className="h-4 w-4" /> Add Task
+          </button>
+        </div>
       </div>
 
       <div className="hidden print:block px-6 py-3 bg-gray-100 font-bold text-sm">
         Compliance Checklist Status
       </div>
 
-      <div className="flex flex-col gap-6 pt-4">
+      {/* Task Groups */}
+      <div className="flex flex-col gap-6 p-6">
         {groups.map(groupName => {
           const groupTasks = tasks.filter((t: any) => (t.group_name || 'Ungrouped Tasks') === groupName)
           const completedTasks = groupTasks.filter((t: any) => t.status === 'completed')
           const progress = Math.round((completedTasks.length / groupTasks.length) * 100)
+          const isQuickAddingHere = quickAddGroup === groupName
 
           return (
-            <div key={groupName as string} className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
-              <div className="px-6 py-4 border-b border-gray-100 bg-gray-50 flex flex-col gap-3">
+            <div key={groupName as string} className="bg-white rounded-xl border border-gray-200/80 shadow-xs overflow-hidden">
+              {/* Group Header */}
+              <div className="px-6 py-4 border-b border-gray-100 bg-gray-50/60 flex flex-col gap-2.5">
                 <div className="flex justify-between items-center">
-                  <h3 className="font-bold text-gray-900">{groupName as string}</h3>
-                  <span className="text-xs font-bold text-gray-900">{progress}%</span>
+                  <h3 className="font-semibold text-sm text-gray-900">{groupName as string}</h3>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-semibold text-gray-700">{progress}%</span>
+                    <button
+                      onClick={() => handleOpenModal(groupName === 'Ungrouped Tasks' ? '' : groupName as string)}
+                      className="p-1 text-gray-400 hover:text-blue-600 rounded-md hover:bg-white transition-colors no-print"
+                      title="Add task with full options"
+                    >
+                      <Plus className="h-4 w-4" />
+                    </button>
+                  </div>
                 </div>
-                <div className="w-full bg-gray-200 rounded-full h-2">
-                  <div className="bg-blue-600 h-2 rounded-full transition-all duration-500" style={{ width: `${progress}%` }}></div>
+                <div className="w-full bg-gray-200/80 rounded-full h-1.5">
+                  <div className="bg-blue-600 h-1.5 rounded-full transition-all duration-500" style={{ width: `${progress}%` }}></div>
                 </div>
                 {progress === 100 && (
-                  <p className="text-emerald-600 text-xs font-bold animate-pulse flex items-center gap-1">
+                  <p className="text-emerald-600 text-xs font-semibold animate-pulse flex items-center gap-1">
                     <CheckCircle2 className="h-4 w-4" /> All tasks completed successfully!
                   </p>
                 )}
               </div>
+
+              {/* Task Items */}
               <ul className="divide-y divide-gray-100">
                 {groupTasks.map((task: any) => (
-                  <li key={task.id} className="px-6 py-4 hover:bg-gray-50/30">
+                  <li key={task.id} className="px-6 py-3.5 hover:bg-gray-50/40 transition-colors">
                     <div className="flex items-start gap-4 justify-between">
                       <div className="flex items-start gap-3">
                         <button
@@ -266,7 +254,7 @@ export function TransactionTasksTab() {
                         </button>
                         <div>
                           <p className={clsx(
-                            "text-sm font-semibold",
+                            "text-sm font-medium",
                             task.status === 'completed' ? "text-gray-400 line-through" : "text-gray-900"
                           )}>
                             {task.title}
@@ -322,7 +310,7 @@ export function TransactionTasksTab() {
                       </div>
                     </div>
 
-                    <div className="mt-3 pl-8 flex flex-col gap-2">
+                    <div className="mt-2.5 pl-8 flex flex-col gap-2">
                       {task.document_key ? (
                         <div className="bg-gray-50 rounded-xl p-3 border border-gray-100 flex items-center justify-between text-xs">
                           <div className="flex items-center gap-2">
@@ -367,7 +355,7 @@ export function TransactionTasksTab() {
                             )}
                           </div>
                         </div>
-                      ) : (task.document_required !== 0 && task.document_required !== false && task.document_required !== '0') && (() => {
+                      ) : (() => {
                         const isUploading = uploadProgress[task.id] !== undefined
                         const progress = uploadProgress[task.id] || 0
                         return (
@@ -404,10 +392,88 @@ export function TransactionTasksTab() {
                   </li>
                 ))}
               </ul>
+
+              {/* Group Quick Add Footer */}
+              <div className="border-t border-gray-100 bg-gray-50/40 px-6 py-2.5 no-print">
+                {isQuickAddingHere ? (
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="text"
+                      autoFocus
+                      placeholder={`Add task to ${groupName}... (Press Enter)`}
+                      value={quickAddTitle}
+                      onChange={(e) => setQuickAddTitle(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault()
+                          handleQuickAddSubmit(groupName as string)
+                        } else if (e.key === 'Escape') {
+                          setQuickAddGroup(null)
+                          setQuickAddTitle('')
+                        }
+                      }}
+                      disabled={isQuickAdding}
+                      className="flex-1 rounded-lg border border-gray-300 px-3 py-1.5 text-xs text-gray-900 bg-white placeholder:text-gray-400 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => handleQuickAddSubmit(groupName as string)}
+                      disabled={isQuickAdding || !quickAddTitle.trim()}
+                      className="px-3 py-1.5 text-xs font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors"
+                    >
+                      Add
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const currentTitle = quickAddTitle
+                        setQuickAddGroup(null)
+                        setQuickAddTitle('')
+                        handleOpenModal(groupName === 'Ungrouped Tasks' ? '' : groupName as string, currentTitle)
+                      }}
+                      className="p-1.5 text-gray-500 hover:text-blue-600 hover:bg-gray-100 rounded-lg transition-colors"
+                      title="More task options (due date, requirements)"
+                    >
+                      <SlidersHorizontal className="h-3.5 w-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setQuickAddGroup(null)
+                        setQuickAddTitle('')
+                      }}
+                      className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+                      title="Cancel"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => {
+                      setQuickAddGroup(groupName as string)
+                      setQuickAddTitle('')
+                    }}
+                    className="text-xs font-medium text-gray-500 hover:text-blue-600 flex items-center gap-1.5 py-1 transition-colors"
+                  >
+                    <Plus className="h-3.5 w-3.5" /> Add task to {groupName as string}...
+                  </button>
+                )}
+              </div>
             </div>
           )
         })}
       </div>
+
+      {/* Task Creation Modal */}
+      <CreateTaskModal
+        isOpen={isModalOpen}
+        onClose={() => setIsModalOpen(false)}
+        existingGroups={existingGroupNames}
+        defaultGroup={modalDefaultGroup}
+        defaultTitle={modalDefaultTitle}
+        onCreateTask={handleCreateTask}
+      />
     </div>
   )
 }

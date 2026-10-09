@@ -17,6 +17,7 @@ import {
 } from 'lucide-react'
 import { Layout } from '@/components/layout/Layout'
 import { SkeletonBlock, SkeletonCard } from '@/components/common/SkeletonLoader'
+import { useAuth } from '@/context/AuthContext'
 
 type Connection = {
   id: string
@@ -39,6 +40,8 @@ type Connection = {
   total_referrals?: number
   successful_referrals?: number
   address?: string
+  created_by?: string
+  owner_name?: string
 }
 
 type Referral = {
@@ -79,6 +82,7 @@ function safeJsonParse(value: unknown): any {
 export function NetworkContactDetailPage() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
+  const { user } = useAuth()
 
   const [isLoading, setIsLoading] = useState(true)
   const [isSaving, setIsSaving] = useState(false)
@@ -97,8 +101,8 @@ export function NetworkContactDetailPage() {
     setIsLoading(true)
     try {
       const [connRes, refRes, txRes] = await Promise.all([
-        fetch('/api/network'),
-        fetch('/api/network/referrals'),
+        fetch(`/api/network${['admin', 'broker'].includes(user?.role || '') ? '?owner=all' : ''}`),
+        fetch(`/api/network/referrals${['admin', 'broker'].includes(user?.role || '') ? '?sender=all' : ''}`),
         fetch('/api/transactions'),
       ])
 
@@ -140,7 +144,7 @@ export function NetworkContactDetailPage() {
       }
     }
     loadModuleSettings()
-  }, [id])
+  }, [id, user?.role])
 
   const relatedReferrals = useMemo(() => {
     if (!id) return []
@@ -343,6 +347,9 @@ export function NetworkContactDetailPage() {
             <div className="flex-1">
               <h2 className="text-xl font-bold text-gray-800">{form.name}</h2>
               <p className="text-sm text-gray-500">Update profile, review history, and monitor connected deals.</p>
+              {['admin', 'broker'].includes(user?.role || '') && (
+                <p className="mt-1 text-xs font-semibold text-slate-500">Owner: {connection.created_by === user?.id ? 'You' : (connection.owner_name || 'Unknown user')}</p>
+              )}
             </div>
           </div>
 

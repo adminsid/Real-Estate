@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import {
   Network, Search, UserPlus, Mail, Phone,
   Building2, User2, Trash2, Lock, Globe, Send, Check, X, FileText, Pencil, Star, TrendingUp, MapPin, ZoomIn,
-  Printer, Eye, Users
+  Printer, Eye, Users, Copy
 } from 'lucide-react'
 
 import { Layout } from '@/components/layout/Layout'
@@ -22,6 +22,15 @@ interface UserTarget {
   email: string
 }
 
+interface CrmContactOption {
+  id: string
+  first_name: string
+  last_name: string
+  email?: string | null
+  phone?: string | null
+  type?: string
+}
+
 
 
 const TYPE_CONFIG: Record<string, { label: string; color: string }> = {
@@ -34,18 +43,27 @@ const TYPE_CONFIG: Record<string, { label: string; color: string }> = {
   colleague: { label: 'Colleague', color: 'bg-gray-100 text-gray-700' },
 }
 
+const INTRODUCTION_STATUS_LABELS: Record<string, string> = {
+  pending: 'Sent',
+  accepted: 'In progress',
+  completed: 'Completed',
+  rejected: 'Declined',
+}
+
 export function NetworkPage() {
   const navigate = useNavigate()
   const { user } = useAuth()
   const [query, setQuery] = useState('')
   const [typeFilter, setTypeFilter] = useState('')
-  const [createdByFilter, setCreatedByFilter] = useState<'all' | 'me' | string>('all')
+  const [createdByFilter, setCreatedByFilter] = useState<'all' | 'me' | string>('me')
+  const [referralCreatedByFilter, setReferralCreatedByFilter] = useState<'all' | 'me' | string>('me')
   const [users, setUsers] = useState<UserTarget[]>([])
+  const [crmContacts, setCrmContacts] = useState<CrmContactOption[]>([])
   const [connections, setConnections] = useState<any[]>([])
   const [referrals, setReferrals] = useState<any[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [isModalOpen, setIsModalOpen] = useState(false)
-  const [tab, setTab] = useState<'directory' | 'team' | 'referrals'>('directory')
+  const [tab, setTab] = useState<'brokerage' | 'directory' | 'team' | 'referrals'>('brokerage')
 
   interface CustomTeamMember {
 
@@ -71,6 +89,7 @@ export function NetworkPage() {
     ]
   })
   const [isTeamPreviewOpen, setIsTeamPreviewOpen] = useState(false)
+  const [copiedConnectionId, setCopiedConnectionId] = useState<string | null>(null)
 
   const saveTeamMembers = (members: CustomTeamMember[]) => {
     setCustomTeamMembers(members)
@@ -211,7 +230,9 @@ export function NetworkPage() {
 
   const fetchConnections = async () => {
     try {
-      const res = await fetch('/api/network')
+      const params = new URLSearchParams()
+      if (['admin', 'broker'].includes(user?.role || '')) params.set('owner', 'all')
+      const res = await fetch(`/api/network${params.size ? `?${params}` : ''}`)
       const json = await res.json()
       if (json && json.success && Array.isArray(json.data)) setConnections(json.data)
     } catch (e) {
@@ -221,9 +242,11 @@ export function NetworkPage() {
     }
   }
 
-  const fetchReferrals = async () => {
+  const fetchReferrals = async (sender = referralCreatedByFilter) => {
     try {
-      const res = await fetch('/api/network/referrals')
+      const params = new URLSearchParams()
+      if (['admin', 'broker'].includes(user?.role || '')) params.set('sender', sender)
+      const res = await fetch(`/api/network/referrals${params.size ? `?${params}` : ''}`)
       const json = await res.json()
       if (json && json.success && Array.isArray(json.data)) setReferrals(json.data)
     } catch (e) {
@@ -234,6 +257,10 @@ export function NetworkPage() {
   useEffect(() => {
     fetchConnections()
     fetchReferrals()
+    fetch('/api/contacts?limit=100&lifecycle_stage=all&is_archived=0')
+      .then((res) => res.json())
+      .then((json) => setCrmContacts(Array.isArray(json?.data?.contacts) ? json.data.contacts : []))
+      .catch((error) => console.error('Failed to load CRM contacts for introductions', error))
     async function loadModuleSettings() {
       try {
         const res = await fetch('/api/workspace-settings?key=module_settings')
@@ -270,12 +297,6 @@ export function NetworkPage() {
   }, [])
 
   useEffect(() => {
-    if (user) {
-      setCreatedByFilter(['admin', 'broker'].includes(user.role) ? 'me' : 'all')
-    }
-  }, [user])
-
-  useEffect(() => {
     async function loadUsers() {
       if (!['admin', 'broker'].includes(user?.role || '')) {
         setUsers([])
@@ -304,6 +325,37 @@ export function NetworkPage() {
     }
   }
 
+  const handleNetworkAction = async (id: string, action: 'save' | 'share') => {
+    try {
+      const response = await fetch(`/api/network/${id}/${action}`, { method: 'POST' })
+      const result = await response.json()
+      if (!response.ok) throw new Error(result.error || 'Could not update network')
+      await fetchConnections()
+    } catch (error) {
+      alert(error instanceof Error ? error.message : 'Could not update network')
+    }
+  }
+
+  const handleCopyConnection = async (connection: any) => {
+    const text = [
+      connection.name,
+      connection.title,
+      connection.company,
+      connection.email && `Email: ${connection.email}`,
+      (connection.phone || connection.telephone) && `Phone: ${connection.phone || connection.telephone}`,
+      connection.website && `Website: ${connection.website}`,
+      connection.address && `Address: ${connection.address}`,
+    ].filter(Boolean).join('\n')
+
+    try {
+      await navigator.clipboard.writeText(text)
+      setCopiedConnectionId(connection.id)
+      window.setTimeout(() => setCopiedConnectionId(null), 1800)
+    } catch {
+      window.prompt('Copy connection details:', text)
+    }
+  }
+
 
   const [handshakeNotice, setHandshakeNotice] = useState<{
     clientName: string
@@ -319,17 +371,15 @@ export function NetworkPage() {
       const q = query.toLowerCase()
       if (q && !c.name.toLowerCase().includes(q) && !(c.title || '').toLowerCase().includes(q) && !(c.company || '').toLowerCase().includes(q)) return false
       if (typeFilter && c.type !== typeFilter) return false
-      if (['admin', 'broker'].includes(user?.role || '') && createdByFilter !== 'all') {
-        const targetUserId = createdByFilter === 'me' ? user?.id : createdByFilter
-        if (targetUserId && c.created_by !== targetUserId) return false
-      }
-      return true
+      if (tab === 'brokerage') return !c.is_private
+      const targetUserId = createdByFilter === 'me' ? user?.id : createdByFilter
+      return c.created_by === targetUserId || (targetUserId === user?.id && !!c.in_my_network)
     })
-  }, [connections, query, typeFilter, createdByFilter, user])
+  }, [connections, query, typeFilter, createdByFilter, user, tab])
 
   useEffect(() => {
     setDirectoryPage(1)
-  }, [query, typeFilter, createdByFilter])
+  }, [query, typeFilter, createdByFilter, tab])
 
 
 
@@ -351,12 +401,12 @@ export function NetworkPage() {
   }, [referrals, referralPage])
 
   const analytics = useMemo(() => {
-    const totalConnections = connections.length
+    const totalConnections = filtered.length
     const totalReferrals = referrals.length
     const completedReferrals = referrals.filter((r: any) => r.status === 'completed').length
     const conversionRate = totalReferrals > 0 ? Math.round((completedReferrals / totalReferrals) * 100) : 0
 
-    const ratings = connections
+    const ratings = filtered
       .map((c: any) => Number(c.experience_rating || 0))
       .filter((n: number) => n > 0)
     const avgRating = ratings.length > 0
@@ -364,7 +414,7 @@ export function NetworkPage() {
       : 0
 
     const typeCounts: Record<string, number> = {}
-    connections.forEach((c: any) => {
+    filtered.forEach((c: any) => {
       typeCounts[c.type] = (typeCounts[c.type] || 0) + 1
     })
     const topType = Object.entries(typeCounts).sort((a, b) => b[1] - a[1])[0]?.[0] || 'n/a'
@@ -377,7 +427,7 @@ export function NetworkPage() {
       avgRating,
       topType,
     }
-  }, [connections, referrals])
+  }, [filtered, referrals])
 
   if (isLoading) {
     return (
@@ -424,16 +474,17 @@ export function NetworkPage() {
     if (!selectedConnection) return
     const formData = new FormData(e.currentTarget)
     const data = Object.fromEntries(formData.entries())
-    
+    const crmContact = crmContacts.find((contact) => contact.id === String(data.crm_contact_id || ''))
+    if (!crmContact) return
+    const clientName = `${crmContact.first_name} ${crmContact.last_name}`.trim()
+
     try {
       const res = await fetch('/api/network/referrals', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           recipient_connection_id: selectedConnection.id,
-          client_name: data.client_name,
-          client_email: data.client_email,
-          client_phone: data.client_phone,
+          crm_contact_id: crmContact.id,
           referral_type: data.referral_type,
           notes: data.notes
         })
@@ -441,12 +492,11 @@ export function NetworkPage() {
       if (res.ok) {
         setIsReferralModalOpen(false)
 
-        // Build automated referral handshake manual links
-        const clientName = String(data.client_name || 'Client')
+        // Prepare optional introduction messages after the tracked event is saved.
         const vendorName = selectedConnection.name
-        const subject = encodeURIComponent(`Prime America Referral Handshake: ${clientName}`)
+        const subject = encodeURIComponent(`Prime America Client Introduction: ${clientName}`)
         const body = encodeURIComponent(
-          `Hello ${vendorName},\n\nI am introducing ${clientName} (${data.client_phone || data.client_email || 'Contact Info attached'}). They are looking for your services.\n\nNotes: ${data.notes || 'None'}\n\nBest regards,\n${user?.name || 'Prime America Agent'}`
+          `Hello ${vendorName},\n\nI am introducing ${clientName} (${crmContact.phone || crmContact.email || 'contact details available in CRM'}). They are looking for your services.\n\nNotes: ${data.notes || 'None'}\n\nBest regards,\n${user?.name || 'Prime America Agent'}`
         )
         const mailtoUrl = selectedConnection.email ? `mailto:${selectedConnection.email}?subject=${subject}&body=${body}` : '#'
         const smsUrl = selectedConnection.phone ? `sms:${selectedConnection.phone}?body=${encodeURIComponent(`Hi ${vendorName}, referring ${clientName} to you! Details: ${data.notes || ''}`)}` : '#'
@@ -472,19 +522,25 @@ export function NetworkPage() {
   return (
     <Layout title="Network">
       {/* Header */}
-      <div className="mb-6 flex items-center justify-between border-b border-gray-100 pb-5">
+      <div className="mb-6 flex flex-wrap gap-4 items-center justify-between border-b border-gray-100 pb-5">
         <div className="flex items-center gap-3">
           <div className="h-10 w-10 rounded-xl bg-amber-100 flex items-center justify-center">
             <Network className="h-5 w-5 text-amber-600" />
           </div>
           <div>
             <h2 className="text-xl font-bold text-gray-800">Professional Network</h2>
-            <p className="text-sm text-gray-500">Track professional B2B relations, cards, and client referrals</p>
+            <p className="text-sm text-gray-500">Keep reusable professional contacts, preferred teams, and private client introductions</p>
           </div>
         </div>
 
         {/* Sub-Tabs */}
-        <div className="flex gap-1 p-1 bg-gray-100 rounded-xl">
+        <div className="flex flex-wrap gap-1 p-1 bg-gray-100 rounded-xl">
+          <button
+            onClick={() => setTab('brokerage')}
+            className={clsx('px-4 py-2 rounded-lg text-sm font-medium transition-colors', tab === 'brokerage' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700')}
+          >
+            Brokerage Network
+          </button>
           <button
             onClick={() => setTab('directory')}
             className={clsx(
@@ -492,7 +548,7 @@ export function NetworkPage() {
               tab === 'directory' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
             )}
           >
-            B2B Directory
+            My Network
           </button>
           <button
             onClick={() => setTab('team')}
@@ -511,24 +567,30 @@ export function NetworkPage() {
               tab === 'referrals' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
             )}
           >
-            Referral Exchange Board
+            Referral Tracker
           </button>
         </div>
       </div>
 
-      {tab === 'directory' && (
+      {(tab === 'directory' || tab === 'brokerage') && (
         <div className="space-y-6">
 
+          <div>
+            <h3 className="text-lg font-bold text-gray-800">{tab === 'brokerage' ? 'Brokerage Network' : 'My Network'}</h3>
+            <p className="text-sm text-gray-500">{tab === 'brokerage'
+              ? 'Browse shared professionals and add existing contacts to your network.'
+              : 'Your contacts and professionals saved from the brokerage network.'}</p>
+          </div>
           {/* Analytics */}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
             <div className="bg-white rounded-2xl p-4 shadow-card border border-gray-100">
               <p className="text-2xl font-bold text-gray-800">{analytics.totalConnections}</p>
-              <p className="text-sm text-gray-500">Total Partners</p>
+              <p className="text-sm text-gray-500">Partners in This View</p>
             </div>
             <div className="bg-white rounded-2xl p-4 shadow-card border border-gray-100">
               <p className="text-2xl font-bold text-gray-800">{analytics.conversionRate}%</p>
               <p className="text-xs font-semibold text-emerald-700 mt-0.5">
-                {referrals.filter((r: any) => r.status === 'closed' || r.status === 'converted').length} of {referrals.length} converted
+                {analytics.completedReferrals} of {referrals.length} completed
               </p>
             </div>
             <div className="bg-white rounded-2xl p-4 shadow-card border border-gray-100">
@@ -553,7 +615,7 @@ export function NetworkPage() {
               return (
                 <div key={s.type} className="bg-white rounded-2xl p-4 shadow-card border border-gray-100">
                   <p className="text-2xl font-bold text-gray-800">
-                    {connections.filter((c: any) => c.type === s.type).length}
+                    {filtered.filter((c: any) => c.type === s.type).length}
                   </p>
                   <p className="text-sm text-gray-500">{s.label}</p>
                   <span className={`inline-flex mt-2 text-xs rounded-full px-2 py-0.5 font-medium ${cfg?.color || 'bg-gray-100'}`}>
@@ -588,14 +650,16 @@ export function NetworkPage() {
                 ))}
               </select>
 
-              {['admin', 'broker'].includes(user?.role || '') && (
+              {tab === 'directory' && ['admin', 'broker'].includes(user?.role || '') && (
                 <select
                   value={createdByFilter}
-                  onChange={(e) => setCreatedByFilter(e.target.value)}
+                  onChange={(e) => {
+                    const owner = e.target.value
+                    setCreatedByFilter(owner)
+                  }}
                   className="bg-white border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none bg-white"
                 >
-                  <option value="me">Created by me</option>
-                  <option value="all">All users</option>
+                  <option value="me">My network</option>
                   {users.map((u) => (
                     <option key={u.id} value={u.id}>{u.name}</option>
                   ))}
@@ -646,6 +710,11 @@ export function NetworkPage() {
                         {conn.company && (
                           <p className="text-xs text-gray-400 flex items-center gap-1 mt-0.5">
                             <Building2 className="h-3 w-3" /> {conn.company}
+                          </p>
+                        )}
+                        {['admin', 'broker'].includes(user?.role || '') && (
+                          <p className="mt-1 text-[11px] font-semibold text-slate-500">
+                            Owner: {conn.created_by === user?.id ? 'You' : (conn.owner_name || 'Unknown user')}
                           </p>
                         )}
                       </div>
@@ -705,26 +774,51 @@ export function NetworkPage() {
                   </div>
 
                   <div className="mt-4 pt-3 border-t border-gray-100 flex items-center justify-between">
-                    <div className="flex items-center gap-1.5">
+                    <div className="flex flex-wrap items-center gap-1.5">
                       <button
                         onClick={() => { setSelectedConnection(conn); setIsReferralModalOpen(true); }}
                         className="inline-flex items-center gap-1.5 text-xs text-blue-600 hover:text-blue-800 font-semibold transition-colors bg-blue-50 px-2.5 py-1.5 rounded-lg"
                       >
-                        <Send className="h-3 w-3" /> Refer Client
+                        <Send className="h-3 w-3" /> Create Introduction
                       </button>
+                      {tab === 'brokerage' && conn.created_by !== user?.id && (
+                        <button disabled={!!conn.in_my_network} onClick={() => handleNetworkAction(conn.id, 'save')}
+                          className="rounded-lg bg-emerald-50 px-2.5 py-1.5 text-xs font-semibold text-emerald-700 disabled:opacity-50">
+                          {conn.in_my_network ? 'In My Network' : 'Add to My Network'}
+                        </button>
+                      )}
+                      {!!conn.is_private && ['admin', 'broker'].includes(user?.role || '') && (
+                        <button onClick={() => handleNetworkAction(conn.id, 'share')}
+                          className="rounded-lg bg-emerald-50 px-2.5 py-1.5 text-xs font-semibold text-emerald-700">
+                          Add to Brokerage Network
+                        </button>
+                      )}
                       <button
-                        onClick={() => navigate(`/network/${conn.id}`)}
-                        className="text-gray-500 hover:text-gray-700 p-1.5 rounded-lg hover:bg-gray-100 transition-colors"
-                        title="View details"
+                        onClick={() => handleCopyConnection(conn)}
+                        className="inline-flex items-center gap-1.5 rounded-lg bg-slate-50 px-2.5 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-100"
+                        title="Copy all contact details"
                       >
-                        <Pencil className="h-4 w-4" />
+                        {copiedConnectionId === conn.id ? <Check className="h-3 w-3 text-emerald-600" /> : <Copy className="h-3 w-3" />}
+                        {copiedConnectionId === conn.id ? 'Copied' : 'Copy'}
                       </button>
-                      <button 
-                        onClick={() => handleDelete(conn.id)}
-                        className="text-gray-400 hover:text-red-500 p-1.5 rounded-lg hover:bg-red-50 transition-colors"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </button>
+                      {(['admin', 'broker'].includes(user?.role || '') || conn.created_by === user?.id) && (
+                        <button
+                          onClick={() => navigate(`/network/${conn.id}`)}
+                          className="text-gray-500 hover:text-gray-700 p-1.5 rounded-lg hover:bg-gray-100 transition-colors"
+                          title="Edit connection"
+                        >
+                          <Pencil className="h-4 w-4" />
+                        </button>
+                      )}
+                      {['admin', 'broker'].includes(user?.role || '') && (
+                        <button
+                          onClick={() => handleDelete(conn.id)}
+                          className="text-gray-400 hover:text-red-500 p-1.5 rounded-lg hover:bg-red-50 transition-colors"
+                          title="Delete connection"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -818,7 +912,7 @@ export function NetworkPage() {
                         className="font-extrabold text-gray-900 text-sm border-b border-transparent hover:border-gray-300 focus:border-brand-navy focus:outline-none bg-transparent py-0.5 px-1 rounded w-full"
                       />
                     </div>
-                    
+
                     <button
                       type="button"
                       onClick={() => handleRemoveMember(member.id)}
@@ -900,22 +994,38 @@ export function NetworkPage() {
 
       {tab === 'referrals' && (
 
-        /* Referral Exchange Board */
+        /* Private referral tracking */
         <div className="bg-white rounded-2xl border border-gray-100 shadow-card overflow-hidden">
-          <div className="px-6 py-4 border-b border-gray-100">
+          <div className="flex flex-wrap items-center justify-between gap-3 px-6 py-4 border-b border-gray-100">
             <h3 className="font-bold text-gray-800 flex items-center gap-2">
               <FileText className="h-5 w-5 text-blue-600" />
-              B2B Client Referrals (Give & Get Clients)
+              Private Client Introductions
             </h3>
+            {['admin', 'broker'].includes(user?.role || '') && (
+              <select
+                value={referralCreatedByFilter}
+                onChange={(e) => {
+                  const sender = e.target.value
+                  setReferralCreatedByFilter(sender)
+                  fetchReferrals(sender)
+                }}
+                className="rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm focus:outline-none"
+                aria-label="Filter introductions by sender"
+              >
+                <option value="me">My introductions</option>
+                <option value="all">Brokerage oversight</option>
+                {users.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
+              </select>
+            )}
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="text-xs font-semibold text-gray-400 border-b border-gray-100 text-left bg-gray-50/50">
                   <th className="px-6 py-4">Client Name</th>
-                  <th className="px-6 py-4">Referral Type</th>
-                  <th className="px-6 py-4">Sender</th>
-                  <th className="px-6 py-4">Recipient Professional</th>
+                  <th className="px-6 py-4">Client Need</th>
+                  <th className="px-6 py-4">Introduced By</th>
+                  <th className="px-6 py-4">Connection</th>
                   <th className="px-6 py-4">Status</th>
                   <th className="px-6 py-4">Experience</th>
                   <th className="px-6 py-4">Notes</th>
@@ -949,7 +1059,7 @@ export function NetworkPage() {
                         r.status === 'accepted' ? 'bg-blue-50 text-blue-700 border border-blue-200' :
                         r.status === 'completed' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-red-50 text-red-700 border border-red-200'
                       )}>
-                        {r.status}
+                        {INTRODUCTION_STATUS_LABELS[r.status] || r.status}
                       </span>
                     </td>
                     <td className="px-6 py-4 text-xs text-gray-600">{r.experience_rating ? `${r.experience_rating}/5` : '—'}</td>
@@ -960,14 +1070,14 @@ export function NetworkPage() {
                           <button
                             onClick={() => handleUpdateReferralStatus(r.id, 'accepted')}
                             className="bg-blue-600 hover:bg-blue-700 text-white p-1 rounded-lg transition-colors"
-                            title="Accept Referral"
+                            title="Mark in progress"
                           >
                             <Check className="h-3.5 w-3.5" />
                           </button>
                           <button
                             onClick={() => handleUpdateReferralStatus(r.id, 'rejected')}
                             className="bg-red-50 text-red-600 hover:bg-red-100 p-1 rounded-lg transition-colors"
-                            title="Reject Referral"
+                            title="Mark declined"
                           >
                             <X className="h-3.5 w-3.5" />
                           </button>
@@ -978,7 +1088,7 @@ export function NetworkPage() {
                           onClick={() => handleUpdateReferralStatus(r.id, 'completed')}
                           className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold px-2 py-1 rounded-lg transition-colors"
                         >
-                          Complete Deal
+                          Mark Completed
                         </button>
                       )}
                     </td>
@@ -987,7 +1097,7 @@ export function NetworkPage() {
                 {referrals.length === 0 && (
                   <tr>
                     <td colSpan={7} className="text-center py-12 text-gray-400">
-                      No referrals logged. Click "Refer Client" in directory list to send clients B2B!
+                      No introductions logged in this view. Create one from a connection card.
                     </td>
                   </tr>
                 )}
@@ -1008,37 +1118,35 @@ export function NetworkPage() {
         </div>
       )}
 
-      {/* Refer Client Modal */}
+      {/* Create client introduction modal */}
       {isReferralModalOpen && selectedConnection && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
           <div className="w-full max-w-md rounded-2xl bg-white shadow-xl">
             <div className="flex items-center justify-between border-b border-gray-100 p-6">
               <div>
-                <h2 className="text-lg font-bold text-gray-900">Send B2B Referral</h2>
+                <h2 className="text-lg font-bold text-gray-900">Create Client Introduction</h2>
                 <p className="text-xs text-gray-500">To: {selectedConnection.name} ({selectedConnection.type})</p>
               </div>
               <button onClick={() => { setIsReferralModalOpen(false); setSelectedConnection(null); }} className="rounded-lg p-2 text-gray-400 hover:bg-gray-100">
                 ✕
               </button>
             </div>
-            
+
             <form onSubmit={handleSendReferral} className="p-6 space-y-4">
               <div>
-                <label className="mb-1 block text-sm font-medium text-gray-700">Client/Customer Name *</label>
-                <input required name="client_name" placeholder="Johnathan Miller" className="w-full rounded-lg border border-gray-300 px-4 py-2 text-sm focus:border-blue-500 focus:outline-none" />
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="mb-1 block text-sm font-medium text-gray-700">Client Email</label>
-                  <input type="email" name="client_email" placeholder="john@email.com" className="w-full rounded-lg border border-gray-300 px-4 py-2 text-sm focus:border-blue-500 focus:outline-none" />
-                </div>
-                <div>
-                  <label className="mb-1 block text-sm font-medium text-gray-700">Client Phone</label>
-                  <input type="tel" name="client_phone" placeholder="555-0192" className="w-full rounded-lg border border-gray-300 px-4 py-2 text-sm focus:border-blue-500 focus:outline-none" />
-                </div>
+                <label className="mb-1 block text-sm font-medium text-gray-700">CRM Person *</label>
+                <select required name="crm_contact_id" defaultValue="" className="w-full rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm focus:border-blue-500 focus:outline-none">
+                  <option value="" disabled>Select an existing CRM person</option>
+                  {crmContacts.map((contact) => (
+                    <option key={contact.id} value={contact.id}>
+                      {`${contact.first_name} ${contact.last_name}`.trim()} — {contact.email || contact.phone || contact.type || 'CRM contact'}
+                    </option>
+                  ))}
+                </select>
+                <p className="mt-1.5 text-xs text-gray-500">Contact details come from CRM, so they are not entered or duplicated here.</p>
               </div>
               <div>
-                <label className="mb-1 block text-sm font-medium text-gray-700">Referral Type</label>
+                <label className="mb-1 block text-sm font-medium text-gray-700">Client Need</label>
                 <select name="referral_type" className="w-full rounded-lg border border-gray-300 px-4 py-2 text-sm focus:border-blue-500 focus:outline-none bg-white">
                   <option value="buy">Buying Client (Giving a buyer)</option>
                   <option value="sell">Selling Client (Giving a seller/listing)</option>
@@ -1050,7 +1158,7 @@ export function NetworkPage() {
               </div>
               <div className="mt-6 flex justify-end gap-3 pt-2">
                 <button type="button" onClick={() => { setIsReferralModalOpen(false); setSelectedConnection(null); }} className="rounded-lg px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-100">Cancel</button>
-                <button type="submit" className="rounded-lg bg-blue-600 hover:bg-blue-700 px-4 py-2 text-sm font-medium text-white">Send Referral</button>
+                <button type="submit" className="rounded-lg bg-blue-600 hover:bg-blue-700 px-4 py-2 text-sm font-medium text-white">Create Introduction</button>
               </div>
             </form>
           </div>
@@ -1058,7 +1166,8 @@ export function NetworkPage() {
       )}
 
       {isModalOpen && (
-        <NewConnectionModal 
+        <NewConnectionModal
+          initialData={{ is_private: tab !== 'brokerage' }}
           onClose={() => setIsModalOpen(false)}
           onSuccess={() => {
             setIsModalOpen(false)
@@ -1067,7 +1176,7 @@ export function NetworkPage() {
         />
       )}
 
-      {/* Referral Handshake Notice Modal */}
+      {/* Client introduction confirmation */}
       {handshakeNotice && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-150">
           <div className="w-full max-w-md rounded-2xl bg-white shadow-2xl overflow-hidden border border-gray-200">
@@ -1075,7 +1184,7 @@ export function NetworkPage() {
               <div className="h-12 w-12 rounded-full bg-white/20 flex items-center justify-center mx-auto mb-3 text-white">
                 <Check className="h-6 w-6" />
               </div>
-              <h3 className="font-extrabold text-xl">Referral Handshake Created</h3>
+              <h3 className="font-extrabold text-xl">Client Introduction Created</h3>
               <p className="text-xs text-emerald-100 mt-1">Tracked record logged in database</p>
             </div>
 
@@ -1085,8 +1194,8 @@ export function NetworkPage() {
               </p>
 
               <div className="p-3 bg-gray-50 rounded-xl border border-gray-200 text-xs text-gray-600">
-                <p className="font-bold text-gray-800 mb-1">Manual Introduction Handshake Triggers:</p>
-                <p>Click below to open pre-formatted email or SMS introduction with all client details attached.</p>
+                <p className="font-bold text-gray-800 mb-1">Send the introduction when ready</p>
+                <p>Open a pre-filled email or text, review it, and send it from your own account.</p>
               </div>
 
               <div className="flex flex-col gap-2.5 pt-2">
@@ -1279,5 +1388,3 @@ export function NetworkPage() {
     </Layout>
   )
 }
-
-

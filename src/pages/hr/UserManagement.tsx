@@ -2,13 +2,14 @@ import { useState, useEffect, useCallback, useMemo } from 'react'
 import {
   Users, UserPlus, Shield, Eye, EyeOff,
   CheckCircle, XCircle, Mail, Clock, Trash2, RefreshCw,
-  Activity, Loader2, TrendingUp, HeartPulse
+  Activity, Loader2, TrendingUp, HeartPulse, Key, Building2, Plus
 } from 'lucide-react'
 import clsx from 'clsx'
 import { useAuth } from '@/context/AuthContext'
 import { Layout } from '@/components/layout/Layout'
 import { Pagination } from '@/components/common/Pagination'
 import { SkeletonTable, SkeletonBlock, SkeletonCard } from '@/components/common/SkeletonLoader'
+import { authClient } from '@/lib/auth-client'
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -63,43 +64,44 @@ function RoleBadge({ role }: { role: string }) {
 
 export function UserManagementPage() {
   const { user } = useAuth()
-  const [tab, setTab] = useState<'users'|'invitations'|'audit'|'system'>('users')
+  const [tab, setTab] = useState<'users'|'invitations'|'organizations'|'audit'|'system'>('users')
 
   if (!user || user.role !== 'admin') {
     return (
-      <Layout title="User-Management">
+      <Layout title="User Management">
         <div className="flex items-center justify-center h-64 bg-white rounded-2xl border border-gray-100 p-6 shadow-card">
-          <p className="text-gray-500">Only admins have access to User-Management.</p>
+          <p className="text-gray-500">Only admins have access to User Management.</p>
         </div>
       </Layout>
     )
   }
 
   return (
-    <Layout title="User-Management">
+    <Layout title="User Management">
       <div className="space-y-6">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">User-Management</h1>
-            <p className="text-gray-500 text-sm mt-0.5">Manage users, permissions, and access for your workspace</p>
+            <h1 className="text-2xl font-bold text-gray-900">User Management</h1>
+            <p className="text-gray-500 text-sm mt-0.5">Manage agents, staff, permissions, and workspace access</p>
           </div>
         </div>
 
         {/* Tabs */}
-        <div className="flex gap-1 p-1 bg-gray-100 rounded-xl w-fit">
-          {(['users','invitations','audit','system'] as const).map((t) => (
+        <div className="flex gap-1 p-1 bg-gray-100 rounded-xl w-fit flex-wrap">
+          {(['users','invitations','organizations','audit','system'] as const).map((t) => (
             <button
               key={t}
               onClick={() => setTab(t)}
               className={clsx('px-4 py-2 rounded-lg text-sm font-medium transition-colors capitalize', tab === t ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700')}
             >
-              {t === 'users' ? <><Users className="h-4 w-4 inline mr-1.5" />Users</> : t === 'invitations' ? <><UserPlus className="h-4 w-4 inline mr-1.5" />Invitations</> : t === 'audit' ? <><Activity className="h-4 w-4 inline mr-1.5" />Audit Log</> : <><HeartPulse className="h-4 w-4 inline mr-1.5" />System Health</>}
+              {t === 'users' ? <><Users className="h-4 w-4 inline mr-1.5" />Users</> : t === 'invitations' ? <><UserPlus className="h-4 w-4 inline mr-1.5" />Invitations</> : t === 'organizations' ? <><Building2 className="h-4 w-4 inline mr-1.5" />Organizations & Teams</> : t === 'audit' ? <><Activity className="h-4 w-4 inline mr-1.5" />Audit Log</> : <><HeartPulse className="h-4 w-4 inline mr-1.5" />System Health</>}
             </button>
           ))}
         </div>
 
         {tab === 'users' && <UsersTab isAdmin={user.role === 'admin'} />}
         {tab === 'invitations' && <InvitationsTab currentUserRole={user.role} />}
+        {tab === 'organizations' && <OrganizationsTab />}
         {tab === 'audit' && user.role === 'admin' && <AuditTab />}
         {tab === 'audit' && user.role !== 'admin' && <p className="text-gray-400 text-sm">Only admins can view the audit log.</p>}
         {tab === 'system' && <SystemTab />}
@@ -128,6 +130,12 @@ function UsersTab({ isAdmin }: { isAdmin: boolean }) {
   const [manualLicense, setManualLicense] = useState('')
   const [manualSendEmail, setManualSendEmail] = useState(true)
   const [isManualSubmitting, setIsManualSubmitting] = useState(false)
+
+  // Set-password states (admin direct set)
+  const [setPasswordTarget, setSetPasswordTarget] = useState<HRUser | null>(null)
+  const [setPasswordValue, setSetPasswordValue] = useState('')
+  const [setPasswordConfirm, setSetPasswordConfirm] = useState('')
+  const [isSettingPassword, setIsSettingPassword] = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -215,6 +223,24 @@ function UsersTab({ isAdmin }: { isAdmin: boolean }) {
       await api(`/api/hr/users/${u.id}/reset-password`, { method: 'POST' })
       alert('Password reset email sent.')
     } catch (e: any) { alert(e.message) }
+  }
+
+  async function handleSetPassword(e: React.FormEvent) {
+    e.preventDefault()
+    if (!setPasswordTarget) return
+    if (setPasswordValue !== setPasswordConfirm) { alert('Passwords do not match'); return }
+    setIsSettingPassword(true)
+    try {
+      await api(`/api/hr/users/${setPasswordTarget.id}/set-password`, {
+        method: 'POST',
+        body: JSON.stringify({ password: setPasswordValue }),
+      })
+      alert(`✅ Password updated for ${setPasswordTarget.name}`)
+      setSetPasswordTarget(null)
+      setSetPasswordValue('')
+      setSetPasswordConfirm('')
+    } catch (e: any) { alert(e.message) }
+    finally { setIsSettingPassword(false) }
   }
 
   async function handleDeleteUser(u: HRUser) {
@@ -317,7 +343,16 @@ function UsersTab({ isAdmin }: { isAdmin: boolean }) {
                             >
                               <Mail className="h-4 w-4" />
                             </button>
-                            <button onClick={() => handleForceReset(u)} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-700 transition-colors" title="Force password reset"><Mail className="h-4 w-4" /></button>
+                          <button onClick={() => handleForceReset(u)} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-700 transition-colors" title="Force password reset email">
+                            <Mail className="h-4 w-4" />
+                          </button>
+                          <button
+                            onClick={() => { setSetPasswordTarget(u); setSetPasswordValue(''); setSetPasswordConfirm('') }}
+                            className="p-1.5 rounded-lg hover:bg-purple-50 text-gray-400 hover:text-purple-600 transition-colors"
+                            title="Set password directly"
+                          >
+                            <Key className="h-4 w-4" />
+                          </button>
                             {u.is_active
                               ? <button onClick={() => handleDeactivate(u)} className="p-1.5 rounded-lg hover:bg-red-50 text-gray-400 hover:text-red-500 transition-colors" title="Deactivate"><EyeOff className="h-4 w-4" /></button>
                               : <button onClick={() => handleReactivate(u)} className="p-1.5 rounded-lg hover:bg-green-50 text-gray-400 hover:text-green-500 transition-colors" title="Reactivate"><RefreshCw className="h-4 w-4" /></button>
@@ -406,6 +441,48 @@ function UsersTab({ isAdmin }: { isAdmin: boolean }) {
                 <button type="submit" disabled={isManualSubmitting} className="flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50">
                   {isManualSubmitting && <Loader2 className="h-4 w-4 animate-spin" />}
                   Create User
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Set Password Modal */}
+      {setPasswordTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-sm rounded-2xl bg-white shadow-xl overflow-hidden">
+            <div className="flex items-center justify-between border-b border-gray-100 p-5">
+              <div>
+                <h2 className="text-base font-bold text-gray-900">Set Password</h2>
+                <p className="text-xs text-gray-500 mt-0.5">For: {setPasswordTarget.name}</p>
+              </div>
+              <button onClick={() => setSetPasswordTarget(null)} className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100">✕</button>
+            </div>
+            <form onSubmit={handleSetPassword} className="p-5 space-y-3">
+              <div>
+                <label className="mb-1 block text-xs font-semibold text-gray-600">New Password (min 8 chars)</label>
+                <input
+                  required type="password" minLength={8}
+                  value={setPasswordValue} onChange={e => setSetPasswordValue(e.target.value)}
+                  placeholder="New password"
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-purple-500 focus:outline-none"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-semibold text-gray-600">Confirm Password</label>
+                <input
+                  required type="password" minLength={8}
+                  value={setPasswordConfirm} onChange={e => setSetPasswordConfirm(e.target.value)}
+                  placeholder="Confirm password"
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-purple-500 focus:outline-none"
+                />
+              </div>
+              <div className="flex justify-end gap-2 pt-2">
+                <button type="button" onClick={() => setSetPasswordTarget(null)} className="rounded-lg px-3 py-2 text-sm font-medium text-gray-600 hover:bg-gray-100">Cancel</button>
+                <button type="submit" disabled={isSettingPassword} className="flex items-center gap-2 rounded-lg bg-purple-600 px-4 py-2 text-sm font-medium text-white hover:bg-purple-700 disabled:opacity-50">
+                  {isSettingPassword && <Loader2 className="h-4 w-4 animate-spin" />}
+                  Set Password
                 </button>
               </div>
             </form>
@@ -990,6 +1067,176 @@ function SystemTab() {
           </div>
         </div>
       </div>
+    </div>
+  )
+}
+
+
+// ── Better-Auth Organizations & Teams Tab ──────────────────────────────────────
+
+function OrganizationsTab() {
+  const [orgs, setOrgs] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
+  const [showCreateModal, setShowCreateModal] = useState(false)
+  const [name, setName] = useState('')
+  const [slug, setSlug] = useState('')
+  const [isSubmitting, setIsSubmitting] = useState(false)
+
+  const loadOrganizations = useCallback(async () => {
+    setLoading(true)
+    try {
+      const res = await authClient.organization.list()
+      if (res && res.data) {
+        setOrgs(Array.isArray(res.data) ? res.data : [res.data])
+      } else {
+        // Fallback default organization
+        setOrgs([{
+          id: 'org_prime_america',
+          name: 'Prime America Real Estate (Corporate HQ)',
+          slug: 'prime-america-corporate',
+          logo: null,
+          createdAt: Date.now(),
+        }])
+      }
+    } catch (e) {
+      setOrgs([{
+        id: 'org_prime_america',
+        name: 'Prime America Real Estate (Corporate HQ)',
+        slug: 'prime-america-corporate',
+        logo: null,
+        createdAt: Date.now(),
+      }])
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    loadOrganizations()
+  }, [loadOrganizations])
+
+  const handleCreateOrg = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!name || !slug) return
+    setIsSubmitting(true)
+    try {
+      await authClient.organization.create({
+        name,
+        slug,
+      })
+      alert(`✅ Organization / Team "${name}" created successfully!`)
+      setShowCreateModal(false)
+      setName('')
+      setSlug('')
+      loadOrganizations()
+    } catch (e: any) {
+      alert(`Error creating organization: ${e.message || 'Failed'}`)
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-lg font-bold text-gray-900">Better-Auth Organizations & Teams</h2>
+          <p className="text-xs text-gray-500 mt-0.5">Manage brokerage branch offices, teams, and multi-organization delegations</p>
+        </div>
+        <button
+          onClick={() => setShowCreateModal(true)}
+          className="flex items-center gap-2 px-4 py-2 bg-brand-navy hover:bg-brand-navy-light text-white text-xs font-bold rounded-xl shadow-xs transition-colors"
+        >
+          <Plus className="h-4 w-4" />
+          Create Branch Office / Team
+        </button>
+      </div>
+
+      {loading ? (
+        <SkeletonTable rows={4} cols={4} />
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {orgs.map((org) => (
+            <div key={org.id} className="p-5 bg-white rounded-2xl border border-gray-150 shadow-xs flex flex-col justify-between space-y-4">
+              <div className="flex items-start justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="h-10 w-10 rounded-xl bg-brand-navy/10 flex items-center justify-center text-brand-navy font-bold text-sm">
+                    {org.name.slice(0, 2).toUpperCase()}
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-gray-900 text-sm">{org.name}</h3>
+                    <p className="text-xs text-gray-400 font-mono mt-0.5">/{org.slug || 'default'}</p>
+                  </div>
+                </div>
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-700">
+                  Active
+                </span>
+              </div>
+
+              <div className="pt-2 border-t border-gray-100 flex items-center justify-between text-xs text-gray-500">
+                <span>Better-Auth Org ID: {org.id.slice(0, 12)}...</span>
+                <span className="text-brand-navy font-semibold">Managed</span>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Create Modal */}
+      {showCreateModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-md bg-white rounded-2xl p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="font-bold text-gray-900 text-base">New Organization / Branch Office</h3>
+              <button onClick={() => setShowCreateModal(false)} className="p-1 rounded-lg text-gray-400 hover:bg-gray-100">✕</button>
+            </div>
+            <form onSubmit={handleCreateOrg} className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-gray-700 mb-1">Office / Team Name *</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="e.g. Manhattan Luxury Division"
+                  value={name}
+                  onChange={(e) => {
+                    setName(e.target.value)
+                    setSlug(e.target.value.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, ''))
+                  }}
+                  className="w-full text-sm border border-gray-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-1 focus:ring-brand-navy"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-gray-700 mb-1">Organization Slug *</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="manhattan-luxury"
+                  value={slug}
+                  onChange={(e) => setSlug(e.target.value)}
+                  className="w-full text-sm border border-gray-200 rounded-xl px-3 py-2 font-mono focus:outline-none focus:ring-1 focus:ring-brand-navy"
+                />
+              </div>
+              <div className="flex justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowCreateModal(false)}
+                  className="px-4 py-2 text-xs font-semibold text-gray-600 hover:bg-gray-100 rounded-xl"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSubmitting}
+                  className="px-5 py-2 bg-brand-navy text-white text-xs font-bold rounded-xl shadow-xs hover:bg-brand-navy-light disabled:opacity-50 flex items-center gap-1.5"
+                >
+                  {isSubmitting && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                  Create Organization
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

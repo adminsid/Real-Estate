@@ -54,6 +54,19 @@ export function clearSessionCookie(hostname = ''): string {
   return `${COOKIE_NAME}=; HttpOnly; Secure; SameSite=None; Path=/${domain}; Max-Age=0`
 }
 
+export function clearAllSessionCookies(hostname = ''): string[] {
+  return [
+    `${COOKIE_NAME}=; HttpOnly; Secure; SameSite=None; Path=/; Domain=.primeamericarealestate.com; Max-Age=0`,
+    `${COOKIE_NAME}=; HttpOnly; Secure; SameSite=None; Path=/; Max-Age=0`,
+    `better-auth.session_token=; HttpOnly; Secure; SameSite=None; Path=/; Domain=.primeamericarealestate.com; Max-Age=0`,
+    `better-auth.session_token=; HttpOnly; Secure; SameSite=None; Path=/; Max-Age=0`,
+    `better-auth.session_data=; HttpOnly; Secure; SameSite=None; Path=/; Domain=.primeamericarealestate.com; Max-Age=0`,
+    `better-auth.session_data=; HttpOnly; Secure; SameSite=None; Path=/; Max-Age=0`,
+    `inventory_session=; HttpOnly; Secure; SameSite=None; Path=/; Domain=.primeamericarealestate.com; Max-Age=0`,
+    `inventory_session=; HttpOnly; Secure; SameSite=None; Path=/; Max-Age=0`
+  ]
+}
+
 function getCookieValue(request: Request, name: string): string | null {
   const cookieHeader = request.headers.get('Cookie') ?? ''
   const match = cookieHeader.match(new RegExp(`(?:^|;\\s*)${name}=([^;]+)`))
@@ -76,10 +89,22 @@ export async function getSession(request: Request, jwtSecret: string, db?: D1Dat
   if (token) {
     const payload = await verifyJWT(token, jwtSecret)
     if (payload) {
+      let role = payload.role
+      if (db) {
+        const member = await db.prepare('SELECT role FROM users WHERE id=? AND tenant_id=? AND is_active=1')
+          .bind(payload.userId,payload.tenantId).first<{role:string}>()
+        if (!member) return null
+        role = member.role
+        if (payload.impersonatedBy) {
+          const principal = await db.prepare('SELECT role FROM users WHERE id=? AND tenant_id=? AND is_active=1')
+            .bind(payload.impersonatedBy,payload.tenantId).first<{role:string}>()
+          if (!principal || !canImpersonate(principal.role,role)) return null
+        }
+      }
       return {
         userId: payload.userId,
         tenantId: payload.tenantId,
-        role: payload.role,
+        role,
         impersonatedBy: payload.impersonatedBy,
         impersonationLogId: payload.impersonationLogId,
       }

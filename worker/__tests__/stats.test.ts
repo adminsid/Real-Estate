@@ -21,7 +21,7 @@ function makeEnv(overrides: Record<string, any> = {}) {
     DB: {
       prepare: (query: string) => ({
         bind: (...params: any[]) => ({
-          first: async () => null,
+          first: async () => query === 'SELECT role FROM users WHERE id=? AND tenant_id=? AND is_active=1' && params[0] === 'u1' && params[1] === 't1' ? {role:'admin'} : null,
           all: async () => ({ results: [] }),
           run: async () => ({}),
         }),

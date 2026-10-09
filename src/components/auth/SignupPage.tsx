@@ -53,12 +53,8 @@ export function SignupPage() {
       <div className="relative w-full max-w-lg">
         {/* Logo */}
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center h-16 w-16 rounded-2xl mb-4 overflow-hidden bg-brand-gold">
-            {branding.logoUrl ? (
-              <img src={branding.logoUrl} alt="Brand Logo" className="h-full w-full object-cover" />
-            ) : (
-              <span className="text-brand-navy font-bold text-2xl">RE</span>
-            )}
+          <div className="inline-flex items-center justify-center h-16 w-16 rounded-2xl mb-4 overflow-hidden">
+            <img src={branding.logoUrl || '/prime-america-seal.png'} alt="Brand Logo" className="h-full w-full object-contain" />
           </div>
           <h1 className="text-2xl font-bold text-white">Create your workspace</h1>
           <p className="text-white/50 mt-1 text-sm">Start managing your real estate business</p>

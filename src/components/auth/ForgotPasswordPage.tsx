@@ -40,8 +40,8 @@ export function ForgotPasswordPage() {
       <div className="relative w-full max-w-md">
         {/* Logo */}
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center h-16 w-16 rounded-2xl bg-brand-gold mb-4">
-            <span className="text-brand-navy font-bold text-2xl">RE</span>
+          <div className="inline-flex items-center justify-center h-16 w-16 rounded-2xl mb-4 overflow-hidden">
+            <img src="/prime-america-seal.png" alt="Prime America Real Estate" className="h-full w-full object-contain" />
           </div>
           <h1 className="text-2xl font-bold text-white">Reset your password</h1>
           <p className="text-white/50 mt-1 text-sm">

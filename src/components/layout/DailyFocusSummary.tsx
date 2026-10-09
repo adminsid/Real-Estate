@@ -48,7 +48,7 @@ export function DailyFocusSummary() {
 
         focusList.push({
           id: 'focus_deals',
-          title: 'Review Active Deals Pipeline',
+          title: 'Review Active Deals',
           subtitle: 'Check milestone progress & attorney contacts',
           priority: 'informational',
           actionUrl: '/transactions/pipeline',

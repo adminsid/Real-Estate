@@ -31,7 +31,7 @@ function makeEnv(overrides: Record<string, any> = {}) {
     DB: {
       prepare: (query: string) => ({
         bind: (...params: any[]) => ({
-          first: async () => null,
+          first: async () => query === 'SELECT role FROM users WHERE id=? AND tenant_id=? AND is_active=1' && params[0] === 'u1' && params[1] === 't1' ? {role:'admin'} : null,
           all: async () => ({ results: [] }),
           run: async () => ({}),
         }),
@@ -253,7 +253,32 @@ describe('Listings proxy — /api/listings', () => {
       sqft: 0,
       description: '',
       heroMediaUrl: null,
+      listingAgentEmail: null,
+      listingAgentName: null,
+      listingAgentPhone: null,
+      listingAgentBrokerage: 'Prime America Real Estate',
+      lotSize: 0,
+      yearBuilt: 0,
+      propertySubtype: '',
+      mlsNumber: '',
+      neighborhood: '',
+      county: '',
+      mlsAreaMajor: '',
+      mlsAreaMinor: '',
+      schoolDistrict: '',
+      elementarySchool: '',
+      middleOrJuniorSchool: '',
+      highSchool: '',
+      latitude: null,
+      longitude: null,
+      onMarketDate: null,
       media: [],
+      approval_status: null,
+      createdBy: null,
+      editUrl: 'https://inventory.primeamericarealestate.com/listings/l1',
+      readOnlyUrl: null,
+      editToken: null,
+      inviteOnlyToken: null,
     }
     const fetchSpy = vi.fn().mockResolvedValue(
       new Response(JSON.stringify(upstreamPayload), {
@@ -376,12 +401,20 @@ describe('Listings proxy — /api/listings', () => {
 
 describe('Public Listing DTO security', () => {
   const originalFetch = globalThis.fetch
-  afterEach(() => { globalThis.fetch = originalFetch })
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    globalThis.fetch = originalFetch
+  })
 
   const ALLOWED_PUBLIC_KEYS = [
     'id', 'address', 'city', 'state', 'zip', 'price', 'status',
     'type', 'propertyType', 'bedrooms', 'bathrooms', 'sqft',
     'description', 'heroMediaUrl', 'media',
+    'listingAgentEmail', 'listingAgentName', 'listingAgentPhone', 'listingAgentBrokerage',
+    'lotSize', 'yearBuilt', 'propertySubtype', 'mlsNumber', 'neighborhood',
+    'county', 'mlsAreaMajor', 'mlsAreaMinor', 'schoolDistrict',
+    'elementarySchool', 'middleOrJuniorSchool', 'highSchool',
+    'latitude', 'longitude', 'onMarketDate',
   ]
 
   function makeUpstreamListing(overrides: Record<string, any> = {}) {
@@ -413,12 +446,13 @@ describe('Public Listing DTO security', () => {
 
   it('public list response never contains raw', async () => {
     const upstream = [makeUpstreamListing()]
-    globalThis.fetch = vi.fn().mockResolvedValue(
+    const fetchSpy = vi.fn().mockResolvedValue(
       new Response(JSON.stringify({ listings: upstream }), {
         status: 200,
         headers: { 'Content-Type': 'application/json' },
       })
     )
+    globalThis.fetch = fetchSpy
 
     const res = await handler.fetch(
       new Request('https://workspace.primeamericany.com/api/public/listings'),
@@ -432,6 +466,7 @@ describe('Public Listing DTO security', () => {
       expect(item).not.toHaveProperty('raw')
       expect(item).not.toHaveProperty('secretToken')
     }
+    expect(fetchSpy.mock.calls[0]?.[0]).toBe(`${INVENTORY_ORIGIN}/api/external/listings`)
   })
 
   it('public detail response never contains raw', async () => {
@@ -490,6 +525,151 @@ describe('Public Listing DTO security', () => {
     const item = body.data
     const actualKeys = Object.keys(item).sort()
     expect(actualKeys).toEqual(ALLOWED_PUBLIC_KEYS.sort())
+  })
+
+  it('preserves safe location, area, and education fields needed by lead views', async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue(
+      Response.json(makeUpstreamListing({
+        data: {
+          listPrice: 850000,
+          city: 'Queens',
+          stateOrProvince: 'NY',
+          postalCode: '11377',
+          latitude: 40.743,
+          longitude: -73.902,
+          county: 'Queens',
+          mlsAreaMajor: 'Woodside',
+          mlsAreaMinor: 'Queens 02',
+          schoolDistrict: 'District 30',
+          elementarySchool: 'PS 11',
+          middleOrJuniorSchool: 'IS 125',
+          highSchool: 'William Cullen Bryant High School',
+        },
+      }))
+    )
+
+    const res = await handler.fetch(
+      new Request('https://workspace.primeamericany.com/api/public/listings/l1'),
+      makePublicEnv(),
+      makeCtx(),
+    )
+    const body = await res.json()
+
+    expect(body.data).toMatchObject({
+      latitude: 40.743,
+      longitude: -73.902,
+      county: 'Queens',
+      mlsAreaMajor: 'Woodside',
+      mlsAreaMinor: 'Queens 02',
+      schoolDistrict: 'District 30',
+      elementarySchool: 'PS 11',
+      middleOrJuniorSchool: 'IS 125',
+      highSchool: 'William Cullen Bryant High School',
+    })
+  })
+
+  it('treats an empty saved amenity category list as show all', async () => {
+    const env = makePublicEnv()
+    env.DB = {
+      prepare: () => ({
+        bind: () => ({
+          first: async () => ({ lat: 40.743, lng: -73.902, categories: '[]' }),
+        }),
+      }),
+    } as any
+
+    const res = await handler.fetch(
+      new Request('https://workspace.primeamericany.com/api/public/listings/l1/map-settings'),
+      env,
+      makeCtx(),
+    )
+    expect(await res.json()).toMatchObject({ success: true, data: { categories: null } })
+  })
+
+  it('loads public amenities through a server-side GET request and reports provider availability', async () => {
+    const fetchSpy = vi.fn().mockResolvedValue(Response.json({
+      elements: [{ type: 'node', id: 1, lat: 40.744, lon: -73.901, tags: { amenity: 'school', name: 'PS 11' } }],
+    }))
+    globalThis.fetch = fetchSpy
+
+    const res = await handler.fetch(
+      new Request('https://workspace.primeamericany.com/api/public/amenities?lat=40.743&lng=-73.902&radius=1000'),
+      makePublicEnv(),
+      makeCtx(),
+    )
+    const body = await res.json()
+
+    expect(body).toMatchObject({ available: true, elements: [{ id: 1 }] })
+    expect(fetchSpy.mock.calls[0][0]).toContain('https://overpass-api.de/api/interpreter?data=')
+    expect(fetchSpy.mock.calls[0][1]).not.toHaveProperty('method', 'POST')
+  })
+
+  it('uses the request execution context when caching successful amenity responses', async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue(Response.json({
+      elements: [{ type: 'node', id: 1, lat: 40.744, lon: -73.901, tags: { amenity: 'school', name: 'PS 11' } }],
+    }))
+    const cachePut = vi.fn().mockResolvedValue(undefined)
+    vi.stubGlobal('caches', {
+      default: {
+        match: vi.fn().mockResolvedValue(undefined),
+        put: cachePut,
+      },
+    })
+    const waitUntil = vi.fn()
+    const ctx = { waitUntil, passThroughOnException: vi.fn() } as unknown as ExecutionContext
+
+    const res = await handler.fetch(
+      new Request('https://workspace.primeamericany.com/api/public/amenities?lat=40.743&lng=-73.902&radius=1000'),
+      makePublicEnv(),
+      ctx,
+    )
+
+    expect(res.status).toBe(200)
+    expect(cachePut).toHaveBeenCalledOnce()
+    expect(waitUntil).toHaveBeenCalledOnce()
+  })
+
+  it('falls back to the official NYC Facilities Database when Overpass is unavailable', async () => {
+    const fetchSpy = vi.fn().mockImplementation(async (input: RequestInfo | URL) => {
+      const requestUrl = String(input)
+      if (requestUrl.startsWith('https://data.cityofnewyork.us/resource/ji82-xba5.json')) {
+        return Response.json([{
+          uid: 'school-1',
+          facname: 'PS 11 Kathryn Phelan',
+          facdomain: 'EDUCATION, CHILD WELFARE, AND YOUTH',
+          facgroup: 'EDUCATION',
+          facsubgrp: 'PUBLIC K-12 SCHOOLS',
+          factype: 'ELEMENTARY SCHOOL - PUBLIC',
+          latitude: '40.744',
+          longitude: '-73.901',
+        }])
+      }
+      return new Response('Unavailable', { status: 503 })
+    })
+    globalThis.fetch = fetchSpy
+
+    const res = await handler.fetch(
+      new Request('https://workspace.primeamericany.com/api/public/amenities?lat=40.743&lng=-73.902&radius=1000'),
+      makePublicEnv(),
+      makeCtx(),
+    )
+    const body = await res.json()
+
+    expect(body).toMatchObject({
+      available: true,
+      elements: [{
+        type: 'nyc_facility',
+        id: 'school-1',
+        lat: 40.744,
+        lon: -73.901,
+        tags: {
+          name: 'PS 11 Kathryn Phelan',
+          amenity: 'school',
+          facility_type: 'ELEMENTARY SCHOOL - PUBLIC',
+        },
+      }],
+    })
+    expect(fetchSpy).toHaveBeenCalledTimes(3)
   })
 
   it('scrubs media metadata to safe fields only', async () => {
@@ -599,5 +779,29 @@ describe('Public Listing DTO security', () => {
     expect(item.description).toBe('')
     expect(item.heroMediaUrl).toBeNull()
     expect(item.media).toEqual([])
+  })
+
+  it('opens an invite-only listing through its share token', async () => {
+    const fetchSpy = vi.fn(async (input: RequestInfo | URL) => {
+      const target = String(input)
+      if (target.includes('/api/shared/invite/l-invite/token-123')) {
+        return Response.json(makeUpstreamListing({ id: 'l-invite' }))
+      }
+      return Response.json({ listings: [] })
+    })
+    globalThis.fetch = fetchSpy
+
+    const res = await handler.fetch(
+      new Request('https://workspace.primeamericany.com/api/public/listings/l-invite?inviteToken=token-123'),
+      makePublicEnv(),
+      makeCtx()
+    )
+
+    expect(res.status).toBe(200)
+    expect(await res.json()).toMatchObject({ success: true, data: { id: 'l-invite' } })
+    expect(fetchSpy).toHaveBeenCalledWith(
+      `${INVENTORY_ORIGIN}/api/shared/invite/l-invite/token-123`,
+      expect.anything(),
+    )
   })
 })

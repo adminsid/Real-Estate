@@ -1,8 +1,9 @@
+import { useState, useEffect } from 'react'
 import { Building2, ArrowUpRight } from 'lucide-react'
 import { Layout } from '@/components/layout/Layout'
 import { AppTile } from '@/components/apps/AppTile'
 import { useAuth } from '@/context/AuthContext'
-import { APP_MODULES, isSubitemVisible } from '@/utils/constants'
+import { APP_MODULES, isSubitemVisible, deduplicateAppModules } from '@/utils/constants'
 import type { AppModule } from '@/types'
 
 interface CustomModuleInfo {
@@ -24,10 +25,86 @@ export function InventoryPage() {
     return false
   })
 
-  const modules = [
+  const rawModules = [
     ...APP_MODULES.filter((m) => m.category === 'inventory'),
     ...(visibleCustomModules as unknown as AppModule[])
-  ].filter(m => isSubitemVisible(m.id, m.category, user, can))
+  ]
+  const modules = deduplicateAppModules(rawModules).filter(m => isSubitemVisible(m.id, m.category, user, can))
+
+  // ── Live inventory metrics ────────────────────────────────────────────────
+  const [metrics, setMetrics] = useState<{
+    activeCount: number
+    totalCount: number
+    portfolioValue: number
+    openHouseCount: number
+    loading: boolean
+  }>({ activeCount: 0, totalCount: 0, portfolioValue: 0, openHouseCount: 0, loading: true })
+
+  useEffect(() => {
+    let cancelled = false
+    async function loadMetrics() {
+      try {
+        const [listRes, ohRes] = await Promise.allSettled([
+          fetch('/api/listings', { credentials: 'include' }),
+          fetch('/api/public/openhouses', { credentials: 'include' }),
+        ])
+
+        let activeCount = 0
+        let totalCount = 0
+        let portfolioValue = 0
+
+        if (listRes.status === 'fulfilled' && listRes.value.ok) {
+          const json = await listRes.value.json().catch(() => ({}))
+          const listings: any[] = json.listings || json.data || (Array.isArray(json) ? json : [])
+          totalCount = listings.length
+          const active = listings.filter((l: any) =>
+            ['active', 'Active', 'ACTIVE'].includes(l.status || l.approval_status || '')
+          )
+          activeCount = active.length
+          portfolioValue = active.reduce((sum: number, l: any) => {
+            const p = Number(l.price || l.data?.listPrice || l.data?.price || 0)
+            return sum + (isNaN(p) ? 0 : p)
+          }, 0)
+        }
+
+        let openHouseCount = 0
+        if (ohRes.status === 'fulfilled' && ohRes.value.ok) {
+          const json = await ohRes.value.json().catch(() => ({}))
+          // Accept events from api/public/openhouses — payload is at json.data (ok() wrapper)
+          // or directly as array. Status values vary across upstream versions.
+          const events: any[] = json.data || json.events || (Array.isArray(json) ? json : [])
+          const now = new Date()
+          openHouseCount = events.filter((e: any) => {
+            const status = (e.status || '').toLowerCase()
+            // Count by status keyword
+            if (['scheduled', 'active', 'published', 'happening_now'].includes(status)) return true
+            // Fallback: count any event that hasn't ended yet
+            try {
+              const endTime = new Date(e.end_time || e.endTime || '')
+              if (!isNaN(endTime.getTime()) && endTime > now) return true
+            } catch { /* ignore */ }
+            return false
+          }).length
+        }
+
+
+        if (!cancelled) {
+          setMetrics({ activeCount, totalCount, portfolioValue, openHouseCount, loading: false })
+        }
+      } catch {
+        if (!cancelled) setMetrics(m => ({ ...m, loading: false }))
+      }
+    }
+    loadMetrics()
+    return () => { cancelled = true }
+  }, [])
+
+  const fmtValue = (v: number) =>
+    v === 0
+      ? '—'
+      : v >= 1_000_000
+      ? `$${(v / 1_000_000).toFixed(1)}M`
+      : `$${Math.round(v / 1000)}K`
 
   return (
     <Layout title="Inventory">
@@ -43,35 +120,36 @@ export function InventoryPage() {
       </div>
 
       {/* Metrics Panel */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-8">
         <div className="p-4 bg-white rounded-2xl border border-gray-150 shadow-sm flex flex-col justify-between">
-          <span className="text-[11px] font-bold text-gray-400 uppercase tracking-wider">Active Inventory</span>
+          <span className="text-[11px] font-bold text-gray-400 uppercase tracking-wider">Active Listings</span>
           <div className="flex items-baseline gap-2 mt-2">
-            <span className="text-2xl font-extrabold text-gray-900">14 listings</span>
-            <span className="text-xs font-semibold text-emerald-500 flex items-center gap-0.5">
-              +2 new <ArrowUpRight className="h-3 w-3" />
+            <span className="text-2xl font-extrabold text-gray-900">
+              {metrics.loading ? '—' : `${metrics.activeCount}`}
             </span>
+            {!metrics.loading && metrics.totalCount > 0 && (
+              <span className="text-xs font-semibold text-emerald-500 flex items-center gap-0.5">
+                of {metrics.totalCount} <ArrowUpRight className="h-3 w-3" />
+              </span>
+            )}
           </div>
         </div>
         <div className="p-4 bg-white rounded-2xl border border-gray-150 shadow-sm flex flex-col justify-between">
-          <span className="text-[11px] font-bold text-gray-400 uppercase tracking-wider">Portfolio Value</span>
+          <span className="text-[11px] font-bold text-gray-400 uppercase tracking-wider">Active Portfolio Value</span>
           <div className="flex items-baseline gap-2 mt-2">
-            <span className="text-2xl font-extrabold text-gray-900">$38.5M</span>
-            <span className="text-xs font-normal text-gray-500">managed value</span>
+            <span className="text-2xl font-extrabold text-gray-900">
+              {metrics.loading ? '—' : fmtValue(metrics.portfolioValue)}
+            </span>
+            <span className="text-xs font-normal text-gray-500">listed value</span>
           </div>
         </div>
         <div className="p-4 bg-white rounded-2xl border border-gray-150 shadow-sm flex flex-col justify-between">
-          <span className="text-[11px] font-bold text-gray-400 uppercase tracking-wider">Active Open Houses</span>
+          <span className="text-[11px] font-bold text-gray-400 uppercase tracking-wider">Upcoming Open Houses</span>
           <div className="flex items-baseline gap-2 mt-2">
-            <span className="text-2xl font-extrabold text-gray-900">3 Active</span>
+            <span className="text-2xl font-extrabold text-gray-900">
+              {metrics.loading ? '—' : metrics.openHouseCount}
+            </span>
             <span className="text-xs font-semibold text-blue-500">scheduled</span>
-          </div>
-        </div>
-        <div className="p-4 bg-white rounded-2xl border border-gray-150 shadow-sm flex flex-col justify-between">
-          <span className="text-[11px] font-bold text-gray-400 uppercase tracking-wider">CMA Reports Generated</span>
-          <div className="flex items-baseline gap-2 mt-2">
-            <span className="text-2xl font-extrabold text-gray-900">28 total</span>
-            <span className="text-xs font-semibold text-emerald-500">99% accuracy</span>
           </div>
         </div>
       </div>
@@ -115,7 +193,7 @@ export function InventoryPage() {
               </a>
 
               <a
-                href="/inventory/cma"
+                href="/transactions/cma"
                 className="flex items-center justify-between p-3 bg-gray-50/50 rounded-xl border border-gray-100 hover:bg-gray-50 transition-all text-left"
               >
                 <div className="min-w-0 pr-3">

@@ -1,3 +1,4 @@
+import { avatarUrl as resolveAvatarUrl } from '@/lib/avatar'
 import { createContext, useState, useCallback, useEffect, type ReactNode } from 'react'
 import type { User, WorkspaceBranding } from '@/types'
 import { DEFAULT_BRANDING } from '@/utils/constants'
@@ -53,9 +54,7 @@ async function apiFetch(path: string, options?: RequestInit) {
 
 function normalizeUser(raw: any): User {
   const avatarRaw = raw?.avatar_url ?? raw?.avatarUrl
-  const avatarUrl = typeof avatarRaw === 'string' && avatarRaw.length > 0
-    ? (avatarRaw.startsWith('/') ? avatarRaw : `/api/auth/avatar/${encodeURIComponent(avatarRaw)}`)
-    : undefined
+  const avatarUrl = resolveAvatarUrl(avatarRaw)
 
   return {
     id: raw.id,
@@ -69,6 +68,7 @@ function normalizeUser(raw: any): User {
     avatarUrl,
     phone: raw.phone ?? undefined,
     title: raw.title ?? undefined,
+    mfa_enabled: raw.mfa_enabled !== undefined ? Number(raw.mfa_enabled) : undefined,
     createdAt: raw.created_at ?? raw.createdAt ?? new Date().toISOString(),
   }
 }
@@ -77,6 +77,9 @@ function mapTenantToBranding(tenant: any): WorkspaceBranding {
   return {
     companyName: tenant.name,
     logoUrl: tenant.logo_url ?? undefined,
+    companyAddress: tenant.company_address ?? undefined,
+    companyTelephone: tenant.company_telephone ?? undefined,
+    companyFax: tenant.company_fax ?? undefined,
     primaryColor: tenant.primary_color ?? '#0F2040',
     accentColor: tenant.accent_color ?? '#C9A84C',
     tagline: tenant.tagline ?? 'Your Real Estate Command Center',
@@ -88,6 +91,8 @@ function mapTenantToBranding(tenant: any): WorkspaceBranding {
     companyLicenseExpirationDate: tenant.company_license_expiration_date ?? null,
     companyLicenseSyncedAt: tenant.company_license_synced_at ?? null,
     companyAgentsData: tenant.company_agents_json ?? undefined,
+    leadAppDomain: tenant.lead_app_domain ?? undefined,
+    customWorkspaceDomain: tenant.custom_workspace_domain ?? undefined,
   }
 }
 
@@ -98,7 +103,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [permissions, setPermissions] = useState<Record<string, boolean>>({})
   const [impersonating, setImpersonating] = useState<{ impersonatedBy: string; logId: string } | null>(null)
   const [isLoading, setIsLoading] = useState(true)
-  const [branding, setBranding] = useState<WorkspaceBranding>(DEFAULT_BRANDING)
+  const [branding, setBranding] = useState<WorkspaceBranding>(() => {
+    try {
+      const cached = localStorage.getItem('workspace_branding')
+      if (cached) return { ...DEFAULT_BRANDING, ...JSON.parse(cached) }
+    } catch {}
+    return DEFAULT_BRANDING
+  })
   // Assistant delegation state
   const [principal, setPrincipal] = useState<User | null>(null)
   const [assistantAssignmentId, setAssistantAssignmentId] = useState<string | null>(null)
@@ -201,6 +212,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUser(normalizedUser)
       setPermissions(data.data.permissions ?? {})
       setImpersonating(null)
+      // Apply tenant branding immediately on login — no refresh needed
+      if (data.data.tenant) {
+        const brandObj = mapTenantToBranding(data.data.tenant)
+        setBranding(brandObj)
+        localStorage.setItem('workspace_branding', JSON.stringify(brandObj))
+      }
       // If assistant, fetch principal
       if (normalizedUser.role === 'assistant') {
         try {
@@ -233,6 +250,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const logout = useCallback(async () => {
+    window.dispatchEvent(new Event('workspace-logout'))
     try {
       await apiFetch('/api/auth/logout', { method: 'POST' })
     } catch (e) {

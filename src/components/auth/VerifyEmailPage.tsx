@@ -26,12 +26,8 @@ export function VerifyEmailPage() {
     <div className="min-h-screen bg-brand-navy flex items-center justify-center px-4">
       <div className="absolute inset-0 opacity-10" style={{ backgroundImage: 'radial-gradient(circle at 50% 0%, var(--brand-accent) 0%, transparent 60%)' }} />
       <div className="relative w-full max-w-md text-center">
-        <div className="inline-flex items-center justify-center h-16 w-16 rounded-2xl mb-6 overflow-hidden bg-brand-gold">
-          {branding.logoUrl ? (
-            <img src={branding.logoUrl} alt="Brand Logo" className="h-full w-full object-cover" />
-          ) : (
-            <span className="text-brand-navy font-bold text-2xl">RE</span>
-          )}
+        <div className="inline-flex items-center justify-center h-16 w-16 rounded-2xl mb-6 overflow-hidden">
+          <img src={branding.logoUrl || '/prime-america-seal.png'} alt="Brand Logo" className="h-full w-full object-contain" />
         </div>
         <div className="bg-white rounded-2xl p-10 shadow-2xl">
           {status === 'loading' && (

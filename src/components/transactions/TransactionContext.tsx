@@ -1,3 +1,4 @@
+import { CloseLinkedListingPrompt, type LinkedListingClose } from './CloseLinkedListingPrompt'
 import React, { createContext, useContext, useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 
@@ -56,6 +57,7 @@ export function useTransactionDetail() {
 }
 
 export function TransactionProvider({ children }: { children: React.ReactNode }) {
+  const [linkedListingClose, setLinkedListingClose] = useState<LinkedListingClose | null>(null)
   const { id } = useParams()
   const navigate = useNavigate()
 
@@ -244,9 +246,14 @@ export function TransactionProvider({ children }: { children: React.ReactNode })
       const res = await fetch(`/api/transactions/${id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
+        body: JSON.stringify({ ...payload, expected_revision: data?.transaction?.revision })
       })
       if (res.ok) {
+        const transaction = data?.transaction
+        const closeDate = payload.actual_close_date || payload.closing_date || transaction?.actual_close_date
+        if (payload.status === 'closed' && transaction?.status !== 'closed' && transaction?.inventory_listing_id && closeDate) {
+          setLinkedListingClose({ listingId: transaction.inventory_listing_id, dealName: transaction.name, closeDate })
+        }
         fetchTransaction()
         return true
       }
@@ -405,10 +412,11 @@ export function TransactionProvider({ children }: { children: React.ReactNode })
       })
 
       if (uploadJson.success) {
+        const fileKey = uploadJson.data?.key || uploadJson.data?.file_key || uploadJson.file_key
         await fetch(`/api/transactions/${id}/tasks/${taskId}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ document_key: uploadJson.data.key })
+          body: JSON.stringify({ document_key: fileKey })
         })
         fetchTransaction()
       }
@@ -579,6 +587,7 @@ export function TransactionProvider({ children }: { children: React.ReactNode })
       }}
     >
       {children}
+      {linkedListingClose && <CloseLinkedListingPrompt {...linkedListingClose} onClose={() => setLinkedListingClose(null)} />}
     </TransactionContext.Provider>
   )
 }

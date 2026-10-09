@@ -1,7 +1,7 @@
-import { Megaphone, Mail, Download, ExternalLink, Calendar, ArrowUpRight } from 'lucide-react'
+import { Megaphone, Mail, Download, ExternalLink, Calendar } from 'lucide-react'
 import { Layout } from '@/components/layout/Layout'
 import { AppTile } from '@/components/apps/AppTile'
-import { APP_MODULES, isSubitemVisible } from '@/utils/constants'
+import { APP_MODULES, isSubitemVisible, deduplicateAppModules } from '@/utils/constants'
 import { useAuth } from '@/context/AuthContext'
 import type { AppModule } from '@/types'
 
@@ -25,10 +25,11 @@ export function MarketingPage() {
     return false
   })
 
-  const modules = [
+  const rawModules = [
     ...APP_MODULES.filter((m) => m.category === 'marketing'),
     ...(visibleCustomModules as unknown as AppModule[])
-  ].filter(m => isSubitemVisible(m.id, m.category, user, can))
+  ]
+  const modules = deduplicateAppModules(rawModules).filter(m => isSubitemVisible(m.id, m.category, user, can))
 
   // Sample static brand assets list
   const brandAssets = [
@@ -54,35 +55,33 @@ export function MarketingPage() {
       {/* Metrics Panel */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
         <div className="p-4 bg-white rounded-2xl border border-gray-150 shadow-sm flex flex-col justify-between">
-          <span className="text-[11px] font-bold text-gray-400 uppercase tracking-wider">Email Blast CTR</span>
+          <span className="text-[11px] font-bold text-gray-400 uppercase tracking-wider">CRM Contact Database</span>
           <div className="flex items-baseline gap-2 mt-2">
-            <span className="text-2xl font-extrabold text-gray-900">12.4%</span>
+            <span className="text-2xl font-extrabold text-gray-900">Connected</span>
             <span className="text-xs font-semibold text-emerald-500 flex items-center gap-0.5">
-              +1.8% <ArrowUpRight className="h-3 w-3" />
+              Live
             </span>
           </div>
         </div>
         <div className="p-4 bg-white rounded-2xl border border-gray-150 shadow-sm flex flex-col justify-between">
-          <span className="text-[11px] font-bold text-gray-400 uppercase tracking-wider">Active Campaigns</span>
+          <span className="text-[11px] font-bold text-gray-400 uppercase tracking-wider">Open House Events</span>
           <div className="flex items-baseline gap-2 mt-2">
-            <span className="text-2xl font-extrabold text-gray-900">6 Active</span>
-            <span className="text-xs font-normal text-gray-500">running now</span>
+            <span className="text-2xl font-extrabold text-gray-900">Active</span>
+            <span className="text-xs font-normal text-gray-500">Portal integrated</span>
           </div>
         </div>
         <div className="p-4 bg-white rounded-2xl border border-gray-150 shadow-sm flex flex-col justify-between">
-          <span className="text-[11px] font-bold text-gray-400 uppercase tracking-wider">CRM Subscribers</span>
+          <span className="text-[11px] font-bold text-gray-400 uppercase tracking-wider">Brand Marketing Hub</span>
           <div className="flex items-baseline gap-2 mt-2">
-            <span className="text-2xl font-extrabold text-gray-900">2,548</span>
-            <span className="text-xs font-semibold text-emerald-500 flex items-center gap-0.5">
-              +120 <ArrowUpRight className="h-3 w-3" />
-            </span>
+            <span className="text-2xl font-extrabold text-gray-900">SSO Ready</span>
+            <span className="text-xs font-semibold text-blue-500">inside.primeamerica</span>
           </div>
         </div>
         <div className="p-4 bg-white rounded-2xl border border-gray-150 shadow-sm flex flex-col justify-between">
-          <span className="text-[11px] font-bold text-gray-400 uppercase tracking-wider">Open House RSVPs</span>
+          <span className="text-[11px] font-bold text-gray-400 uppercase tracking-wider">Mailing Campaigns</span>
           <div className="flex items-baseline gap-2 mt-2">
-            <span className="text-2xl font-extrabold text-gray-900">42 New</span>
-            <span className="text-xs font-semibold text-blue-500">this week</span>
+            <span className="text-2xl font-extrabold text-gray-900">Ready</span>
+            <span className="text-xs font-semibold text-emerald-500">Templates loaded</span>
           </div>
         </div>
       </div>
@@ -160,7 +159,7 @@ export function MarketingPage() {
             <div className="pt-2 border-t border-gray-100 flex justify-between items-center text-[10px] text-gray-500">
               <span>Updated: August 2026</span>
               <a
-                href="https://inside.primeamericarealestate.com"
+                href="/api/sso/redirect?app=brand-hub&return_to=%2Fdashboard"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-pink-600 hover:underline flex items-center gap-0.5 font-bold"

@@ -135,8 +135,8 @@ export function CommandPalette({
     {
       id: 'cmd-referral',
       command: '/referral',
-      label: 'Refer Client to Network',
-      description: 'Create a tracked referral handshake to vendor or agent',
+      label: 'Create Client Introduction',
+      description: 'Create a private, tracked introduction to a network connection',
       icon: Network,
       category: 'action',
       action: () => {
@@ -264,7 +264,10 @@ export function CommandPalette({
   if (!isOpen) return null
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center pt-16 sm:pt-24 px-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-150">
+    <div
+      className="fixed inset-0 z-50 flex items-start justify-center pt-16 sm:pt-24 px-4 bg-black/60 animate-in fade-in duration-150"
+      onClick={onClose}
+    >
       <div
         className="w-full max-w-2xl bg-white border border-gray-200 shadow-2xl rounded-2xl overflow-hidden flex flex-col max-h-[80vh] transition-all"
         onClick={(e) => e.stopPropagation()}

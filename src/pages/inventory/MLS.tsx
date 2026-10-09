@@ -14,12 +14,16 @@ import {
   Table,
   Edit3,
   Clock,
-  ChevronRight
+  ChevronRight,
+  X
 } from 'lucide-react'
 import { Layout } from '@/components/layout/Layout'
 import { Pagination } from '@/components/common/Pagination'
 import { SkeletonTable } from '@/components/common/SkeletonLoader'
+import { ListingDraftModal } from '@/components/inventory/ListingDraftModal'
+import { AgentFilterDropdown } from '@/components/transactions/AgentFilterDropdown'
 import { LISTING_STATUSES, PROPERTY_TYPES } from '@/utils/constants'
+import { resolveMediaUrl } from '@/utils/media'
 import { useAuth } from '@/context/AuthContext'
 import type { MLSListing } from '@/types'
 import clsx from 'clsx'
@@ -37,11 +41,31 @@ function isResidentialListing(listing: MLSListing | any) {
 function getListingAgent(listing: MLSListing | any) {
   const pick = (...vals: Array<string | null | undefined>) => vals.find((v) => v && String(v).trim()) || ''
   return {
-    name: pick(listing.listing_agent_name, listing.listingAgentName, listing.listAgentName, listing.agent_name),
-    email: pick(listing.listing_agent_email, listing.listingAgentEmail, listing.listAgentEmail, listing.agent_email),
-    phone: pick(listing.listing_agent_phone, listing.listingAgentPhone, listing.listAgentPhone, listing.agent_phone),
-    brokerage: pick(listing.listing_agent_brokerage, listing.listingAgentBrokerage, listing.listOfficeName, listing.brokerage_name),
+    name: pick(listing.listingAgentName, listing.listing_agent_name, listing.listAgentName, listing.agent_name, listing.data?.listAgentFullName),
+    email: pick(listing.listingAgentEmail, listing.listing_agent_email, listing.listAgentEmail, listing.agent_email, listing.data?.listAgentEmail),
+    phone: pick(listing.listingAgentPhone, listing.listing_agent_phone, listing.listAgentPhone, listing.agent_phone, listing.data?.listAgentDirectPhone),
+    brokerage: pick(listing.listingAgentBrokerage, listing.listing_agent_brokerage, listing.listOfficeName, listing.brokerage_name, listing.data?.listOfficeName),
   }
+}
+
+function isMyListing(listing: any, user: any) {
+  if (!user) return false
+  const userEmail = (user.email || '').toLowerCase()
+  const userName = (user.name || '').toLowerCase()
+  const userId = String(user.id || '')
+
+  const agent = getListingAgent(listing)
+  const listEmail = (agent.email || listing.data?.listAgentEmail || listing.agent_email || '').toLowerCase()
+  const listName = (agent.name || listing.data?.listAgentFullName || listing.agent_name || '').toLowerCase()
+  const coListEmail = (listing.data?.coListAgentEmail || '').toLowerCase()
+  const coListName = (listing.data?.coListAgentFullName || '').toLowerCase()
+  const assignedId = String(listing.assigned_to || listing.userId || listing.user_id || listing.createdBy || listing.created_by || '')
+
+  return (
+    (Boolean(userEmail) && (listEmail.includes(userEmail) || coListEmail.includes(userEmail))) ||
+    (Boolean(userName) && (listName.includes(userName) || coListName.includes(userName))) ||
+    (Boolean(userId) && assignedId === userId)
+  )
 }
 
 function getDaysOnMarket(listing: any) {
@@ -60,7 +84,10 @@ function ListingStatusBadge({ status }: { status: string }) {
   if (s === 'active') {
     classes = 'bg-emerald-100 text-emerald-700 border-emerald-200'
     label = 'Active'
-  } else if (s === 'pending') {
+  } else if (s === 'under_contract' || s === 'under contract' || s === 'contingent') {
+    classes = 'bg-violet-100 text-violet-700 border-violet-200'
+    label = 'Under Contract'
+  } else if (s === 'pending' || s === 'pending_offer') {
     classes = 'bg-amber-100 text-amber-700 border-amber-200'
     label = 'Pending'
   } else if (s === 'sold') {
@@ -99,19 +126,23 @@ export function MLSPage() {
   const [viewMode, setViewMode] = useState<'grid' | 'table'>('grid')
   const [page, setPage] = useState(1)
 
-
+  const [scopeFilter, setScopeFilter] = useState<'all' | 'my'>('all')
+  const [agentFilter, setAgentFilter] = useState<'all' | 'me' | string>('all')
+  const [mlsUsers, setMlsUsers] = useState<{ id: string; name: string; role: string }[]>([])
   const [listings, setListings] = useState<MLSListing[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [pageSize, setPageSize] = useState(25)
+  const [isDraftModalOpen, setIsDraftModalOpen] = useState(false)
 
   const isBrokerOrAdmin = user && ['admin', 'broker'].includes(user.role)
 
   const handleApproveListing = async (id: string) => {
     try {
-      const res = await fetch(`/api/listings/${id}`, {
-        method: 'PUT',
+      const res = await fetch(`/api/listings/${id}/approve`, {
+        method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ approval_status: 'active', status: 'active' }),
+        credentials: 'include',
+        body: JSON.stringify({}),
       })
       const json = await res.json()
       if (json.success) {
@@ -122,10 +153,9 @@ export function MLSPage() {
     }
   }
 
-
   const fetchListings = async () => {
     try {
-      const res = await fetch('/api/listings')
+      const res = await fetch('/api/listings', { credentials: 'include' })
       const json = await res.json()
       if (Array.isArray(json)) setListings(json)
       else if (json.listings && Array.isArray(json.listings)) setListings(json.listings)
@@ -137,13 +167,65 @@ export function MLSPage() {
     }
   }
 
+  // Fetch team users for agent filter (admin/broker only)
+  useEffect(() => {
+    if (isBrokerOrAdmin) {
+      fetch('/api/contacts/tools/users', { credentials: 'include' })
+        .then(r => r.json())
+        .then(data => {
+          if (Array.isArray(data)) setMlsUsers(data)
+          else if (data.users) setMlsUsers(data.users)
+        })
+        .catch(() => {})
+    }
+  }, [isBrokerOrAdmin])
+
   useEffect(() => { fetchListings() }, [])
 
   const filtered = useMemo(() => {
     return listings.filter((l: any) => {
+      const isMine = isMyListing(l, user)
+      const lStatus = String(l.status || '').toLowerCase()
+      const isDraft = lStatus === 'draft' || lStatus === 'pending_approval'
+
+      // Draft Privacy: draft listings are hidden from other salespersons across all tabs
+      // (only Broker/Admin or the listing creator can see them)
+      if (isDraft && !isBrokerOrAdmin && !isMine) {
+        return false
+      }
+
+      // My Listings Scope Filter
+      if (scopeFilter === 'my' && !isMine) {
+        return false
+      }
+
+      // Agent filter (broker/admin)
+      if (agentFilter !== 'all' && isBrokerOrAdmin) {
+        if (agentFilter === 'me') {
+          if (!isMine) return false
+        } else {
+          const assignedId = String(l.assigned_to || (l as any).userId || (l as any).user_id || (l as any).createdBy || (l as any).created_by || '')
+          const selectedUser = mlsUsers.find(u => u.id === agentFilter)
+          const targetEmail = (selectedUser?.name || '').toLowerCase()
+          const agent = getListingAgent(l)
+          const matchByEmail = agentFilter === (l as any).agent_id
+          const matchByAssigned = assignedId === agentFilter
+          const matchByName = Boolean(targetEmail) && (agent.name || '').toLowerCase().includes(targetEmail)
+          if (!matchByEmail && !matchByAssigned && !matchByName) return false
+        }
+      }
+
       const q = query.toLowerCase()
       if (q && !l.address.toLowerCase().includes(q) && !l.city.toLowerCase().includes(q) && !(l.mlsNumber || '').toLowerCase().includes(q)) return false
-      if (statusFilter && l.status !== statusFilter) return false
+      if (statusFilter) {
+        if (statusFilter === 'under_contract') {
+          if (lStatus !== 'under_contract' && lStatus !== 'under contract' && lStatus !== 'contingent') return false
+        } else if (statusFilter === 'pending') {
+          if (lStatus !== 'pending' && lStatus !== 'pending_offer') return false
+        } else if (lStatus !== statusFilter) {
+          return false
+        }
+      }
       if (typeFilter) {
         const propType = String(l.propertyType || l.type || '').toLowerCase()
         if (typeFilter === 'condo') {
@@ -156,7 +238,7 @@ export function MLSPage() {
       }
       return true
     })
-  }, [listings, query, statusFilter, typeFilter])
+  }, [listings, query, statusFilter, typeFilter, scopeFilter, agentFilter, user, isBrokerOrAdmin, mlsUsers])
 
 
 
@@ -186,6 +268,7 @@ export function MLSPage() {
   const QUICK_STATUS_PILLS = [
     { label: 'All', value: '' },
     { label: 'Active', value: 'active' },
+    { label: 'Under Contract', value: 'under_contract' },
     { label: 'Pending', value: 'pending' },
     { label: 'Sold', value: 'sold' },
     { label: 'Rented', value: 'rented' },
@@ -193,17 +276,56 @@ export function MLSPage() {
 
   return (
     <Layout title="Listings">
+      {/* Scope Selector: All vs My Listings */}
+      <div className="flex items-center gap-2 mb-4 bg-gray-100 p-1 rounded-xl w-fit">
+        <button
+          onClick={() => setScopeFilter('all')}
+          className={clsx(
+            "px-4 py-2 rounded-lg text-xs font-bold transition-all",
+            scopeFilter === 'all' ? "bg-white text-gray-900 shadow-xs" : "text-gray-500 hover:text-gray-700"
+          )}
+        >
+          All Brokerage Listings ({listings.length})
+        </button>
+        <button
+          onClick={() => setScopeFilter('my')}
+          className={clsx(
+            "px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5",
+            scopeFilter === 'my' ? "bg-brand-navy text-white shadow-xs" : "text-gray-500 hover:text-gray-700"
+          )}
+        >
+          <Building2 className="h-3.5 w-3.5 text-brand-gold" />
+          My Listings
+        </button>
+      </div>
+
       {/* Header row */}
       <div className="flex flex-wrap items-center gap-3 mb-4">
         <div className="flex-1 min-w-[200px] flex items-center gap-2 bg-white border border-gray-200 rounded-xl px-4 py-2.5 shadow-sm">
-          <Search className="h-4 w-4 text-gray-400" />
+          <Search className="h-4 w-4 text-gray-400 shrink-0" />
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Search by address, city, MLS#…"
             className="flex-1 text-sm focus:outline-none"
           />
+          {query && (
+            <button onClick={() => setQuery('')} className="text-gray-400 hover:text-gray-700 cursor-pointer">
+              <X className="h-3.5 w-3.5" />
+            </button>
+          )}
         </div>
+
+        {/* Agent Filter (Admin/Broker only) */}
+        {isBrokerOrAdmin && (
+          <AgentFilterDropdown
+            users={mlsUsers}
+            value={agentFilter}
+            onChange={setAgentFilter}
+            dealCountByAgent={{}}
+            currentUserId={user?.id}
+          />
+        )}
 
         {/* View Mode Toggle */}
         <div className="flex items-center bg-white border border-gray-200 rounded-xl p-1 shadow-sm">
@@ -264,13 +386,11 @@ export function MLSPage() {
         </button>
 
         <button
-          onClick={() => {
-            window.location.href = 'https://listing-input.lama-4db.workers.dev'
-          }}
+          onClick={() => setIsDraftModalOpen(true)}
           className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-brand-navy hover:bg-brand-navy-light text-white text-sm font-bold shadow-md transition-colors"
         >
           <PlusCircle className="h-4 w-4 text-brand-gold" />
-          Create Listing Draft (Inventory Admin)
+          New Listing Draft
         </button>
       </div>
 
@@ -351,11 +471,7 @@ export function MLSPage() {
                     <div className="h-40 w-full relative overflow-hidden bg-gray-100 border-b border-gray-100 flex-shrink-0 flex items-center justify-center">
                       {listing.heroMediaUrl ? (
                         <img
-                          src={
-                            listing.heroMediaUrl.startsWith('http')
-                              ? listing.heroMediaUrl
-                              : `https://inventory.primeamericarealestate.com${listing.heroMediaUrl}`
-                          }
+                          src={resolveMediaUrl(listing.heroMediaUrl, listing.id)}
                           alt={listing.address}
                           className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
                         />
@@ -382,18 +498,18 @@ export function MLSPage() {
                         )}
                       </div>
 
-                      {/* Admin/Broker Edit Shortcut Button on Hover */}
-                      {isBrokerOrAdmin && (
+                      {/* Edit Shortcut Button on Hover — only for Broker/Admin or Listing Creator */}
+                      {(isBrokerOrAdmin || isMyListing(listing, user)) && (
                         <a
-                          href={`https://inventory.primeamericarealestate.com/listings/${listing.id}`}
+                          href={(listing as any).editUrl || `https://inventory.primeamericarealestate.com/listings/${listing.id}`}
                           target="_blank"
                           rel="noopener noreferrer"
                           onClick={(e) => e.stopPropagation()}
-                          className="absolute bottom-2.5 right-2.5 opacity-0 group-hover:opacity-100 transition-opacity bg-white/95 text-gray-800 hover:text-blue-600 px-2.5 py-1 rounded-lg text-xs font-bold shadow-md border border-gray-200 flex items-center gap-1 backdrop-blur-sm"
-                          title="Open in Inventory Admin"
+                          className="absolute bottom-2.5 right-2.5 opacity-0 group-hover:opacity-100 transition-opacity bg-white/95 text-gray-800 hover:text-brand-navy px-2.5 py-1 rounded-lg text-xs font-bold shadow-md border border-gray-200 flex items-center gap-1 backdrop-blur-sm"
+                          title="Edit Listing Form"
                         >
-                          <Edit3 className="h-3.5 w-3.5" />
-                          Edit in Admin
+                          <Edit3 className="h-3.5 w-3.5 text-brand-navy" />
+                          Edit Form
                         </a>
                       )}
                     </div>
@@ -483,7 +599,7 @@ export function MLSPage() {
                       </div>
 
                       {/* Inventory Admin Approve Action Button */}
-                      {isBrokerOrAdmin && listing.approval_status === 'pending_approval' && (
+                      {isBrokerOrAdmin && ['pending_review', 'pending_approval'].includes(listing.approval_status || '') && (
                         <div className="mt-3 pt-2 border-t border-amber-200">
                           <button
                             type="button"
@@ -493,7 +609,7 @@ export function MLSPage() {
                             }}
                             className="w-full py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs shadow-sm flex items-center justify-center gap-1.5 transition-colors"
                           >
-                            ✓ Approve & Publish Live to MLS
+                            ✓ Approve listing
                           </button>
                         </div>
                       )}
@@ -534,7 +650,7 @@ export function MLSPage() {
                           <div className="flex items-center gap-3">
                             {listing.heroMediaUrl ? (
                               <img
-                                src={listing.heroMediaUrl.startsWith('http') ? listing.heroMediaUrl : `https://inventory.primeamericarealestate.com${listing.heroMediaUrl}`}
+                                src={resolveMediaUrl(listing.heroMediaUrl, listing.id)}
                                 alt=""
                                 className="h-10 w-12 rounded-lg object-cover border border-gray-200 flex-shrink-0"
                               />
@@ -589,15 +705,15 @@ export function MLSPage() {
                             >
                               View
                             </button>
-                            {isBrokerOrAdmin && (
+                            {(isBrokerOrAdmin || isMyListing(listing, user)) && (
                               <a
-                                href={`https://inventory.primeamericarealestate.com/listings/${listing.id}`}
+                                href={(listing as any).editUrl || `https://inventory.primeamericarealestate.com/listings/${listing.id}`}
                                 target="_blank"
                                 rel="noopener noreferrer"
                                 className="px-2.5 py-1 rounded-lg text-xs font-bold bg-white text-gray-700 border border-gray-200 hover:bg-gray-50 transition-colors flex items-center gap-1"
-                                title="Edit in Inventory Admin"
+                                title="Edit Listing Form"
                               >
-                                <Edit3 className="h-3 w-3" /> Edit
+                                <Edit3 className="h-3 w-3 text-brand-navy" /> Edit
                               </a>
                             )}
                           </div>
@@ -611,9 +727,47 @@ export function MLSPage() {
           )}
 
           {filtered.length === 0 && (
-            <div className="text-center py-16 text-gray-400">
-              <p className="text-lg font-medium">No listings match your search.</p>
-              <p className="text-sm mt-1">Try adjusting your filters.</p>
+            <div className="bg-white rounded-2xl border border-gray-200 p-12 text-center max-w-lg mx-auto my-8 shadow-xs space-y-4">
+              <div className="h-16 w-16 bg-brand-navy/10 text-brand-navy rounded-2xl flex items-center justify-center mx-auto">
+                <Building2 className="h-8 w-8 text-brand-gold" />
+              </div>
+              {scopeFilter === 'my' ? (
+                <>
+                  <h3 className="text-lg font-bold text-gray-900">No Assigned Listings Yet</h3>
+                  <p className="text-sm text-gray-500 max-w-sm mx-auto">
+                    You don't have any active property listings assigned under your agent profile. You can draft a new listing or browse all brokerage properties.
+                  </p>
+                  <div className="flex flex-col sm:flex-row items-center justify-center gap-3 pt-2">
+                    <button
+                      type="button"
+                      onClick={() => setIsDraftModalOpen(true)}
+                      className="w-full sm:w-auto px-5 py-2.5 bg-brand-navy hover:bg-brand-navy-light text-white text-xs font-bold rounded-xl shadow-sm transition-colors flex items-center justify-center gap-2"
+                    >
+                      <PlusCircle className="h-4 w-4 text-brand-gold" />
+                      Create Listing Draft
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setScopeFilter('all')}
+                      className="w-full sm:w-auto px-5 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs font-bold rounded-xl transition-colors"
+                    >
+                      View All Brokerage Inventory ({listings.length})
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <h3 className="text-lg font-bold text-gray-900">No Listings Match Your Search</h3>
+                  <p className="text-sm text-gray-500">Try adjusting your filters, search terms, or status selection.</p>
+                  <button
+                    type="button"
+                    onClick={() => { setQuery(''); setStatusFilter(''); setTypeFilter(''); }}
+                    className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs font-bold rounded-xl transition-colors"
+                  >
+                    Reset All Filters
+                  </button>
+                </>
+              )}
             </div>
           )}
 
@@ -629,6 +783,16 @@ export function MLSPage() {
           )}
         </>
       )}
+
+      {/* 2-Step Listing Creation & Scoped Links Modal */}
+      <ListingDraftModal
+        isOpen={isDraftModalOpen}
+        onClose={() => setIsDraftModalOpen(false)}
+        onSuccess={() => {
+          setScopeFilter('my')
+          fetchListings()
+        }}
+      />
     </Layout>
   )
 }

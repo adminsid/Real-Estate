@@ -21,6 +21,17 @@ const FROM = {
   name: 'Prime America Real Estate',
 }
 
+/** Email destinations come from deployment configuration, never a request Host header. */
+export function workspaceEmailUrl(baseUrl: string, path: string): string {
+  let url: URL
+  try { url = new URL(baseUrl) } catch { throw new Error('APP_BASE_URL must be a valid Workspace URL') }
+  const local = url.protocol === 'http:' && ['localhost', '127.0.0.1'].includes(url.hostname)
+  if ((!local && url.protocol !== 'https:') || url.hostname === 'undefined' || url.username || url.password || url.search || url.hash || url.pathname !== '/') {
+    throw new Error('APP_BASE_URL must be a Workspace origin using HTTPS')
+  }
+  return new URL(path, url).href
+}
+
 function baseHtml(title: string, body: string): string {
   return `<!DOCTYPE html>
 <html lang="en">
@@ -63,7 +74,7 @@ export async function sendVerificationEmail(
   token: string,
   baseUrl: string,
 ): Promise<void> {
-  const link = `${baseUrl}/verify-email?token=${token}`
+  const link = workspaceEmailUrl(baseUrl, `/verify-email?token=${encodeURIComponent(token)}`)
   await email.send({
     to: [{ email: to, name }],
     from: FROM,
@@ -86,7 +97,7 @@ export async function sendPasswordResetEmail(
   token: string,
   baseUrl: string,
 ): Promise<void> {
-  const link = `${baseUrl}/reset-password?token=${token}`
+  const link = workspaceEmailUrl(baseUrl, `/reset-password?token=${encodeURIComponent(token)}`)
   await email.send({
     to: [{ email: to, name }],
     from: FROM,
@@ -112,7 +123,7 @@ export async function sendInvitationEmail(
   token: string,
   baseUrl: string,
 ): Promise<void> {
-  const link = `${baseUrl}/accept-invite?token=${token}`
+  const link = workspaceEmailUrl(baseUrl, `/accept-invite?token=${encodeURIComponent(token)}`)
   const greeting = inviteeName ? `Hi ${inviteeName},` : 'Hello,'
   await email.send({
     to: [{ email: to, name: inviteeName ?? undefined }],
@@ -133,18 +144,20 @@ export async function sendWelcomeEmail(
   email: EmailBinding,
   to: string,
   name: string,
+  baseUrl: string,
 ): Promise<void> {
+  const loginLink = workspaceEmailUrl(baseUrl, '/login')
   await email.send({
     to: [{ email: to, name }],
     from: FROM,
     subject: 'Welcome to RE Workspace!',
-    text: `Hi ${name},\n\nYour account is verified and ready. Sign in at your workspace URL.\n\n— Prime America Real Estate`,
+    text: `Hi ${name},\n\nYour account is verified and ready. Sign in at ${loginLink}.\n\n— Prime America Real Estate`,
     html: baseHtml(
       'Welcome to RE Workspace',
       `<p>Hi ${name},</p>
        <p>Your RE Workspace account is verified and ready to use. You now have access to your personalized command center.</p>
        <p>Sign in to get started:</p>
-       <a href="https://re-workspace.lama-4db.workers.dev/login" class="btn">Open RE Workspace</a>`,
+       <a href="${loginLink}" class="btn">Open RE Workspace</a>`,
     ),
   })
 }
@@ -156,13 +169,16 @@ export async function sendManualUserWelcomeEmail(
   tempPassword: string,
   tenantName: string,
   baseUrl: string,
+  verificationToken?: string,
 ): Promise<void> {
-  const loginLink = `${baseUrl}/login`
+  const loginLink = workspaceEmailUrl(baseUrl, '/login')
+  const verificationLink = verificationToken ? workspaceEmailUrl(baseUrl, `/verify-email?token=${encodeURIComponent(verificationToken)}`) : null
+  const verificationText = verificationLink ? `\n\nBefore signing in, verify your email:\n${verificationLink}\nThis verification link expires in 24 hours.` : ''
   await email.send({
     to: [{ email: to, name }],
     from: FROM,
     subject: `Your RE Workspace account for ${tenantName} is ready`,
-    text: `Hi ${name},\n\nAn account has been created for you at ${tenantName}.\n\nAccess details:\nURL: ${loginLink}\nEmail: ${to}\nTemporary Password: ${tempPassword}\n\nPlease sign in and change your password.\n\n— Prime America Real Estate`,
+    text: `Hi ${name},\n\nAn account has been created for you at ${tenantName}.\n\nAccess details:\nURL: ${loginLink}\nEmail: ${to}\nTemporary Password: ${tempPassword}${verificationText}\n\nPlease sign in and change your password. Only the most recently sent temporary password will work.\n\n— Prime America Real Estate`,
     html: baseHtml(
       'Account Ready',
       `<p>Hi ${name},</p>
@@ -173,6 +189,7 @@ export async function sendManualUserWelcomeEmail(
          <strong>Email:</strong> ${to}<br/>
          <strong>Temporary Password:</strong> ${tempPassword}
        </div>
+       ${verificationLink ? `<p>Before signing in, verify your email address. This link expires in 24 hours.</p><a href="${verificationLink}" class="btn">Verify Email Address</a>` : ''}
        <p>For security, please sign in and update your password immediately in Settings.</p>
        <a href="${loginLink}" class="btn">Sign In Now</a>`
     )
@@ -189,7 +206,7 @@ export async function sendComplianceNotificationEmail(
   documentKey: string,
   baseUrl: string
 ): Promise<void> {
-  const deskLink = `${baseUrl}/transactions/desk`
+  const deskLink = workspaceEmailUrl(baseUrl, '/transactions/desk')
   await email.send({
     to: [{ email: brokerEmail, name: brokerName }],
     from: FROM,
@@ -215,7 +232,7 @@ export async function sendDeadlineWarningEmail(
   dueDate: string,
   baseUrl: string
 ): Promise<void> {
-  const dealLink = `${baseUrl}/transactions`
+  const dealLink = workspaceEmailUrl(baseUrl, '/transactions')
   await email.send({
     to: [{ email: agentEmail, name: agentName }],
     from: FROM,

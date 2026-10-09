@@ -13,6 +13,7 @@
  */
 
 import type { D1Database } from '@cloudflare/workers-types'
+import { normalizeLifecycleStage, normalizeQualificationStatus } from './domain'
 
 export interface Env {
   DB: D1Database
@@ -31,6 +32,16 @@ function ok<T>(data: T): Response { return json({ success: true, data }, 200) }
 function err(message: string, status = 400): Response { return json({ success: false, error: message }, status) }
 
 function newId(): string { return crypto.randomUUID() }
+
+function normalizeEmail(value: unknown): string | null {
+  const email = typeof value === 'string' ? value.trim().toLowerCase() : ''
+  return email || null
+}
+
+function normalizePhone(value: unknown): string | null {
+  const phone = typeof value === 'string' ? value.replace(/\D/g, '') : ''
+  return phone || null
+}
 
 // ── Auth context from gateway headers ────────────────────────────────────────
 
@@ -72,6 +83,8 @@ interface ContactRow {
   first_name: string; last_name: string; email: string | null; phone: string | null
   type: string; status: string; source: string | null; notes: string | null
   tags: string | null; address: string | null; is_active: number
+  source_listing_id?: string | null; is_archived?: number; lifecycle_stage?: string | null
+  qualification_status?: string | null
   created_at: string; updated_at: string
 }
 
@@ -117,6 +130,109 @@ function toCsv(rows: Array<Record<string, unknown>>, headers: string[]): string 
   return `${head}\n${body}`
 }
 
+type SourcedContactInput = {
+  sourceType: 'listing_inquiry' | 'open_house_attendance'
+  sourceId: string
+  listingId: string | null
+  openHouseEventId?: string | null
+  assignedTo: string
+  firstName: string
+  lastName: string
+  email?: string | null
+  phone?: string | null
+  address?: string | null
+  notes?: string | null
+  consentStatus: 'property_contact_only' | 'property_and_marketing'
+  consentCapturedAt: string
+  occurredAt?: string
+  metadata?: Record<string, unknown>
+}
+
+async function upsertSourcedContact(env: Env, tenantId: string, input: SourcedContactInput) {
+  const priorSource = await env.DB.prepare(
+    'SELECT contact_id FROM contact_source_links WHERE tenant_id = ? AND source_type = ? AND source_id = ?'
+  ).bind(tenantId, input.sourceType, input.sourceId).first<{ contact_id: string }>()
+  if (priorSource?.contact_id) return { contactId: priorSource.contact_id, created: false, sourceCreated: false }
+
+  const email = normalizeEmail(input.email)
+  const phone = normalizePhone(input.phone)
+  let existing: { id: string; assigned_to?: string | null } | null = null
+  if (email) {
+    existing = await env.DB.prepare(
+      'SELECT id, assigned_to FROM contacts WHERE tenant_id = ? AND is_active = 1 AND lower(trim(email)) = ? LIMIT 1'
+    ).bind(tenantId, email).first<{ id: string }>()
+  }
+  if (!existing && phone) {
+    existing = await env.DB.prepare(
+      `SELECT id, assigned_to FROM contacts WHERE tenant_id = ? AND is_active = 1 AND normalized_phone = ? LIMIT 1`
+    ).bind(tenantId, phone).first<{ id: string }>()
+  }
+
+  if (existing?.assigned_to && existing.assigned_to !== input.assignedTo) return { conflict: true as const, contactId: existing.id }
+  const contactId = existing?.id || `con_${newId().replace(/-/g, '').slice(0, 12)}`
+  const statements: D1PreparedStatement[] = []
+  if (existing) {
+    statements.push(env.DB.prepare(
+      `UPDATE contacts SET
+         assigned_to = COALESCE(assigned_to, ?),
+         email = COALESCE(email, ?), phone = COALESCE(phone, ?), address = COALESCE(address, ?),
+         source = COALESCE(source, ?), source_listing_id = COALESCE(source_listing_id, ?),
+         lifecycle_stage = CASE WHEN lifecycle_stage = 'lead' THEN 'inquiry' ELSE lifecycle_stage END,
+         is_archived = 0, updated_at = datetime('now')
+       WHERE id = ? AND tenant_id = ?`
+    ).bind(
+      input.assignedTo, email, input.phone || null, input.address || null,
+      input.sourceType, input.listingId, contactId, tenantId
+    ))
+  } else {
+    statements.push(env.DB.prepare(
+      `INSERT INTO contacts
+       (id, tenant_id, assigned_to, first_name, last_name, email, phone, type, status, source, notes, address,
+        source_listing_id, lifecycle_stage, qualification_status, is_archived)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'buyer', 'prospect', ?, ?, ?, ?, 'inquiry', 'unqualified', 0)`
+    ).bind(
+      contactId, tenantId, input.assignedTo, input.firstName.trim(), input.lastName.trim(),
+      email, input.phone || null, input.sourceType, input.notes || null, input.address || null, input.listingId
+    ))
+  }
+
+  const sourceLinkId = `src_${newId().replace(/-/g, '').slice(0, 12)}`
+  statements.push(env.DB.prepare(
+    `INSERT INTO contact_source_links
+     (id, tenant_id, contact_id, source_type, source_id, listing_id, open_house_event_id,
+      consent_status, consent_captured_at, metadata_json, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`
+  ).bind(
+    sourceLinkId, tenantId, contactId, input.sourceType, input.sourceId, input.listingId,
+    input.openHouseEventId || null, input.consentStatus, input.consentCapturedAt,
+    input.metadata ? JSON.stringify(input.metadata) : null
+  ))
+
+  const activityId = `act_${tenantId}_${input.sourceType}_${input.sourceId}`
+  statements.push(env.DB.prepare(
+    `INSERT OR IGNORE INTO contact_activities
+     (id, contact_id, tenant_id, user_id, type, title, body, occurred_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+  ).bind(
+    activityId, contactId, tenantId, input.assignedTo,
+    input.sourceType === 'open_house_attendance' ? 'open_house' : 'inquiry',
+    input.sourceType === 'open_house_attendance' ? 'Open House Attendance' : 'Listing Inquiry',
+    input.notes || null,
+    input.occurredAt || input.consentCapturedAt
+  ))
+
+  try {
+    await env.DB.batch(statements)
+  } catch (error) {
+    // A concurrent copy of this command may have won the unique source key.
+    const prior = await env.DB.prepare('SELECT contact_id FROM contact_source_links WHERE tenant_id = ? AND source_type = ? AND source_id = ?')
+      .bind(tenantId, input.sourceType, input.sourceId).first<{ contact_id: string }>()
+    if (prior) return { contactId: prior.contact_id, created: false, sourceCreated: false }
+    throw error
+  }
+  return { contactId, created: !existing, sourceCreated: true }
+}
+
 // ════════════════════════════════════════════════════════════════════════════
 // MAIN HANDLER
 // ════════════════════════════════════════════════════════════════════════════
@@ -140,9 +256,33 @@ export default {
     // For assistant, use principalId for data ownership
     const effectiveUserId = ctx.isAssistant ? ctx.principalId : ctx.userId
 
-    const url  = new URL(request.url)
-    const path = url.pathname
-    const method = request.method
+    if (path === '/api/contacts/upsert-inquiry' && method === 'POST') {
+      const body = await request.json<Omit<SourcedContactInput, 'sourceType'>>()
+      if (!body.sourceId || !body.listingId || !body.assignedTo || !body.firstName || !body.lastName || !body.consentCapturedAt) {
+        return err('Inquiry source, listing, agent, name, and consent timestamp are required', 400)
+      }
+      if (ctx.role !== 'system' || ctx.userId !== body.assignedTo) return err('Forbidden inquiry assignment', 403)
+      const assignee = await env.DB.prepare('SELECT id FROM users WHERE id = ? AND tenant_id = ? AND is_active = 1')
+        .bind(body.assignedTo, ctx.tenantId).first()
+      if (!assignee) return err('Inquiry assignment requires an active tenant member', 403)
+      const result = await upsertSourcedContact(env, ctx.tenantId, { ...body, sourceType: 'listing_inquiry' })
+      if ('conflict' in result) return Response.json({success:false,error:'Contact ownership needs broker review',contactId:result.contactId},{status:409})
+      return ok(result)
+    }
+
+    if (path === '/api/contacts/upsert-open-house-attendance' && method === 'POST') {
+      const body = await request.json<Omit<SourcedContactInput, 'sourceType'>>()
+      if (!body.sourceId || !body.openHouseEventId || !body.assignedTo || !body.firstName || !body.lastName || !body.consentCapturedAt) {
+        return err('Attendance source, event, agent, name, and consent timestamp are required', 400)
+      }
+      if (ctx.role !== 'system' || ctx.userId !== body.assignedTo) return err('Forbidden attendance assignment', 403)
+      const assignee = await env.DB.prepare('SELECT id FROM users WHERE id = ? AND tenant_id = ? AND is_active = 1')
+        .bind(body.assignedTo, ctx.tenantId).first()
+      if (!assignee) return err('Attendance assignment requires an active tenant member', 403)
+      const result = await upsertSourcedContact(env, ctx.tenantId, { ...body, listingId: body.listingId || null, sourceType: 'open_house_attendance' })
+      if ('conflict' in result) return err('Contact ownership needs broker review', 409)
+      return ok(result)
+    }
 
     // ── List contacts ─────────────────────────────────────────────────────
     // GET /api/contacts
@@ -155,9 +295,46 @@ export default {
       const status = url.searchParams.get('status') ?? ''
       const leadStage = url.searchParams.get('lead_stage') ?? ''
       const assignedTo = url.searchParams.get('assigned_to') ?? ''
+      const lifecycle = url.searchParams.get('lifecycle_stage') ?? ''
+      const listingId = url.searchParams.get('listing_id') ?? ''
+      const isArchived = url.searchParams.get('is_archived') === '1' ? 1 : 0
+      const budgetBracket = url.searchParams.get('budget_bracket') ?? ''
 
       let query = 'SELECT * FROM contacts WHERE tenant_id = ? AND is_active = 1'
       const params: (string | number)[] = [ctx.tenantId]
+
+      // Filter by archive status
+      query += ' AND (is_archived = ? OR (is_archived IS NULL AND ? = 0))'
+      params.push(isArchived, isArchived)
+
+      if (lifecycle && lifecycle !== 'all') {
+        if (lifecycle === 'leads') {
+          query += " AND (lifecycle_stage = 'lead' OR (lifecycle_stage IS NULL AND status = 'prospect'))"
+        } else if (lifecycle === 'active_clients') {
+          query += " AND (lifecycle_stage = 'active_client' OR (lifecycle_stage IS NULL AND status = 'active'))"
+        } else if (lifecycle === 'sphere') {
+          query += " AND (lifecycle_stage = 'past_client' OR (lifecycle_stage IS NULL AND status IN ('closed', 'past_client')))"
+        } else if (lifecycle === 'inquiries') {
+          query += " AND lifecycle_stage = 'inquiry'"
+        }
+      }
+
+      if (listingId) {
+        query += ' AND source_listing_id = ?'
+        params.push(listingId)
+      }
+
+      if (budgetBracket) {
+        if (budgetBracket === 'under_500k') {
+          query += ' AND budget_max <= 500000'
+        } else if (budgetBracket === '500k_1m') {
+          query += ' AND budget_max > 500000 AND budget_max <= 1000000'
+        } else if (budgetBracket === '1m_2m') {
+          query += ' AND budget_max > 1000000 AND budget_max <= 2000000'
+        } else if (budgetBracket === '2m_plus') {
+          query += ' AND budget_max > 2000000'
+        }
+      }
 
       if (search) { query += ' AND (first_name LIKE ? OR last_name LIKE ? OR email LIKE ? OR phone LIKE ? OR address LIKE ?)'; params.push(`%${search}%`, `%${search}%`, `%${search}%`, `%${search}%`, `%${search}%`) }
       if (type)   { query += ' AND type = ?'; params.push(type) }
@@ -177,8 +354,12 @@ export default {
         query += ' AND assigned_to = ?'
         params.push(ctx.principalId!)
       } else if (!['admin','broker'].includes(ctx.role) || assignedTo) {
-        query += ' AND assigned_to = ?'
-        params.push(assignedTo || ctx.userId)
+        if (assignedTo === 'unassigned' && ['admin', 'broker'].includes(ctx.role)) {
+          query += " AND (assigned_to IS NULL OR assigned_to = '')"
+        } else {
+          query += ' AND assigned_to = ?'
+          params.push(assignedTo || ctx.userId)
+        }
       }
 
       query += ' ORDER BY updated_at DESC LIMIT ? OFFSET ?'
@@ -189,6 +370,38 @@ export default {
       // Count total (without pagination)
       let countQuery = 'SELECT COUNT(*) as cnt FROM contacts WHERE tenant_id = ? AND is_active = 1'
       const countParams: (string | number)[] = [ctx.tenantId]
+      countQuery += ' AND (is_archived = ? OR (is_archived IS NULL AND ? = 0))'
+      countParams.push(isArchived, isArchived)
+
+      if (lifecycle && lifecycle !== 'all') {
+        if (lifecycle === 'leads') {
+          countQuery += " AND (lifecycle_stage = 'lead' OR (lifecycle_stage IS NULL AND status = 'prospect'))"
+        } else if (lifecycle === 'active_clients') {
+          countQuery += " AND (lifecycle_stage = 'active_client' OR (lifecycle_stage IS NULL AND status = 'active'))"
+        } else if (lifecycle === 'sphere') {
+          countQuery += " AND (lifecycle_stage = 'past_client' OR (lifecycle_stage IS NULL AND status IN ('closed', 'past_client')))"
+        } else if (lifecycle === 'inquiries') {
+          countQuery += " AND lifecycle_stage = 'inquiry'"
+        }
+      }
+
+      if (listingId) {
+        countQuery += ' AND source_listing_id = ?'
+        countParams.push(listingId)
+      }
+
+      if (budgetBracket) {
+        if (budgetBracket === 'under_500k') {
+          countQuery += ' AND budget_max <= 500000'
+        } else if (budgetBracket === '500k_1m') {
+          countQuery += ' AND budget_max > 500000 AND budget_max <= 1000000'
+        } else if (budgetBracket === '1m_2m') {
+          countQuery += ' AND budget_max > 1000000 AND budget_max <= 2000000'
+        } else if (budgetBracket === '2m_plus') {
+          countQuery += ' AND budget_max > 2000000'
+        }
+      }
+
       if (search) { countQuery += ' AND (first_name LIKE ? OR last_name LIKE ? OR email LIKE ? OR phone LIKE ? OR address LIKE ?)'; countParams.push(`%${search}%`, `%${search}%`, `%${search}%`, `%${search}%`, `%${search}%`) }
       if (type)   { countQuery += ' AND type = ?'; countParams.push(type) }
       if (status) { countQuery += ' AND status = ?'; countParams.push(status) }
@@ -206,12 +419,36 @@ export default {
         countQuery += ' AND assigned_to = ?'
         countParams.push(ctx.principalId!)
       } else if (!['admin','broker'].includes(ctx.role) || assignedTo) {
-        countQuery += ' AND assigned_to = ?'
-        countParams.push(assignedTo || ctx.userId)
+        if (assignedTo === 'unassigned' && ['admin', 'broker'].includes(ctx.role)) {
+          countQuery += " AND (assigned_to IS NULL OR assigned_to = '')"
+        } else {
+          countQuery += ' AND assigned_to = ?'
+          countParams.push(assignedTo || ctx.userId)
+        }
       }
       const total = await env.DB.prepare(countQuery).bind(...countParams).first<{ cnt: number }>()
 
-      return ok({ contacts: rows.results.map(formatContact), total: total?.cnt ?? 0, page, limit })
+      const formattedContacts = rows.results.map(formatContact)
+      const ownerIds = Array.from(new Set(formattedContacts.map((contact) => contact.assigned_to).filter(Boolean))) as string[]
+      let ownerById = new Map<string, { name: string; role: string }>()
+      if (ownerIds.length > 0) {
+        const owners = await env.DB
+          .prepare(`SELECT id, name, role FROM users WHERE tenant_id = ? AND id IN (${ownerIds.map(() => '?').join(',')})`)
+          .bind(ctx.tenantId, ...ownerIds)
+          .all<{ id: string; name: string; role: string }>()
+        ownerById = new Map((owners.results || []).map((owner) => [owner.id, { name: owner.name, role: owner.role }]))
+      }
+
+      return ok({
+        contacts: formattedContacts.map((contact) => ({
+          ...contact,
+          assigned_to_name: contact.assigned_to ? ownerById.get(contact.assigned_to)?.name || null : null,
+          assigned_to_role: contact.assigned_to ? ownerById.get(contact.assigned_to)?.role || null : null,
+        })),
+        total: total?.cnt ?? 0,
+        page,
+        limit,
+      })
     }
 
     // ── Create contact / lead ───────────────────────────────────────────────
@@ -225,6 +462,7 @@ export default {
         financingReadiness?: string; moveDate?: string; sellerMotivation?: string
         representationStatus?: string; urgency?: string; preferredContactMethod?: string
         language?: string; nextFollowUpDate?: string; nextAction?: string; leadStage?: string
+        sourceListingId?: string; lifecycleStage?: string; qualificationStatus?: string; isArchived?: number
       }>()
 
       if (!body.firstName || !body.lastName) return err('First name and last name are required')
@@ -232,7 +470,11 @@ export default {
       // Assistant: force assigned_to to principal_id
       const effectiveUserId = ctx.isAssistant ? ctx.principalId! : ctx.userId
       const assignedTo = ctx.isAssistant ? ctx.principalId! : (body.assignedTo ?? ctx.userId)
-      const leadStage = body.leadStage ?? (body.nextFollowUpDate ? 'needs_follow_up' : 'new')
+      const leadStage = body.leadStage ?? 'new'
+      const lifecycleStage = normalizeLifecycleStage(body.lifecycleStage ?? (body.sourceListingId ? 'inquiry' : 'lead'))
+      const qualificationStatus = normalizeQualificationStatus(body.qualificationStatus ?? body.leadStage ?? 'unqualified')
+      if (!lifecycleStage) return err('Unknown lifecycle stage', 400)
+      if (!qualificationStatus) return err('Unknown qualification status', 400)
       const createdByAssistant = ctx.isAssistant ? 1 : 0
 
       const id = `con_${newId().replace(/-/g, '').slice(0, 12)}`
@@ -241,8 +483,9 @@ export default {
           (id, tenant_id, assigned_to, first_name, last_name, email, phone, type, status, source, notes, tags, address,
            timeline, budget_min, budget_max, financing_readiness, move_date, seller_motivation, representation_status,
            urgency, preferred_contact_method, language, next_follow_up_date, next_action, lead_stage,
+           source_listing_id, lifecycle_stage, qualification_status, is_archived,
            created_by_assistant, assistant_assignment_id)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
         .bind(
           id, ctx.tenantId, assignedTo,
           body.firstName.trim(), body.lastName.trim(),
@@ -255,6 +498,7 @@ export default {
           body.financingReadiness ?? null, body.moveDate ?? null, body.sellerMotivation ?? null,
           body.representationStatus ?? null, body.urgency ?? null, body.preferredContactMethod ?? null,
           body.language ?? null, body.nextFollowUpDate ?? null, body.nextAction ?? null, leadStage,
+          body.sourceListingId ?? null, lifecycleStage, qualificationStatus, body.isArchived ?? 0,
           createdByAssistant, ctx.isAssistant ? ctx.assignmentId : null
         )
         .run()
@@ -303,15 +547,19 @@ export default {
         params.push(effectiveUserId)
       }
 
-      const [total, active, prospects, closed, overdue, needsFollowUp, qualified, newLeads] = await Promise.all([
-        env.DB.prepare(`SELECT COUNT(*) as n ${base}`).bind(...params).first<{ n: number }>(),
-        env.DB.prepare(`SELECT COUNT(*) as n ${base} AND status = 'active'`).bind(...params).first<{ n: number }>(),
-        env.DB.prepare(`SELECT COUNT(*) as n ${base} AND status = 'prospect'`).bind(...params).first<{ n: number }>(),
-        env.DB.prepare(`SELECT COUNT(*) as n ${base} AND status = 'closed'`).bind(...params).first<{ n: number }>(),
-        env.DB.prepare(`SELECT COUNT(*) as n ${base} AND (next_follow_up_date IS NOT NULL AND date(next_follow_up_date) < date('now'))`).bind(...params).first<{ n: number }>(),
-        env.DB.prepare(`SELECT COUNT(*) as n ${base} AND (next_follow_up_date IS NOT NULL AND date(next_follow_up_date) = date('now'))`).bind(...params).first<{ n: number }>(),
-        env.DB.prepare(`SELECT COUNT(*) as n ${base} AND lead_stage = 'qualified'`).bind(...params).first<{ n: number }>(),
-        env.DB.prepare(`SELECT COUNT(*) as n ${base} AND lead_stage = 'new'`).bind(...params).first<{ n: number }>(),
+      const [total, active, prospects, closed, overdue, needsFollowUp, qualified, newLeads, leadsCount, activeClientsCount, sphereCount, inquiriesCount] = await Promise.all([
+        env.DB.prepare(`SELECT COUNT(*) as n ${base} AND (is_archived = 0 OR is_archived IS NULL)`).bind(...params).first<{ n: number }>(),
+        env.DB.prepare(`SELECT COUNT(*) as n ${base} AND status = 'active' AND (is_archived = 0 OR is_archived IS NULL)`).bind(...params).first<{ n: number }>(),
+        env.DB.prepare(`SELECT COUNT(*) as n ${base} AND status = 'prospect' AND (is_archived = 0 OR is_archived IS NULL)`).bind(...params).first<{ n: number }>(),
+        env.DB.prepare(`SELECT COUNT(*) as n ${base} AND status = 'closed' AND (is_archived = 0 OR is_archived IS NULL)`).bind(...params).first<{ n: number }>(),
+        env.DB.prepare(`SELECT COUNT(*) as n ${base} AND (is_archived = 0 OR is_archived IS NULL) AND (next_follow_up_date IS NOT NULL AND date(next_follow_up_date) < date('now'))`).bind(...params).first<{ n: number }>(),
+        env.DB.prepare(`SELECT COUNT(*) as n ${base} AND (is_archived = 0 OR is_archived IS NULL) AND (next_follow_up_date IS NOT NULL AND date(next_follow_up_date) = date('now'))`).bind(...params).first<{ n: number }>(),
+        env.DB.prepare(`SELECT COUNT(*) as n ${base} AND qualification_status = 'qualified' AND (is_archived = 0 OR is_archived IS NULL)`).bind(...params).first<{ n: number }>(),
+        env.DB.prepare(`SELECT COUNT(*) as n ${base} AND qualification_status = 'unqualified' AND (is_archived = 0 OR is_archived IS NULL)`).bind(...params).first<{ n: number }>(),
+        env.DB.prepare(`SELECT COUNT(*) as n ${base} AND (is_archived = 0 OR is_archived IS NULL) AND (lifecycle_stage = 'lead' OR (lifecycle_stage IS NULL AND status = 'prospect'))`).bind(...params).first<{ n: number }>(),
+        env.DB.prepare(`SELECT COUNT(*) as n ${base} AND (is_archived = 0 OR is_archived IS NULL) AND (lifecycle_stage = 'active_client' OR (lifecycle_stage IS NULL AND status = 'active'))`).bind(...params).first<{ n: number }>(),
+        env.DB.prepare(`SELECT COUNT(*) as n ${base} AND (is_archived = 0 OR is_archived IS NULL) AND (lifecycle_stage = 'past_client' OR (lifecycle_stage IS NULL AND status IN ('closed', 'past_client')))`).bind(...params).first<{ n: number }>(),
+        env.DB.prepare(`SELECT COUNT(*) as n ${base} AND (is_archived = 0 OR is_archived IS NULL) AND lifecycle_stage = 'inquiry'`).bind(...params).first<{ n: number }>(),
       ])
 
       return ok({
@@ -323,7 +571,75 @@ export default {
         needsFollowUp: needsFollowUp?.n ?? 0,
         qualified: qualified?.n ?? 0,
         newLeads: newLeads?.n ?? 0,
+        leads: leadsCount?.n ?? 0,
+        activeClients: activeClientsCount?.n ?? 0,
+        sphere: sphereCount?.n ?? 0,
+        inquiries: inquiriesCount?.n ?? 0,
       })
+    }
+
+    // ── Agenda / Today's Action Items ─────────────────────────────────────
+    // GET /api/contacts/agenda
+    if (path === '/api/contacts/agenda' && method === 'GET') {
+      const clientDate = url.searchParams.get('client_date')
+      const effectiveUserId = ctx.isAssistant ? ctx.principalId! : ctx.userId
+      let query = clientDate
+        ? "SELECT * FROM contacts WHERE tenant_id = ? AND is_active = 1 AND (is_archived = 0 OR is_archived IS NULL) AND next_follow_up_date IS NOT NULL AND date(next_follow_up_date) <= date(?)"
+        : "SELECT * FROM contacts WHERE tenant_id = ? AND is_active = 1 AND (is_archived = 0 OR is_archived IS NULL) AND next_follow_up_date IS NOT NULL AND date(next_follow_up_date) <= date('now')"
+      const params: (string | number)[] = [ctx.tenantId]
+      if (clientDate) params.push(clientDate)
+      if (!['admin', 'broker'].includes(ctx.role)) {
+        query += ' AND assigned_to = ?'
+        params.push(effectiveUserId)
+      }
+      query += ' ORDER BY next_follow_up_date ASC LIMIT 6'
+      const rows = await env.DB.prepare(query).bind(...params).all<ContactRow>()
+      return ok(rows.results.map(formatContact))
+    }
+
+    // ── Batch Archive Inquiries / Contacts ────────────────────────────────
+    // POST /api/contacts/batch-archive
+    if (path === '/api/contacts/batch-archive' && method === 'POST') {
+      const body = await request.json<{ contactIds: string[]; isArchived?: boolean }>()
+      const contactIds = body.contactIds || []
+      if (contactIds.length === 0) return err('contactIds array required', 400)
+      const isArchivedVal = body.isArchived === false ? 0 : 1
+      const placeholders = contactIds.map(() => '?').join(',')
+      await env.DB
+        .prepare(`UPDATE contacts SET is_archived = ?, updated_at = datetime('now') WHERE tenant_id = ? AND id IN (${placeholders})`)
+        .bind(isArchivedVal, ctx.tenantId, ...contactIds)
+        .run()
+      return ok({ modified: contactIds.length, is_archived: isArchivedVal })
+    }
+
+    // ── Batch Promote Inquiries to Active Leads ───────────────────────────
+    // POST /api/contacts/batch-promote
+    if (path === '/api/contacts/batch-promote' && method === 'POST') {
+      const body = await request.json<{ contactIds: string[]; targetStage?: string }>()
+      const contactIds = body.contactIds || []
+      if (contactIds.length === 0) return err('contactIds array required', 400)
+      const targetStage = normalizeLifecycleStage(body.targetStage || 'lead')
+      if (!targetStage) return err('Unknown lifecycle stage', 400)
+      const placeholders = contactIds.map(() => '?').join(',')
+      await env.DB
+        .prepare(`UPDATE contacts SET lifecycle_stage = ?, is_archived = 0, updated_at = datetime('now') WHERE tenant_id = ? AND id IN (${placeholders})`)
+        .bind(targetStage, ctx.tenantId, ...contactIds)
+        .run()
+      return ok({ modified: contactIds.length, target_stage: targetStage })
+    }
+
+    // ── Promote Listing Inquiry to Active Lead ────────────────────────────
+    // POST /api/contacts/promote-inquiry
+    if (path === '/api/contacts/promote-inquiry' && method === 'POST') {
+      const body = await request.json<{ contactId: string; targetStage?: string }>()
+      if (!body.contactId) return err('contactId required', 400)
+      const targetStage = normalizeLifecycleStage(body.targetStage || 'lead')
+      if (!targetStage) return err('Unknown lifecycle stage', 400)
+      await env.DB
+        .prepare("UPDATE contacts SET lifecycle_stage = ?, is_archived = 0, updated_at = datetime('now') WHERE tenant_id = ? AND id = ?")
+        .bind(targetStage, ctx.tenantId, body.contactId)
+        .run()
+      return ok({ success: true, contactId: body.contactId, lifecycle_stage: targetStage })
     }
 
     // GET /api/contacts/tools/users
@@ -333,11 +649,16 @@ export default {
       }
 
       const users = await env.DB
-        .prepare('SELECT id, name, email, role, is_active FROM users WHERE tenant_id = ? AND is_active = 1 ORDER BY name ASC')
+        .prepare(`SELECT u.id, u.name, u.email, u.role, u.avatar_url, u.is_active, COUNT(c.id) AS contact_count
+          FROM users u
+          LEFT JOIN contacts c ON c.assigned_to = u.id AND c.tenant_id = u.tenant_id AND c.is_active = 1
+          WHERE u.tenant_id = ? AND u.is_active = 1 AND u.role IN ('admin', 'broker', 'agent', 'salesperson')
+          GROUP BY u.id, u.name, u.email, u.role, u.avatar_url, u.is_active
+          ORDER BY u.name ASC`)
         .bind(ctx.tenantId)
-        .all<UserRow>()
+        .all<UserRow & { contact_count: number; avatar_url?: string }>()
 
-      return ok((users.results || []).map((u) => ({ id: u.id, name: u.name, email: u.email, role: u.role })))
+      return ok((users.results || []).map((u) => ({ id: u.id, name: u.name, email: u.email, role: u.role, avatarUrl: u.avatar_url, contactCount: Number(u.contact_count || 0) })))
     }
 
     // POST /api/contacts/bulk/assign
@@ -698,25 +1019,64 @@ export default {
       // Fetch associated transactions
       const transactions = await env.DB
         .prepare(`
-          SELECT t.id, t.name, t.status, t.type, t.price, t.target_close_date, t.created_at
+          SELECT t.id, t.name, t.status, t.type, t.price, t.target_close_date, t.created_at,
+                 tp.id as party_id, tp.role as party_role, tp.is_primary
           FROM transactions t
           JOIN transaction_parties tp ON tp.transaction_id = t.id
-          WHERE tp.contact_id = ? AND t.tenant_id = ?
+          WHERE tp.contact_id = ? AND t.tenant_id = ? AND t.is_active = 1
           ORDER BY t.created_at DESC
         `)
         .bind(contactMatch[1], ctx.tenantId)
         .all()
 
-      return ok({ contact: formatContact(contact), activities: activities.results, transactions: transactions.results })
+      const owner = contact.assigned_to
+        ? await env.DB.prepare('SELECT id, name, role FROM users WHERE id = ? AND tenant_id = ?').bind(contact.assigned_to, ctx.tenantId).first<{ id: string; name: string; role: string }>()
+        : null
+      return ok({
+        contact: {
+          ...formatContact(contact),
+          assigned_to_name: owner?.name || null,
+          assigned_to_role: owner?.role || null,
+        },
+        activities: activities.results,
+        transactions: transactions.results,
+      })
+    }
+
+    // ── Activity CRUD (Edit / Delete individual activity) ─────────────────
+    const activitySingleMatch = path.match(/^\/api\/contacts\/([^/]+)\/activities\/([^/]+)$/)
+    if (activitySingleMatch && method === 'PUT') {
+      const contactId = activitySingleMatch[1]
+      const activityId = activitySingleMatch[2]
+      const body = await request.json<{ title?: string; body?: string; type?: string }>()
+      await env.DB
+        .prepare(`UPDATE contact_activities SET
+          title = COALESCE(?, title),
+          body = COALESCE(?, body),
+          type = COALESCE(?, type)
+          WHERE id = ? AND contact_id = ? AND tenant_id = ?`)
+        .bind(body.title ?? null, body.body ?? null, body.type ?? null, activityId, contactId, ctx.tenantId)
+        .run()
+      return ok({ updated: true })
+    }
+
+    if (activitySingleMatch && method === 'DELETE') {
+      const contactId = activitySingleMatch[1]
+      const activityId = activitySingleMatch[2]
+      await env.DB
+        .prepare('DELETE FROM contact_activities WHERE id = ? AND contact_id = ? AND tenant_id = ?')
+        .bind(activityId, contactId, ctx.tenantId)
+        .run()
+      return ok({ deleted: true })
     }
 
     // ── Update contact ────────────────────────────────────────────────────
     // PUT /api/contacts/:id
     if (contactMatch && method === 'PUT') {
       const existing = await env.DB
-        .prepare('SELECT id, assigned_to, notes FROM contacts WHERE id = ? AND tenant_id = ? AND is_active = 1')
+        .prepare('SELECT * FROM contacts WHERE id = ? AND tenant_id = ? AND is_active = 1')
         .bind(contactMatch[1], ctx.tenantId)
-        .first<{ id: string; assigned_to: string | null; notes: string | null }>()
+        .first<ContactRow>()
       if (!existing) return err('Contact not found', 404)
       // Assistant: enforce principal ownership
       const effectiveUserId = ctx.isAssistant ? ctx.principalId! : ctx.userId
@@ -726,13 +1086,22 @@ export default {
 
       const body = await request.json<Record<string, any>>()
 
+      // Helper to distinguish undefined (keep old) vs null/empty (clear value)
+      const getVal = (key: string, existingVal: any) => {
+        if (body[key] !== undefined) {
+          if (body[key] === '' || body[key] === null) return null
+          return body[key]
+        }
+        return existingVal
+      }
+
       // Build field changes for audit
       const fieldChanges: Record<string, { old: any; new: any }> = {}
       const fields = [
         'firstName', 'lastName', 'email', 'phone', 'type', 'status', 'source', 'notes', 'tags', 'address',
         'assignedTo', 'timeline', 'budgetMin', 'budgetMax', 'financingReadiness', 'moveDate',
         'sellerMotivation', 'representationStatus', 'urgency', 'preferredContactMethod', 'language',
-        'nextFollowUpDate', 'nextAction', 'leadStage'
+        'nextFollowUpDate', 'nextAction', 'leadStage', 'sourceListingId', 'lifecycleStage', 'qualificationStatus', 'isArchived'
       ]
       for (const f of fields) {
         const bodyKey = f.replace(/([A-Z])/g, '_$1').toLowerCase()
@@ -742,51 +1111,80 @@ export default {
       }
 
       // Assistant: force assigned_to to principal_id (ignore body value)
-      const assignedToValue = ctx.isAssistant ? ctx.principalId! : (body.assignedTo ?? existing.assigned_to)
+      const assignedToValue = ctx.isAssistant ? ctx.principalId! : (body.assignedTo !== undefined ? (body.assignedTo || null) : existing.assigned_to)
       const updatedByAssistant = ctx.isAssistant ? 1 : 0
+      const tagsValue = body.tags !== undefined ? (body.tags ? JSON.stringify(body.tags) : null) : existing.tags
+      const isArchivedValue = body.isArchived !== undefined ? (body.isArchived ? 1 : 0) : (existing.is_archived ?? 0)
+      const nextLifecycleStage = normalizeLifecycleStage(getVal('lifecycleStage', existing.lifecycle_stage))
+      const nextQualificationStatus = normalizeQualificationStatus(
+        getVal('qualificationStatus', existing.qualification_status ?? existing.lead_stage),
+      )
+      if (!nextLifecycleStage) return err('Unknown lifecycle stage', 400)
+      if (!nextQualificationStatus) return err('Unknown qualification status', 400)
 
       await env.DB
         .prepare(`UPDATE contacts SET
-          first_name               = COALESCE(?, first_name),
-          last_name                = COALESCE(?, last_name),
-          email                    = COALESCE(?, email),
-          phone                    = COALESCE(?, phone),
-          type                     = COALESCE(?, type),
-          status                   = COALESCE(?, status),
-          source                   = COALESCE(?, source),
-          notes                    = COALESCE(?, notes),
-          tags                     = COALESCE(?, tags),
-          address                  = COALESCE(?, address),
-          assigned_to              = COALESCE(?, assigned_to),
-          timeline                 = COALESCE(?, timeline),
-          budget_min               = COALESCE(?, budget_min),
-          budget_max               = COALESCE(?, budget_max),
-          financing_readiness      = COALESCE(?, financing_readiness),
-          move_date                = COALESCE(?, move_date),
-          seller_motivation        = COALESCE(?, seller_motivation),
-          representation_status    = COALESCE(?, representation_status),
-          urgency                  = COALESCE(?, urgency),
-          preferred_contact_method = COALESCE(?, preferred_contact_method),
-          language                 = COALESCE(?, language),
-          next_follow_up_date      = COALESCE(?, next_follow_up_date),
-          next_action              = COALESCE(?, next_action),
-          lead_stage               = COALESCE(?, lead_stage),
+          first_name               = ?,
+          last_name                = ?,
+          email                    = ?,
+          phone                    = ?,
+          type                     = ?,
+          status                   = ?,
+          source                   = ?,
+          notes                    = ?,
+          tags                     = ?,
+          address                  = ?,
+          assigned_to              = ?,
+          timeline                 = ?,
+          budget_min               = ?,
+          budget_max               = ?,
+          financing_readiness      = ?,
+          move_date                = ?,
+          seller_motivation        = ?,
+          representation_status    = ?,
+          urgency                  = ?,
+          preferred_contact_method = ?,
+          language                 = ?,
+          next_follow_up_date      = ?,
+          next_action              = ?,
+          lead_stage               = ?,
+          source_listing_id        = ?,
+          lifecycle_stage          = ?,
+          qualification_status     = ?,
+          is_archived              = ?,
           updated_by_assistant     = ?,
           assistant_assignment_id  = ?,
           updated_at               = datetime('now')
           WHERE id = ? AND tenant_id = ?`)
         .bind(
-          body.firstName ?? null, body.lastName ?? null,
-          body.email ?? null, body.phone ?? null,
-          body.type ?? null, body.status ?? null,
-          body.source ?? null, body.notes ?? null,
-          body.tags ? JSON.stringify(body.tags) : null,
-          body.address ?? null,
+          getVal('firstName', existing.first_name),
+          getVal('lastName', existing.last_name),
+          getVal('email', existing.email),
+          getVal('phone', existing.phone),
+          getVal('type', existing.type),
+          getVal('status', existing.status),
+          getVal('source', existing.source),
+          getVal('notes', existing.notes),
+          tagsValue,
+          getVal('address', existing.address),
           assignedToValue,
-          body.timeline ?? null, body.budgetMin ?? null, body.budgetMax ?? null,
-          body.financingReadiness ?? null, body.moveDate ?? null, body.sellerMotivation ?? null,
-          body.representationStatus ?? null, body.urgency ?? null, body.preferredContactMethod ?? null,
-          body.language ?? null, body.nextFollowUpDate ?? null, body.nextAction ?? null, body.leadStage ?? null,
+          getVal('timeline', existing.timeline),
+          getVal('budgetMin', existing.budget_min),
+          getVal('budgetMax', existing.budget_max),
+          getVal('financingReadiness', existing.financing_readiness),
+          getVal('moveDate', existing.move_date),
+          getVal('sellerMotivation', existing.seller_motivation),
+          getVal('representationStatus', existing.representation_status),
+          getVal('urgency', existing.urgency),
+          getVal('preferredContactMethod', existing.preferred_contact_method),
+          getVal('language', existing.language),
+          getVal('nextFollowUpDate', existing.next_follow_up_date),
+          getVal('nextAction', existing.next_action),
+          getVal('leadStage', existing.lead_stage),
+          getVal('sourceListingId', existing.source_listing_id),
+          nextLifecycleStage,
+          nextQualificationStatus,
+          isArchivedValue,
           updatedByAssistant, ctx.isAssistant ? ctx.assignmentId : null,
           contactMatch[1], ctx.tenantId,
         )
@@ -902,7 +1300,7 @@ export default {
 
       // Update lead stage to converted
       await env.DB
-        .prepare("UPDATE contacts SET lead_stage = 'converted', status = 'active', updated_at = datetime('now') WHERE id = ? AND tenant_id = ?")
+        .prepare("UPDATE contacts SET lead_stage = 'converted', qualification_status = 'qualified', status = 'active', updated_at = datetime('now') WHERE id = ? AND tenant_id = ?")
         .bind(contactId, ctx.tenantId)
         .run()
 

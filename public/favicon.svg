@@ -1,10 +1,8 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
-  <rect width="64" height="64" rx="14" fill="#0F2040"/>
-  <!-- House shape -->
-  <path d="M32 12 L52 30 L48 30 L48 52 L16 52 L16 30 L12 30 Z" fill="#C9A84C"/>
-  <!-- Door -->
-  <rect x="26" y="38" width="12" height="14" rx="2" fill="#0F2040"/>
-  <!-- Window -->
-  <rect x="20" y="32" width="8" height="7" rx="1" fill="#0F2040"/>
-  <rect x="36" y="32" width="8" height="7" rx="1" fill="#0F2040"/>
+  <!-- Navy shield background -->
+  <path d="M32 4 L58 14 L58 34 C58 48 46 58 32 62 C18 58 6 48 6 34 L6 14 Z" fill="#0F2040"/>
+  <!-- Gold shield border -->
+  <path d="M32 6 L56 16 L56 34 C56 47 45 56 32 60 C19 56 8 47 8 34 L8 16 Z" fill="none" stroke="#C9A84C" stroke-width="1.5"/>
+  <!-- Gold P letterform -->
+  <text x="32" y="40" font-family="Georgia, serif" font-size="26" font-weight="700" fill="#C9A84C" text-anchor="middle">PA</text>
 </svg>

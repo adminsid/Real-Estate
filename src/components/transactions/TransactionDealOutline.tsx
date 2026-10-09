@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useAuth } from '@/context/AuthContext'
+import { useTransactionDetail } from './TransactionContext'
+
 const getAbsoluteUrl = (url?: string) => {
   if (!url) return ''
   if (url.startsWith('http://') || url.startsWith('https://') || url.startsWith('data:')) return url
@@ -7,50 +9,64 @@ const getAbsoluteUrl = (url?: string) => {
 }
 
 interface TransactionDealOutlineProps {
-  transactionId: string
-  parties: any[]
+  transactionId?: string
+  parties?: any[]
 }
 
-export function TransactionDealOutline({ transactionId, parties }: TransactionDealOutlineProps) {
+export function TransactionDealOutline({ transactionId, parties: propsParties }: TransactionDealOutlineProps) {
   const { branding } = useAuth()
-  const [outlineFields, setOutlineFields] = useState<any>({})
-  const [tx, setTx] = useState<any>(null)
+  const context = useTransactionDetail()
+
+  const [fetchedTx, setFetchedTx] = useState<any>(null)
+
+  const tx = context?.data?.transaction || fetchedTx
+  const parties = context?.data?.parties || propsParties || []
 
   useEffect(() => {
-    async function loadData() {
-      try {
-        const res = await fetch(`/api/transactions/${transactionId}`)
-        const json = await res.json()
-        if (json.success) {
-          const t = json.data.transaction
-          setTx(t)
-          if (t.parties_involved) {
-            try {
-              if (t.parties_involved.startsWith('{')) {
-                setOutlineFields(JSON.parse(t.parties_involved))
-              } else {
-                setOutlineFields({ notes: t.parties_involved })
-              }
-            } catch (e) {
-              setOutlineFields({ notes: t.parties_involved })
-            }
+    if (!context?.data?.transaction && transactionId) {
+      async function loadData() {
+        try {
+          const res = await fetch(`/api/transactions/${transactionId}`)
+          const json = await res.json()
+          if (json.success) {
+            setFetchedTx(json.data.transaction)
           }
+        } catch (e) {
+          console.error(e)
         }
-      } catch (e) {
-        console.error(e)
       }
+      loadData()
     }
-    loadData()
-  }, [transactionId])
+  }, [transactionId, context?.data?.transaction])
+
+  const outlineFields = (() => {
+    if (!tx?.parties_involved) return {}
+    try {
+      if (typeof tx.parties_involved === 'object') return tx.parties_involved
+      if (tx.parties_involved.startsWith('{')) {
+        return JSON.parse(tx.parties_involved)
+      }
+      return { notes: tx.parties_involved }
+    } catch {
+      return { notes: tx.parties_involved }
+    }
+  })()
 
   const getBuyersList = () => {
     const list: any[] = []
-    if (outlineFields.buyerName) list.push({ name: outlineFields.buyerName, address: outlineFields.buyerAddress, email: outlineFields.buyerEmail, phone: outlineFields.buyerPhone })
+    if (outlineFields.buyerName || outlineFields.buyerAddress || outlineFields.buyerEmail || outlineFields.buyerPhone) {
+      list.push({
+        name: outlineFields.buyerName,
+        address: outlineFields.buyerAddress,
+        email: outlineFields.buyerEmail,
+        phone: outlineFields.buyerPhone
+      })
+    }
     if (outlineFields.additionalBuyers && Array.isArray(outlineFields.additionalBuyers)) {
       list.push(...outlineFields.additionalBuyers)
     }
-    parties.filter(p => p.role === 'buyer').forEach(p => {
-      if (!list.some(x => x.email === p.email)) {
+    parties.filter((p: any) => p.role === 'buyer').forEach((p: any) => {
+      if (!list.some(x => (x.email && x.email === p.email) || (x.name && x.name.toLowerCase() === `${p.first_name} ${p.last_name}`.toLowerCase()))) {
         list.push({ name: `${p.first_name} ${p.last_name}`, address: p.poi || p.address || '', email: p.email, phone: p.phone || '' })
       }
     })
@@ -59,16 +75,26 @@ export function TransactionDealOutline({ transactionId, parties }: TransactionDe
 
   const getSellersList = () => {
     const list: any[] = []
-    if (outlineFields.sellerName) list.push({ name: outlineFields.sellerName, address: outlineFields.sellerAddress, email: outlineFields.sellerEmail, phone: outlineFields.sellerPhone })
+    if (outlineFields.sellerName || outlineFields.sellerAddress || outlineFields.sellerEmail || outlineFields.sellerPhone) {
+      list.push({
+        name: outlineFields.sellerName,
+        address: outlineFields.sellerAddress,
+        email: outlineFields.sellerEmail,
+        phone: outlineFields.sellerPhone
+      })
+    }
     if (outlineFields.additionalSellers && Array.isArray(outlineFields.additionalSellers)) {
       list.push(...outlineFields.additionalSellers)
     }
-    parties.filter(p => p.role === 'seller').forEach(p => {
-      if (!list.some(x => x.email === p.email)) {
-        list.push({ name: `${p.first_name} ${p.last_name}`, address: p.poi || p.address || '', email: p.email, phone: p.phone || '' })
-      }
+    parties.filter((p: any) => p.role === 'seller').forEach((p: any) => {
+      list.push({ name: `${p.first_name || ''} ${p.last_name || ''}`.trim(), address: p.poi || p.address || '', email: p.email, phone: p.phone || '' })
     })
-    return list
+    const normalize = (value?: string) => (value || '').trim().replace(/\s+/g, ' ').toLowerCase()
+    // Outline entries come first so edited details win over linked contact copies.
+    return list.filter((seller, index) => !list.slice(0, index).some(existing =>
+      (normalize(seller.email) && normalize(seller.email) === normalize(existing.email)) ||
+      (normalize(seller.name) && normalize(seller.name) === normalize(existing.name))
+    ))
   }
 
   if (!tx) return null
@@ -76,14 +102,14 @@ export function TransactionDealOutline({ transactionId, parties }: TransactionDe
   const logoSrc = branding.logoUrl ? getAbsoluteUrl(branding.logoUrl) : null
 
   return (
-    <div id="printable-deal-sheet" className="hidden print:block bg-white p-8 font-serif text-black leading-relaxed max-w-[800px] mx-auto">
+    <div id="printable-deal-sheet" className="hidden print:block bg-white p-4 font-serif text-black leading-snug max-w-[800px] mx-auto text-[10.5px]">
       {/* Printable Header */}
-      <div className="flex items-center justify-between border-b border-gray-300 pb-4 mb-6">
-        <div className="flex items-center gap-3">
+      <div className="flex items-center justify-between border-b border-gray-300 pb-2 mb-3">
+        <div className="flex items-center gap-2.5">
           {logoSrc ? (
-            <img src={logoSrc} alt="Company Logo" className="h-16 w-auto object-contain" />
+            <img src={logoSrc} alt="Company Logo" className="h-10 w-auto object-contain" />
           ) : (
-            <svg className="h-16 w-16" viewBox="0 0 100 100">
+            <svg className="h-10 w-10" viewBox="0 0 100 100">
               <circle cx="50" cy="50" r="48" fill="#0c1e2d" stroke="#b45309" strokeWidth="3" />
               <circle cx="50" cy="50" r="42" fill="none" stroke="#b45309" strokeWidth="0.7" strokeDasharray="2 2" />
               <text x="50" y="32" fill="#f59e0b" fontSize="6.5" fontWeight="bold" textAnchor="middle" letterSpacing="0.5">PRIME</text>
@@ -93,11 +119,11 @@ export function TransactionDealOutline({ transactionId, parties }: TransactionDe
             </svg>
           )}
           <div>
-            <h2 className="text-xl font-bold tracking-tight text-gray-900 leading-none">{branding.companyName || 'Prime America'}</h2>
-            <p className="text-[10px] text-gray-500 uppercase tracking-widest leading-none mt-1">Real Estate Brokerage</p>
+            <h2 className="text-base font-bold tracking-tight text-gray-900 leading-none">{branding.companyName || 'Prime America'}</h2>
+            <p className="text-[9px] text-gray-500 uppercase tracking-widest leading-none mt-0.5">Real Estate Brokerage</p>
           </div>
         </div>
-        <div className="text-right text-[10px] text-gray-500 space-y-0.5">
+        <div className="text-right text-[9px] text-gray-500 space-y-0.5">
           <p className="font-bold text-gray-700">Prime America Real Estate</p>
           <p>6123 Fresh Pond Road, Queens, NY 11379</p>
           <p>info@PrimeAmericaNY.com | PrimeAmericaNY.com</p>
@@ -106,24 +132,26 @@ export function TransactionDealOutline({ transactionId, parties }: TransactionDe
       </div>
 
       {/* Title */}
-      <div className="text-center mb-8">
-        <h1 className="text-2xl font-black underline tracking-wide uppercase">DEAL OUTLINE SHEET</h1>
-        <p className="text-base font-semibold text-gray-800 mt-2">{tx.name}</p>
+      <div className="text-center mb-3">
+        <h1 className="text-lg font-black underline tracking-wide uppercase">DEAL OUTLINE SHEET</h1>
+        <p className="text-sm font-semibold text-gray-800 mt-0.5">{tx.name}</p>
       </div>
 
       {/* Two-Column Grid */}
-      <div className="grid grid-cols-2 gap-x-12 gap-y-4 text-xs">
+      <div className="grid grid-cols-2 gap-x-8 gap-y-2.5 text-[10.5px]">
 
         {/* Left Column */}
-        <div className="space-y-4">
+        <div className="space-y-2.5">
           <div>
-            <p className="font-bold border-b border-gray-200 pb-0.5 mb-1 uppercase text-[10px] text-gray-500">Buyer Information</p>
+            <p className="font-bold border-b border-gray-200 pb-0.5 mb-1 uppercase text-[9px] text-gray-500">Buyer Information</p>
             <p><span className="font-bold">Buyer(s):</span> {getBuyersList().map(b => b.name).filter(Boolean).join(', ') || '—'}</p>
             <p><span className="font-bold">Address(es):</span> {getBuyersList().map(b => b.address).filter(Boolean).join('; ') || '—'}</p>
+            <p><span className="font-bold">Email(s):</span> {getBuyersList().map(b => b.email).filter(Boolean).join('; ') || '—'}</p>
+            <p><span className="font-bold">Phone(s):</span> {getBuyersList().map(b => b.phone).filter(Boolean).join('; ') || '—'}</p>
           </div>
 
           <div>
-            <p className="font-bold border-b border-gray-200 pb-0.5 mb-1 uppercase text-[10px] text-gray-500">Buyer's Attorney</p>
+            <p className="font-bold border-b border-gray-200 pb-0.5 mb-1 uppercase text-[9px] text-gray-500">Buyer's Attorney</p>
             <p><span className="font-bold">Attorney:</span> {outlineFields.buyerAttorneyName || '—'}</p>
             <p><span className="font-bold">Address:</span> {outlineFields.buyerAttorneyAddress || '—'}</p>
             <p><span className="font-bold">Email:</span> {outlineFields.buyerAttorneyEmail || '—'}</p>
@@ -132,46 +160,60 @@ export function TransactionDealOutline({ transactionId, parties }: TransactionDe
           </div>
 
           <div>
-            <p className="font-bold border-b border-gray-200 pb-0.5 mb-1 uppercase text-[10px] text-gray-500">Selling Agent Details</p>
+            <p className="font-bold border-b border-gray-200 pb-0.5 mb-1 uppercase text-[9px] text-gray-500">Selling Agent Details</p>
             <p><span className="font-bold">Selling Agent:</span> {outlineFields.sellingAgentName || '—'}</p>
             <p><span className="font-bold">Cell:</span> {outlineFields.sellingAgentCell || '—'}</p>
             <p><span className="font-bold">Email:</span> {outlineFields.sellingAgentEmail || '—'}</p>
             <p><span className="font-bold">License No:</span> {outlineFields.sellingAgentLicense || '—'}</p>
           </div>
 
-          <div>
-            <p className="font-bold border-b border-gray-200 pb-0.5 mb-1 uppercase text-[10px] text-gray-500">Co-Selling Agent</p>
-            <p><span className="font-bold">Agent:</span> {outlineFields.coSellingAgentName || '—'}</p>
-            <p><span className="font-bold">Cell:</span> {outlineFields.coSellingAgentCell || '—'}</p>
-            <p><span className="font-bold">Email:</span> {outlineFields.coSellingAgentEmail || '—'}</p>
-            <p><span className="font-bold">License No:</span> {outlineFields.coSellingAgentLicense || '—'}</p>
-          </div>
+          {outlineFields.coSellingAgentName && (
+            <div>
+              <p className="font-bold border-b border-gray-200 pb-0.5 mb-1 uppercase text-[9px] text-gray-500">Co-Selling Agent</p>
+              <p><span className="font-bold">Agent:</span> {outlineFields.coSellingAgentName}</p>
+              <p><span className="font-bold">Cell:</span> {outlineFields.coSellingAgentCell || '—'}</p>
+              <p><span className="font-bold">Email:</span> {outlineFields.coSellingAgentEmail || '—'}</p>
+              <p><span className="font-bold">License No:</span> {outlineFields.coSellingAgentLicense || '—'}</p>
+            </div>
+          )}
 
           <div>
-            <p className="font-bold border-b border-gray-200 pb-0.5 mb-1 uppercase text-[10px] text-gray-500">Selling Agency</p>
+            <p className="font-bold border-b border-gray-200 pb-0.5 mb-1 uppercase text-[9px] text-gray-500">Selling Agency</p>
             <p><span className="font-bold">Agency:</span> {outlineFields.sellingAgencyName || '—'}</p>
             <p><span className="font-bold">Address:</span> {outlineFields.sellingAgencyAddress || '—'}</p>
             <p><span className="font-bold">Phone:</span> {outlineFields.sellingAgencyPhone || '—'}</p>
             <p><span className="font-bold">License No:</span> {outlineFields.sellingAgencyLicense || '—'}</p>
           </div>
 
-          <div className="pt-2">
-            <p className="font-bold border-b border-gray-200 pb-0.5 mb-1 uppercase text-[10px] text-gray-500">Outline Administration</p>
+          {(outlineFields.managementCompany || outlineFields.managingAgentName) && (
+            <div>
+              <p className="font-bold border-b border-gray-200 pb-0.5 mb-1 uppercase text-[9px] text-gray-500">Building Management / Managing Agent</p>
+              <p><span className="font-bold">Company:</span> {outlineFields.managementCompany || '—'}</p>
+              <p><span className="font-bold">Managing Agent:</span> {outlineFields.managingAgentName || '—'}</p>
+              <p><span className="font-bold">Phone:</span> {outlineFields.managingAgentPhone || '—'}</p>
+              <p><span className="font-bold">Email:</span> {outlineFields.managingAgentEmail || '—'}</p>
+            </div>
+          )}
+
+          <div className="pt-1">
+            <p className="font-bold border-b border-gray-200 pb-0.5 mb-1 uppercase text-[9px] text-gray-500">Outline Administration</p>
             <p><span className="font-bold">Prepared By:</span> {outlineFields.preparedBy || '—'}</p>
             <p><span className="font-bold">Date:</span> {outlineFields.date || '—'}</p>
           </div>
         </div>
 
         {/* Right Column */}
-        <div className="space-y-4">
+        <div className="space-y-2.5">
           <div>
-            <p className="font-bold border-b border-gray-200 pb-0.5 mb-1 uppercase text-[10px] text-gray-500">Seller Information</p>
+            <p className="font-bold border-b border-gray-200 pb-0.5 mb-1 uppercase text-[9px] text-gray-500">Seller Information</p>
             <p><span className="font-bold">Seller(s):</span> {getSellersList().map(s => s.name).filter(Boolean).join(', ') || '—'}</p>
             <p><span className="font-bold">Address(es):</span> {getSellersList().map(s => s.address).filter(Boolean).join('; ') || '—'}</p>
+            <p><span className="font-bold">Email(s):</span> {getSellersList().map(s => s.email).filter(Boolean).join('; ') || '—'}</p>
+            <p><span className="font-bold">Phone(s):</span> {getSellersList().map(s => s.phone).filter(Boolean).join('; ') || '—'}</p>
           </div>
 
           <div>
-            <p className="font-bold border-b border-gray-200 pb-0.5 mb-1 uppercase text-[10px] text-gray-500">Seller's Attorney</p>
+            <p className="font-bold border-b border-gray-200 pb-0.5 mb-1 uppercase text-[9px] text-gray-500">Seller's Attorney</p>
             <p><span className="font-bold">Attorney:</span> {outlineFields.sellerAttorneyName || '—'}</p>
             <p><span className="font-bold">Address:</span> {outlineFields.sellerAttorneyAddress || '—'}</p>
             <p><span className="font-bold">Email:</span> {outlineFields.sellerAttorneyEmail || '—'}</p>
@@ -180,23 +222,25 @@ export function TransactionDealOutline({ transactionId, parties }: TransactionDe
           </div>
 
           <div>
-            <p className="font-bold border-b border-gray-200 pb-0.5 mb-1 uppercase text-[10px] text-gray-500">Listing Agent Details</p>
+            <p className="font-bold border-b border-gray-200 pb-0.5 mb-1 uppercase text-[9px] text-gray-500">Listing Agent Details</p>
             <p><span className="font-bold">Listing Agent:</span> {outlineFields.listingAgentName || '—'}</p>
             <p><span className="font-bold">Cell:</span> {outlineFields.listingAgentCell || '—'}</p>
             <p><span className="font-bold">Email:</span> {outlineFields.listingAgentEmail || '—'}</p>
             <p><span className="font-bold">License No:</span> {outlineFields.listingAgentLicense || '—'}</p>
           </div>
 
-          <div>
-            <p className="font-bold border-b border-gray-200 pb-0.5 mb-1 uppercase text-[10px] text-gray-500">Co-Listing Agent</p>
-            <p><span className="font-bold">Agent:</span> {outlineFields.coListingAgentName || '—'}</p>
-            <p><span className="font-bold">Cell:</span> {outlineFields.coListingAgentCell || '—'}</p>
-            <p><span className="font-bold">Email:</span> {outlineFields.coListingAgentEmail || '—'}</p>
-            <p><span className="font-bold">License No:</span> {outlineFields.coListingAgentLicense || '—'}</p>
-          </div>
+          {outlineFields.coListingAgentName && (
+            <div>
+              <p className="font-bold border-b border-gray-200 pb-0.5 mb-1 uppercase text-[9px] text-gray-500">Co-Listing Agent</p>
+              <p><span className="font-bold">Agent:</span> {outlineFields.coListingAgentName}</p>
+              <p><span className="font-bold">Cell:</span> {outlineFields.coListingAgentCell || '—'}</p>
+              <p><span className="font-bold">Email:</span> {outlineFields.coListingAgentEmail || '—'}</p>
+              <p><span className="font-bold">License No:</span> {outlineFields.coListingAgentLicense || '—'}</p>
+            </div>
+          )}
 
           <div>
-            <p className="font-bold border-b border-gray-200 pb-0.5 mb-1 uppercase text-[10px] text-gray-500">Listing Agency</p>
+            <p className="font-bold border-b border-gray-200 pb-0.5 mb-1 uppercase text-[9px] text-gray-500">Listing Agency</p>
             <p><span className="font-bold">Agency:</span> {outlineFields.listingAgencyName || '—'}</p>
             <p><span className="font-bold">Address:</span> {outlineFields.listingAgencyAddress || '—'}</p>
             <p><span className="font-bold">Phone:</span> {outlineFields.listingAgencyPhone || '—'}</p>
@@ -204,15 +248,17 @@ export function TransactionDealOutline({ transactionId, parties }: TransactionDe
           </div>
 
           <div>
-            <p className="font-bold border-b border-gray-200 pb-0.5 mb-1 uppercase text-[10px] text-gray-500">Terms of the Sale</p>
-            <p><span className="font-bold">Selling Price:</span> {outlineFields.sellingPrice ? `$${parseFloat(outlineFields.sellingPrice).toLocaleString()}` : '—'}</p>
+            <p className="font-bold border-b border-gray-200 pb-0.5 mb-1 uppercase text-[9px] text-gray-500">Terms of the Sale</p>
+            <p><span className="font-bold">Selling Price:</span> {tx?.financials_version ? (tx.price == null ? '—' : `$${Number(tx.price).toLocaleString()}`) : outlineFields.sellingPrice ? `$${parseFloat(outlineFields.sellingPrice).toLocaleString()}` : '—'}</p>
             <p><span className="font-bold">Deposit at signing contract:</span> {outlineFields.depositAmount ? `$${parseFloat(outlineFields.depositAmount).toLocaleString()}` : '—'}</p>
             <p><span className="font-bold">Mortgage Amount:</span> {outlineFields.mortgageAmount ? `$${parseFloat(outlineFields.mortgageAmount).toLocaleString()}` : '—'}</p>
             <p><span className="font-bold">Cash at Closing:</span> {outlineFields.cashAtClosing ? `$${parseFloat(outlineFields.cashAtClosing).toLocaleString()}` : '—'}</p>
+            {outlineFields.mortgageContingencyDate && <p><span className="font-bold">Mortgage Contingency Date:</span> {outlineFields.mortgageContingencyDate}</p>}
+            {(outlineFields.targetClosingDate || tx.target_close_date) && <p><span className="font-bold">Target Closing Date:</span> {outlineFields.targetClosingDate || tx.target_close_date}</p>}
           </div>
 
           <div>
-            <p className="font-bold border-b border-gray-200 pb-0.5 mb-1 uppercase text-[10px] text-gray-500">Finance Information</p>
+            <p className="font-bold border-b border-gray-200 pb-0.5 mb-1 uppercase text-[9px] text-gray-500">Finance Information</p>
             <p><span className="font-bold">Loan/Exchange Officer:</span> {outlineFields.loanOfficerName || '—'}</p>
             <p><span className="font-bold">Phone:</span> {outlineFields.loanOfficerPhone || '—'}</p>
             <p><span className="font-bold">Email:</span> {outlineFields.loanOfficerEmail || '—'}</p>

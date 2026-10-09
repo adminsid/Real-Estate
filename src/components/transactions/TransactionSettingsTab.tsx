@@ -279,17 +279,44 @@ export function TransactionSettingsTab({ setLockConfirmOpen }: TransactionSettin
         )}
       </div>
 
+      {/* Statutory Retention & Compliance Record Panel */}
+      <div className="space-y-4 pt-4 border-t border-gray-100">
+        <h4 className="font-bold text-gray-800 text-sm border-b border-gray-100 pb-2">NYS DOS & IRS Statutory Compliance Record</h4>
+        <div className="bg-purple-50/50 p-4 rounded-xl border border-purple-200 space-y-2 text-xs text-purple-950">
+          <div className="flex items-center justify-between">
+            <span className="font-bold">NYS DOS § 175.23 Mandatory Period:</span>
+            <span className="font-bold px-2 py-0.5 rounded-full bg-purple-100 text-purple-900 border border-purple-300">
+              3 Years Minimum
+            </span>
+          </div>
+          <div className="flex items-center justify-between">
+            <span className="font-bold">IRS & Financial Tax Audit Vault:</span>
+            <span className="font-bold px-2 py-0.5 rounded-full bg-purple-100 text-purple-900 border border-purple-300">
+              7 Years Standard
+            </span>
+          </div>
+          <p className="text-[11px] text-purple-800 pt-1 leading-relaxed">
+            All transaction files, executed contracts of sale, REBNY financial applications, lead disclosures, and broker communications are retained in immutable archival storage to satisfy licensing and taxation audit compliance.
+          </p>
+        </div>
+      </div>
+
       {/* Danger Zone */}
       {isBrokerOrAdmin && (
         <div className="space-y-4 pt-4 border-t border-red-100 bg-red-50/30 p-4 rounded-xl border border-red-200">
           <h4 className="font-bold text-red-800 text-sm">Danger Zone</h4>
           <p className="text-xs text-gray-600">
-            Deleting a deal deletes all task lists, comments, real-time Outcomes history, and files forever. This action cannot be undone.
+            Deleting a deal removes all task lists, comments, broker intelligence history, and documents.
+            {tx.status === 'closed' && (
+              <span className="block mt-1 font-semibold text-rose-800">
+                ⚠️ Notice: NYS Real Property Law requires active brokerages to maintain closed transaction files for 3 years. Deleting records prior to statutory expiration is strictly monitored.
+              </span>
+            )}
           </p>
           <button
             onClick={onDeleteDeal}
             disabled={isDeleting}
-            className="inline-flex items-center gap-1.5 text-xs font-bold bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg shadow-sm"
+            className="inline-flex items-center gap-1.5 text-xs font-bold bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg shadow-sm cursor-pointer"
           >
             <Trash2 className="h-4 w-4" /> {isDeleting ? 'Deleting...' : 'Delete Transaction'}
           </button>

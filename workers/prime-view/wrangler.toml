@@ -1,0 +1,47 @@
+name = "prime-view"
+main = "src/index.ts"
+compatibility_date = "2026-09-03"
+compatibility_flags = ["nodejs_compat"]
+workers_dev = false
+
+[observability]
+enabled = true
+head_sampling_rate = 1
+
+[vars]
+APP_ENV = "production"
+WORKSPACE_NAME = "Prime America Real Estate"
+INVENTORY_WORKER_URL = "https://inventory.primeamericarealestate.com"
+
+# INTERNAL_API_SECRET is a Wrangler secret shared with Inventory.
+# Prime View is private and is reached through the Workspace service binding.
+
+# Existing D1 database (shared with main workspace)
+[[d1_databases]]
+binding = "DB"
+database_name = "re-workspace-db"
+database_id = "c5532a8c-2d69-4474-8f42-58d2f96354cd"
+
+# KV namespace for Prime View state (reserved for future use)
+[[kv_namespaces]]
+binding = "PRIME_VIEW_KV"
+id = "5489ca162be44e0ba8411dfa0ac2fe74"
+
+# Service bindings to existing workers
+[[services]]
+binding = "CRM"
+service = "re-crm"
+
+[[services]]
+binding = "TRANSACTIONS"
+service = "re-transactions"
+
+# Analytics
+[[analytics_engine_datasets]]
+binding = "ANALYTICS"
+dataset = "re_business_metrics"
+
+# Remove the Phase-3 Durable Object stub that was declared in the previous deployment.
+[[migrations]]
+tag = "v2"
+deleted_classes = ["PrimeViewDO"]

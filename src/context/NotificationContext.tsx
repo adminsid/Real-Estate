@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useEffect, useState } from 'react'
 import { useLocation } from 'react-router-dom'
+import { useAuth } from './AuthContext'
 
 interface Notification {
   id: string
@@ -15,11 +16,13 @@ const NotificationContext = createContext<NotificationContextProps>({ notificati
 
 export function NotificationProvider({ children }: { children: React.ReactNode }) {
   const location = useLocation()
+  const { isAuthenticated, isLoading } = useAuth()
   const [notifications, setNotifications] = useState<Notification[]>([])
   const [toasts, setToasts] = useState<Notification[]>([])
 
   useEffect(() => {
     if (
+      !isAuthenticated || isLoading ||
       location.pathname.startsWith('/inventory/listings/') ||
       location.pathname.startsWith('/login') ||
       location.pathname.startsWith('/signup') ||
@@ -31,8 +34,11 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
     }
 
     let sse: EventSource | null = null
+    let reconnectTimer: ReturnType<typeof setTimeout> | undefined
+    let disposed = false
 
     const connectSSE = () => {
+      if (disposed) return
       sse = new EventSource('/api/notifications/stream')
 
       sse.onmessage = (event) => {
@@ -51,18 +57,21 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
       }
 
       sse.onerror = (e) => {
+        if (disposed) return
         console.error('Notification SSE connection lost, reconnecting...', e)
         sse?.close()
-        setTimeout(connectSSE, 5000) // retry after 5 seconds
+        reconnectTimer = setTimeout(connectSSE, 5000) // retry after 5 seconds
       }
     }
 
     connectSSE()
 
     return () => {
+      disposed = true
+      clearTimeout(reconnectTimer)
       sse?.close()
     }
-  }, [location.pathname])
+  }, [location.pathname, isAuthenticated, isLoading])
 
   return (
     <NotificationContext.Provider value={{ notifications }}>

@@ -19,3 +19,12 @@ Thumbs.db
 dev-dist/
 
 skills-lock.json
+
+# MLS Grid development database and replication checkpoints
+.mls-grid-demo/
+
+# Local fixtures, generated staging assets, and per-environment credentials
+.scratch/
+.dev.vars.*
+workers/property-search/public/
+workers/property-search/fixtures/

@@ -8,6 +8,8 @@ import { apiFetch } from '@/utils/api'
 
 type Showing = {
   id: string
+  inquiry_id?: string | null
+  status?: string
   listing_id: string
   listing_address: string | null
   agent_id: string
@@ -260,14 +262,15 @@ export function InventoryReportingPage() {
                 {filteredShowings.map((s) => (
                   <tr key={s.id} className="border-t border-gray-50 hover:bg-gray-50/50">
                     <td className="px-4 py-3 whitespace-nowrap">{new Date(s.shown_at).toLocaleDateString()} <span className="text-gray-400">{new Date(s.shown_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span></td>
-                    <td className="px-4 py-3 font-medium text-gray-800">{s.buyer_name}</td>
+                    <td className="px-4 py-3 font-medium text-gray-800">{s.buyer_name}<p className="text-xs text-gray-500">{s.status?.replace('_', ' ')}</p></td>
                     <td className="px-4 py-3 text-gray-700 max-w-[220px] truncate" title={getListingAddress(s.listing_id, s.listing_address)}>
                       {getListingAddress(s.listing_id, s.listing_address)}
                     </td>
                     <td className="px-4 py-3 text-gray-600">{s.agent_name}</td>
                     <td className="px-4 py-3 text-gray-500 max-w-[200px] truncate">{s.feedback || '—'}</td>
                     <td className="px-4 py-3 text-right whitespace-nowrap space-x-2">
-                      {(user?.role === 'admin' || user?.role === 'broker' || s.agent_id === user?.id) && (
+                      {s.inquiry_id && <button className="text-blue-700 underline" onClick={() => navigate(`/inventory/listings/${s.listing_id}`)}>Manage visits</button>}
+                      {!s.inquiry_id && (user?.role === 'admin' || user?.role === 'broker' || s.agent_id === user?.id) && (
                         <>
                           <button
                             onClick={() => handleStartEdit(s)}

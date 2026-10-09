@@ -7,12 +7,20 @@ import {
 
 export type OperationalMode = 'prospecting' | 'listing' | 'buyer' | 'transaction' | 'compliance'
 
+export interface PrimeViewState {
+  isOpen: boolean;
+  togglePrimeView: () => void;
+  openPrimeView: () => void;
+  closePrimeView: () => void;
+}
+
 interface WorkspaceState {
   sidebarOpen: boolean
   sidebarCollapsed: boolean
   activeCategoryId: string | null
   expandedCategories: Set<string>
   operationalMode: OperationalMode | null
+  primeView: PrimeViewState
   setOperationalMode: (mode: OperationalMode) => void
   toggleSidebar: () => void
   toggleSidebarCollapsed: () => void
@@ -39,13 +47,24 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     try {
       const cached = localStorage.getItem('expandedCategories')
       if (cached) {
-        return new Set(JSON.parse(cached))
+        const ids: unknown = JSON.parse(cached)
+        if (Array.isArray(ids)) return new Set(ids.filter((id): id is string => typeof id === 'string').map(id => id === 'transactions' ? 'operations' : id))
       }
     } catch (e) {
       console.error('Failed to load navigation categories cache', e)
     }
-    return new Set(['transactions', 'inventory', 'marketing', 'learning'])
+    return new Set(['operations', 'inventory', 'marketing', 'learning'])
   })
+
+  // Prime View state
+  const [primeViewOpen, setPrimeViewOpen] = useState(false)
+
+  const primeView: PrimeViewState = {
+    isOpen: primeViewOpen,
+    togglePrimeView: () => setPrimeViewOpen(v => !v),
+    openPrimeView: () => setPrimeViewOpen(true),
+    closePrimeView: () => setPrimeViewOpen(false),
+  }
 
   // null = never explicitly set → triggers "My Workflow Mode" banner on dashboard
   const [operationalMode, setOperationalModeState] = useState<OperationalMode | null>(() => {
@@ -121,6 +140,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         activeCategoryId,
         expandedCategories,
         operationalMode,
+        primeView,
         setOperationalMode,
         toggleSidebar,
         toggleSidebarCollapsed,

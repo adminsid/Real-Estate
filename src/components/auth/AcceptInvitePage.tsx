@@ -1,12 +1,11 @@
 import { useState } from 'react'
-import { useSearchParams, useNavigate } from 'react-router-dom'
+import { useSearchParams } from 'react-router-dom'
 import { Eye, EyeOff, UserPlus, CheckCircle } from 'lucide-react'
 import { useAuth } from '@/context/AuthContext'
 
 export function AcceptInvitePage() {
   const { branding } = useAuth()
   const [params] = useSearchParams()
-  const navigate = useNavigate()
   const [name, setName] = useState('')
   const [password, setPassword] = useState('')
   const [show, setShow] = useState(false)
@@ -25,7 +24,7 @@ export function AcceptInvitePage() {
         body: JSON.stringify({ token: params.get('token'), name, password }),
       })
       const data = await res.json()
-      if (data.success) { setDone(true); setTimeout(() => navigate('/'), 2000) }
+      if (data.success) { setDone(true); setTimeout(() => window.location.assign('/'), 1000) }
       else setError(data.error ?? 'Failed to accept invitation.')
     } catch { setError('Something went wrong.') }
     finally { setLoading(false) }
@@ -36,15 +35,11 @@ export function AcceptInvitePage() {
       <div className="absolute inset-0 opacity-10" style={{ backgroundImage: 'radial-gradient(circle at 50% 0%, var(--brand-accent) 0%, transparent 60%)' }} />
       <div className="relative w-full max-w-md">
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center h-16 w-16 rounded-2xl mb-4 overflow-hidden bg-brand-gold">
-            {branding.logoUrl ? (
-              <img src={branding.logoUrl} alt="Brand Logo" className="h-full w-full object-cover" />
-            ) : (
-              <span className="text-brand-navy font-bold text-2xl">RE</span>
-            )}
+          <div className="inline-flex items-center justify-center h-16 w-16 rounded-2xl mb-4 overflow-hidden">
+            <img src={branding.logoUrl || '/prime-america-seal.png'} alt="Brand Logo" className="h-full w-full object-contain" />
           </div>
           <h1 className="text-2xl font-bold text-white">You've been invited</h1>
-          <p className="text-white/50 mt-1 text-sm">Create your RE Workspace account</p>
+          <p className="text-white/50 mt-1 text-sm">Create your Prime America Real Estate account</p>
         </div>
         <div className="bg-white rounded-2xl p-8 shadow-2xl">
           {done ? (

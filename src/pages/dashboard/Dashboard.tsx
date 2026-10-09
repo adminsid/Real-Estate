@@ -1,27 +1,19 @@
+import { dealCommission } from '@/lib/commissionMetrics'
 import { useState, useEffect, useCallback } from 'react'
 import { Link } from 'react-router-dom'
 import { Layout } from '@/components/layout/Layout'
 import { AppTile } from '@/components/apps/AppTile'
 import { SkeletonMetricGrid } from '@/components/common/SkeletonLoader'
 import { useAuth } from '@/context/AuthContext'
-import { APP_MODULES, NAV_CATEGORIES, isCategoryVisible, isSubitemVisible } from '@/utils/constants'
+import { APP_MODULES, NAV_CATEGORIES, isCategoryVisible, isSubitemVisible, deduplicateAppModules } from '@/utils/constants'
 import { TodayActions } from '@/components/layout/TodayActions'
 import { WorkflowHabitEngine } from '@/components/dashboard/WorkflowHabitEngine'
 import { SalespersonDashboard } from '@/components/dashboard/roles/SalespersonDashboard'
 import { BrokerDashboard } from '@/components/dashboard/roles/BrokerDashboard'
 import { AssistantDashboard } from '@/components/dashboard/roles/AssistantDashboard'
 import { AdminDashboard } from '@/components/dashboard/roles/AdminDashboard'
-import type { AppModule, UserRole } from '@/types'
+import type { AppModule, QuickLink, UserRole } from '@/types'
 import * as Icons from 'lucide-react'
-
-interface QuickLink {
-  id: string
-  label: string
-  url: string
-  icon: string
-  visibility?: 'all' | UserRole | 'me'
-  ownerUserId?: string
-}
 
 interface CustomAppModule {
   id: string
@@ -33,9 +25,9 @@ interface CustomAppModule {
   status: 'active' | 'coming_soon' | 'under_construction'
   category: string
   color: string
+  adminOnly?: boolean
   visibility?: 'all' | 'admin' | 'broker' | 'admin_broker'
   showInNavigation?: boolean
-  adminOnly?: boolean
 }
 
 interface DashboardSettings {
@@ -60,35 +52,9 @@ const DEFAULT_DASHBOARD_SETTINGS: DashboardSettings = {
     zeroStatePanel: true,
   },
   quickLinks: [
-    { id: 'mls', label: 'MLS Listings', url: '/apps/inventory', icon: 'Home' },
-    { id: 'prime-america-kb', label: 'Knowledge Base Hub', url: '/apps/prime-america-kb', icon: 'BookOpen' },
-    { id: 'academy', label: 'Academy', url: 'https://primeamerica.theceshop.com/real-estate/', icon: 'BookOpen' },
+    { id: 'primeamericany', label: 'Prime America NY', url: 'https://primeamericany.com', icon: 'Globe' },
   ],
-  customModules: [
-    {
-      id: 'openhouse',
-      name: 'Open House',
-      description: 'Manage open houses and visitor registrations',
-      icon: 'Home',
-      path: '/marketing/openhouse',
-      externalUrl: '/apps/openhouse',
-      status: 'active',
-      category: 'marketing',
-      color: '#EC4899',
-      adminOnly: true
-    },
-    {
-      id: 'prime-america-kb',
-      name: 'Prime America Knowledge Base',
-      description: 'Prime America Real Estate knowledge base hub for admin, broker, and team',
-      icon: 'BookOpen',
-      path: '/learning/kb',
-      externalUrl: '/apps/prime-america-kb',
-      status: 'active',
-      category: 'learning',
-      color: '#6366F1',
-    }
-  ]
+  customModules: []
 }
 
 // Extract list of all uppercase-starting keys from Lucide icons
@@ -285,7 +251,7 @@ export function DashboardPage() {
 
   const fetchStats = async () => {
     try {
-      const res = await fetch('/api/stats')
+      const res = await fetch('/api/stats', { credentials: 'include' })
       const json = await res.json()
       if (json.success && json.data) {
         const data = json.data
@@ -326,24 +292,22 @@ export function DashboardPage() {
 
     // Compute commission volume and briefing stats from all active & closed deals
     try {
-      const txRes = await fetch('/api/transactions')
+      const txRes = await fetch('/api/transactions', { credentials: 'include' })
       const txJson = await txRes.json()
       if (txJson.success && Array.isArray(txJson.data)) {
         const allTx = txJson.data.filter((t: any) => t.status !== 'fallen_through')
-        const getComm = (t: any) => {
-          if (t.commission_amount && Number(t.commission_amount) > 0) return Number(t.commission_amount)
-          if (t.price && t.commission_rate && Number(t.price) > 0 && Number(t.commission_rate) > 0) {
-            return (Number(t.price) * Number(t.commission_rate)) / 100
-          }
-          return 0
-        }
+        const getComm = dealCommission
         const companyVol = allTx.reduce((acc: number, t: any) => acc + getComm(t), 0)
         const agentVol = allTx
           .filter((t: any) => String(t.assigned_to) === String(user?.id))
-          .reduce((acc: number, t: any) => acc + getComm(t), 0)
+          .reduce((acc: number, t: any) => acc + (t.my_compensation ?? 0), 0)
+
+        const userTx = user && ['admin', 'broker'].includes(user.role)
+          ? allTx
+          : allTx.filter((t: any) => String(t.assigned_to) === String(user?.id))
 
         // Find upcoming closing deals (within next 30 days)
-        const closingSoon = allTx
+        const closingSoon = userTx
           .filter((t: any) => t.target_close_date || t.status === 'under_contract')
           .slice(0, 5)
 
@@ -512,7 +476,8 @@ export function DashboardPage() {
     if (visibility === 'admin_broker') return user.role === 'admin' || user.role === 'broker'
     return true
   })
-  const combinedAppModules = [...APP_MODULES, ...(visibleCustomModules as unknown as AppModule[])]
+  const rawModules = [...APP_MODULES, ...(visibleCustomModules as unknown as AppModule[])]
+  const combinedAppModules = deduplicateAppModules(rawModules)
   const allowedAppModules = combinedAppModules.filter(m => isSubitemVisible(m.id, m.category, user, can))
 
   // Filtered icons in visual picker
@@ -546,35 +511,23 @@ export function DashboardPage() {
             {greeting()}{user ? `, ${user.name.split(' ')[0]}` : ''}
           </h2>
         </div>
-        {isAdmin && (
+        {isAdmin && isEditing && (
           <div className="flex items-center gap-2">
-            {isEditing ? (
-              <>
-                <button
-                  onClick={handleSaveSettings}
-                  disabled={isSaving}
-                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold shadow-sm transition-colors disabled:opacity-50"
-                >
-                  <Icons.Save className="h-4 w-4" />
-                  {isSaving ? 'Saving...' : 'Save Dashboard'}
-                </button>
-                <button
-                  onClick={() => setIsEditing(false)}
-                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl border border-gray-200 text-gray-700 text-sm font-semibold hover:bg-gray-50 transition-colors"
-                >
-                  <Icons.X className="h-4 w-4" />
-                  Cancel
-                </button>
-              </>
-            ) : (
-              <button
-                onClick={() => setIsEditing(true)}
-                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-brand-navy hover:bg-brand-navy-light text-white text-sm font-semibold shadow-sm transition-colors"
-              >
-                <Icons.Sliders className="h-4 w-4" />
-                Customize Dashboard
-              </button>
-            )}
+            <button
+              onClick={handleSaveSettings}
+              disabled={isSaving}
+              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold shadow-sm transition-colors disabled:opacity-50"
+            >
+              <Icons.Save className="h-4 w-4" />
+              {isSaving ? 'Saving...' : 'Save Dashboard'}
+            </button>
+            <button
+              onClick={() => setIsEditing(false)}
+              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl border border-gray-200 text-gray-700 text-sm font-semibold hover:bg-gray-50 transition-colors"
+            >
+              <Icons.X className="h-4 w-4" />
+              Cancel
+            </button>
           </div>
         )}
       </div>
@@ -583,6 +536,8 @@ export function DashboardPage() {
         <AdminDashboard
           can={can}
           visibleQuickLinks={visibleQuickLinks}
+          onEditQuickLinks={openUserQuickLinksEditor}
+          isPersonalized={userQuickLinks !== null && userQuickLinks.length > 0}
           stats={{
             activeListings: stats.company?.activeListings ?? 0,
             activeTransactions: stats.company?.transactions ?? 0,
@@ -598,6 +553,8 @@ export function DashboardPage() {
           isLoading={isLoading}
           can={can}
           visibleQuickLinks={visibleQuickLinks}
+          onEditQuickLinks={openUserQuickLinksEditor}
+          isPersonalized={userQuickLinks !== null && userQuickLinks.length > 0}
           allowedAppModules={combinedAppModules.filter(m => isSubitemVisible(m.id, m.category, user, can))}
         />
       ) : isBroker ? (
@@ -605,12 +562,17 @@ export function DashboardPage() {
           stats={stats}
           can={can}
           user={user || undefined}
+          visibleQuickLinks={visibleQuickLinks}
+          onEditQuickLinks={openUserQuickLinksEditor}
+          isPersonalized={userQuickLinks !== null && userQuickLinks.length > 0}
           allowedAppModules={combinedAppModules.filter(m => isSubitemVisible(m.id, m.category, user, can))}
         />
       ) : isAssistant ? (
         <AssistantDashboard
           can={can}
           visibleQuickLinks={visibleQuickLinks}
+          onEditQuickLinks={openUserQuickLinksEditor}
+          isPersonalized={userQuickLinks !== null && userQuickLinks.length > 0}
         />
       ) : (
         <>
@@ -642,7 +604,7 @@ export function DashboardPage() {
             </div>
             <Icons.ChevronRight className="h-4 w-4 text-gray-300 group-hover:text-emerald-500 transition-colors" />
           </div>
-          <p className="text-2xl font-bold text-gray-900">{isLoading ? '—' : (stats.agent.crmContacts || stats.company.crmContacts)}</p>
+          <p className="text-2xl font-bold text-gray-900">{isLoading ? '—' : (user && ['admin', 'broker'].includes(user.role) ? stats.company.crmContacts : stats.agent.crmContacts)}</p>
           <p className="text-sm font-medium text-gray-600 mt-0.5">Active Client Pipeline</p>
           <p className="text-xs text-gray-400 mt-1">Nurturing buyer & seller relationships</p>
         </Link>
@@ -654,7 +616,7 @@ export function DashboardPage() {
             </div>
             <span className="text-xs font-bold text-amber-700 bg-amber-50 px-2 py-0.5 rounded-full">$175K Goal</span>
           </div>
-          <p className="text-2xl font-bold text-gray-900">${Math.round((stats.company.commissionVolume * 0.025) / 1000)}k GCI</p>
+          <p className="text-2xl font-bold text-gray-900">${Math.round(((user && ['admin', 'broker'].includes(user.role) ? stats.company.commissionVolume : stats.agent.commissionVolume)) / 1000)}k GCI</p>
           <p className="text-sm font-medium text-gray-600 mt-0.5">Estimated Commission Volume</p>
           <p className="text-xs text-gray-400 mt-1">Based on active deal pipeline @ 2.5% avg</p>
         </div>
@@ -722,14 +684,14 @@ export function DashboardPage() {
               >
                 <CardIcon className="h-5 w-5" style={{ color: card.color }} />
               </div>
-              <p className="text-2xl font-bold text-gray-800">{card.companyValue}</p>
+              <p className="text-2xl font-bold text-gray-800">{user && ['admin', 'broker'].includes(user.role) ? card.companyValue : card.agentValue}</p>
               <p className="text-sm font-medium text-gray-600 mt-0.5 flex items-center justify-between">
                 <span>{card.label}</span>
                 <Icons.ChevronRight className="h-3.5 w-3.5 text-gray-400" />
               </p>
 
               {/* Incomplete Data warning if Commission Volume is $0 */}
-              {card.key === 'commissionVolume' && card.companyValue === '$0' && !isLoading && (
+              {card.key === 'commissionVolume' && (user && ['admin', 'broker'].includes(user.role) ? card.companyValue : card.agentValue) === '$0' && !isLoading && (
                 <div className="mt-2 pt-2 border-t border-amber-200/50">
                   <span className="inline-flex items-center gap-1 text-[10px] font-bold bg-amber-100 text-amber-800 px-2 py-0.5 rounded-full">
                     <Icons.AlertTriangle className="h-3 w-3" /> Incomplete Data
