@@ -14,12 +14,14 @@
     "run_worker_first": true
   },
   "observability": { "enabled": true, "head_sampling_rate": 1 },
+  "secrets": { "required": ["MLS_GRID_ACCESS_TOKEN"] },
   "vars": {
     "APP_ENV": "staging",
     "PUBLIC_ORIGIN": "https://preview-search.primeamericany.com",
-    "ACCESS_TEAM_DOMAIN": "",
-    "ACCESS_AUD": "",
-    "DATASET": "synthetic"
+    "ACCESS_TEAM_DOMAIN": "primeamerica.cloudflareaccess.com",
+    "ACCESS_AUD": "aeb5d1a3e1aacaf377f99f5297ba88a71b1ac4d3fb6c7466a557897aea823755",
+    "DATASET": "synthetic",
+    "FEED_OPERATOR_EMAIL": "lama@primeamericany.com"
   },
   "d1_databases": [{
     "binding": "SEARCH_DB",
