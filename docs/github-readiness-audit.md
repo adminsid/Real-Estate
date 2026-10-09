@@ -17,12 +17,12 @@ These counts follow a fresh fetch, before the new snapshot commits. There were a
 
 | Project | Tests | Type check | Production build |
 | --- | --- | --- | --- |
-| Workspace | 64 files / 483 tests passed | Passed | Passed; existing large-chunk warning |
+| Workspace | 60 files / 452 tests passed | Passed | Passed; existing large-chunk warning |
 | Listing Input | 10 files / 62 tests passed | Passed | No build script declared |
 | Open House | 14 files / 158 tests passed | Passed | No build script declared |
-| Brand Hub | 5 files / 34 tests passed | Passed | Passed |
+| Brand Hub | 9 files / 71 tests passed | Passed | Passed |
 
-Total: **737 tests passed**. The search Worker also passes its dedicated type check and deployment dry run. New integration tests cover native Access signature validation and rejection, all-route denial before binding reads, D1 search parameter limits, withheld addresses/captions, unavailable listing/media behavior, and demo inquiry persistence with origin/body limits. Tests run locally; GitHub CI results must be verified separately. The Workspace workflow now validates the build, tests and search adapter without holding deployment credentials or deploying automatically.
+Total: **743 tests passed**. The search Worker also passes its dedicated type check and deployment dry run. New integration tests cover native Access signature validation and rejection, all-route denial before binding reads, D1 search parameter limits, withheld addresses/captions, unavailable listing/media behavior, and demo inquiry persistence with origin/body limits. These totals were reverified locally after correcting test ownership. Four Hub suites previously imported the neighboring private checkout from the public Workspace repository. They now live in Hub; its CI checks out a pinned public Workspace revision for the SSO integration test. The assertions are preserved. GitHub CI results must be verified separately. The Workspace workflow now validates the build, tests and search adapter without holding deployment credentials or deploying automatically.
 
 ## Publication hygiene
 
@@ -40,6 +40,7 @@ Anonymous requests return HTTP 403; pages, assets, APIs and media also reject fo
 
 ## Release limitations
 
+- Declared type checks have limited coverage of legacy Worker entry points. The complete Workspace and Hub gateways are not yet strictly type-checked; expanding that scope exposed existing errors and remains a type-hardening task. The new search adapter has its own strict type check.
 - The backlog spans auth, permissions, CRM, operations, transactions, commissions, inventory, branding and consumer search. Passing suites are useful evidence, but this preparation is not a full manual review of every changed line. Draft PRs are review/backup artifacts.
 - Operational Workspace staging bindings, service dependencies and deployment commands require a separate environment audit. The generic Workspace deployment command must not be used as a substitute for the explicit search config.
 - Pending migrations include duplicate numeric prefixes in the existing Workspace backlog. Their applied production state, ordering, rollback and cross-application compatibility have not been verified. No operational database migration was applied by this staging task.
@@ -50,3 +51,7 @@ Anonymous requests return HTTP 403; pages, assets, APIs and media also reject fo
 ## Next actions
 
 Complete Access configuration, verify the private deployed preview, and continue page-by-page design work against local and staging builds. Review the backlog in smaller feature groups before merging or releasing the professional applications. Keep public consumer launch separate from staging and contingent on the required MLS display permissions.
+
+## Published review branches
+
+All four source branches were pushed and their working trees matched their upstreams at initial verification. Draft PRs: [Workspace/search #15](https://github.com/adminsid/Real-Estate/pull/15), [Listing Input #11](https://github.com/adminsid/listing-input/pull/11), [Open House #9](https://github.com/adminsid/open-house/pull/9), and [Brand Hub #1](https://github.com/adminsid/prime-america-hub/pull/1). No PR was merged. Local credential and generated-data exclusions remain intentional.
