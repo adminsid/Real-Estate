@@ -67,3 +67,25 @@ Binding declarations are regenerated without duplicating runtime definitions alr
 npx wrangler types workers/property-search/worker-configuration.d.ts --config workers/property-search/wrangler.jsonc --include-runtime=false
 npx wrangler types workers/property-search/production-configuration.d.ts --config workers/property-search/wrangler.production.jsonc --env-interface ProductionEnv --include-runtime=false
 ```
+
+## Import bottleneck correction — October 9, 2026
+
+A live aggregate check found 1,860 source versions, zero retained NYC listings, and byte-budget backoff. The earliest pages contained November 2024 history. Twenty-record pages were each reserving 32 MiB without settling completed response bytes. Media processing additionally performed a D1 query for every photo of discarded listings. These were application bottlenecks, not proof of an MLS outage.
+
+The corrected importer requests one 100-record page per invocation, bounded to 8 MiB, settles successfully consumed API responses to the larger of decoded bytes and Content-Length, and retains full reservations for interrupted or oversized responses. Request counts are never refunded. Initial queries select only the four marketing statuses supported by this release; catch-up and deltas stay unfiltered. Existing provider next links are not rewritten. An incomplete, lease-free initial import with no retained listings may be restarted from the beginning to adopt the new page size and status scope, keeping versions and conservative historic byte reservations. It must still finish traversal and catch-up before publication.
+
+Version lookups are batched per page. Media eligibility and states use at most two page-level reads before atomic claims, including when all photos are already ready. Owner operations now display import phase and processed source counts. Public release controls remain closed.
+
+## Photo ingestion correction — October 11, 2026
+
+A read-only check found 23,260 source versions, 8,140 retained NYC listings, 1,490 ready photos, and 123,005 pending photos. D1 occupied 90.2 MB; the private R2 photo bucket occupied 388 MB. The preceding 25 hourly accounting buckets held 2,616 provider requests and 38.8 GB of conservative reservations. These are provider-protection counters, not Cloudflare billed transfer. Cloudflare's account usage dashboard reported no usage overage for the observed cycle; fixed subscriptions and domain registration invoices are separate.
+
+The media downloader now settles each fully consumed response, including approved redirect bodies and HTTP error bodies, to the larger of decoded bytes and Content-Length. Interrupted or oversized responses retain the full reservation. Known credential/throttling status survives failed body consumption. The 15 MiB bound, rolling ceilings, persisted pacing, lease, request counts, and existing concurrency remain. Previously reserved bytes are not reset: they age out of the conservative hourly/daily windows.
+
+Within the same 12-photo attempt cap, pending jobs now follow media order and give each candidate listing one photo before another gallery image; listings without photos come first within a round. Backfill selects up to 12 listings, prioritizing missing covers and then Active inventory. Both normal feed responses and backfill refresh activity timestamps for every pending/failed photo, including equal-version responses, so leftover photos cannot force another URL regeneration within one hour. Recent failures retain failed state and a conservative one-hour delay from the fresh URL acquisition; older failures become pending for retry. Stale source versions cannot refresh activity. Starting further photo jobs stops at the existing 150-second run deadline.
+
+This correction adds no services, paid plan changes, transforms, or public exposure. Full bootstrap and unfiltered catch-up are still required; public launch controls remain closed.
+
+Verification: 62 suites / 484 tests passed, including the initially failing response-accounting, cover-order, mixed-failure freshness, and consecutive-backfill regressions. Workspace and both search typechecks, Workspace build, production search asset build, and private Worker dry run passed. Independent review has no remaining required findings. Private importer deployed as `614842a2-17d9-4dc7-b8e6-6b32a030fb31` with its existing minute cron; no new bindings or services were added.
+
+At 06:18 UTC on October 11, the source remained in initial traversal: 23,460 source versions, 8,183 NYC listings, 200 listings with photos, and 1,494 ready photos. Old rolling-hour reservations totaled 2,992,741,930 bytes, leaving 7,258,070 bytes—less than the 8 MiB feed-page reservation. The older hourly bucket expires at 07:00 UTC (03:00 America/New_York); resumed live throughput is not yet verified. Do not reset historical budgets or declare the feed complete on the strength of local tests.

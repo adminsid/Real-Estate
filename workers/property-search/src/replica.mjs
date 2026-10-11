@@ -1,4 +1,4 @@
-import { publicProjection } from '../../../scripts/mls-grid/client.mjs';
+import { publicProjection, MARKETING_STATUSES } from '../../../scripts/mls-grid/client.mjs';
 
 const counties = {Manhattan:['New York','New York County','New York (Manhattan)','Manhattan'],Brooklyn:['Kings','Kings County','Kings (Brooklyn)','Brooklyn'],Queens:['Queens','Queens County'],Bronx:['Bronx','Bronx County'],'Staten Island':['Richmond','Richmond County','Richmond (Staten Island)','Staten Island']};
 export const boroughOf = row => row.StateOrProvince === 'NY' ? Object.entries(counties).find(([,names])=>names.includes(row.CountyOrParish))?.[0] || null : null;
@@ -40,6 +40,11 @@ export function replica(db) {
       if(!paced.meta.changes)throw Error('Replication lease expired');
       return Math.max(0,start-now);
     },
+    async settleBytes(lease,requestedAt,reserved,actual,now=Date.now()) {
+      if(!Number.isInteger(actual) || actual<0 || actual>reserved)throw Error('Invalid provider byte accounting');
+      const result=await prepare('UPDATE feed_budget SET bytes=bytes-? WHERE hour=? AND bytes>=? AND EXISTS(SELECT 1 FROM feed_state WHERE source=? AND lease_id=? AND lease_until>?)',[reserved-actual,Math.floor(requestedAt/3600000),reserved-actual,'onekey2',lease,now]).run();
+      if(!result.meta.changes)throw Error('Replication lease expired or byte accounting unavailable');
+    },
     async failure(lease,error,now=Date.now()) {
       const status=String(error.message).match(/HTTP (\d{3})/)?.[1];
       const reason=String(error.message).includes('budget')?'budget':status==='401'||status==='403'?'credentials':status==='429'?'rate_limit':'connection_or_payload';
@@ -49,6 +54,9 @@ export function replica(db) {
     async apply(rows,next,lease,now=Date.now(), checkpoint=true) {
       if(!await fence('onekey2',lease,now).first())throw Error('Replication lease expired');
       const statements=[],state=await this.state();
+      // One bounded lookup per page replaces a network round trip per source row.
+      const previous=rows.length?await prepare('SELECT id,modified FROM listing_versions WHERE source=? AND id IN (SELECT value FROM json_each(?))',['onekey2',JSON.stringify(rows.map(row=>row.ListingKey))]).all():{results:[]};
+      const versions=new Map(previous.results.map(row=>[row.id,row.modified]));
       let max=state.cycle_watermark || state.watermark || null,baseline=state.initial_baseline || null;
       for(const row of rows) {
         if(row.OriginatingSystemName!=='onekey2' || !/^[A-Za-z0-9_-]+$/.test(row.ListingKey || '') || !Number.isFinite(Date.parse(row.ModificationTimestamp)))throw Error('Invalid replication row');
@@ -56,13 +64,19 @@ export function replica(db) {
         if(!max || modified>timestampKey(max))max=iso;
         if(state.phase==='initial' && (!baseline || modified<timestampKey(baseline)))baseline=iso;
         const source=row.OriginatingSystemName,id=row.ListingKey;
-        const version=await prepare('SELECT modified FROM listing_versions WHERE source=? AND id=?',[source,id]).first();
-        if(version && version.modified>=modified)continue;
-        const publicRow=publicProjection(row),borough=boroughOf(row);
-        // Only currently marketed inventory is in this release. Sold/off-market display awaits source-specific approval.
-        const eligible=publicRow && borough && ['Active','Coming Soon','Active Under Contract','Pending'].includes(publicRow.StandardStatus);
+        const version=versions.get(id);
         const guard='EXISTS (SELECT 1 FROM feed_state WHERE source=? AND lease_id=? AND lease_until>?)';
         const guards=[source,lease,now];
+        if(version && version>=modified) {
+          // The same facts can arrive with newly signed media URLs. Record that acquisition
+          // for every pending photo, while never letting an older source version change it.
+          if(version===modified)statements.push(prepare(`UPDATE listing_media SET state=CASE WHEN state='failed' AND attempted_at<=?-3600000 THEN 'pending' ELSE state END,failure=CASE WHEN state='failed' AND attempted_at<=?-3600000 THEN NULL ELSE failure END,attempted_at=? WHERE source=? AND listing_id=? AND state IN ('pending','failed') AND ${guard} AND EXISTS (SELECT 1 FROM listing_versions WHERE source=? AND id=? AND modified=?)`,[now,now,now,source,id,...guards,source,id,modified]));
+          continue;
+        }
+        versions.set(id,modified);
+        const publicRow=publicProjection(row),borough=boroughOf(row);
+        // Only currently marketed inventory is in this release. Sold/off-market display awaits source-specific approval.
+        const eligible=publicRow && borough && MARKETING_STATUSES.includes(publicRow.StandardStatus);
         statements.push(prepare(`INSERT INTO listing_versions SELECT ?,?,? WHERE ${guard} ON CONFLICT(source,id) DO UPDATE SET modified=excluded.modified WHERE excluded.modified>listing_versions.modified`,[source,id,modified,...guards]));
         const fresh=`${guard} AND EXISTS (SELECT 1 FROM listing_versions WHERE source=? AND id=? AND modified=?)`;
         const freshValues=[...guards,source,id,modified];
@@ -80,7 +94,7 @@ export function replica(db) {
         statements.push(prepare(`INSERT INTO listings(source,id,status,city,state,price,beds,property_type,search_text,public_json,borough,missing_price,on_market_date,missing_date,below_original,provider_id) SELECT ${values.map(()=>'?').join(',')} WHERE ${fresh} ON CONFLICT(source,id) DO UPDATE SET status=excluded.status,city=excluded.city,price=excluded.price,beds=excluded.beds,property_type=excluded.property_type,search_text=excluded.search_text,public_json=excluded.public_json,borough=excluded.borough,missing_price=excluded.missing_price,on_market_date=excluded.on_market_date,missing_date=excluded.missing_date,below_original=excluded.below_original,provider_id=excluded.provider_id`,[...values,...freshValues]));
         const encoded=JSON.stringify(manifest);
         statements.push(prepare(`DELETE FROM listing_media WHERE source=? AND listing_id=? AND media_key NOT IN (SELECT json_extract(value,'$.key') FROM json_each(?)) AND ${fresh}`,[source,id,encoded,...freshValues]));
-        statements.push(prepare(`INSERT INTO listing_media(source,listing_id,media_key,revision,file,position,caption,attempted_at) SELECT ?,?,json_extract(value,'$.key'),json_extract(value,'$.revision'),json_extract(value,'$.file'),json_extract(value,'$.position'),json_extract(value,'$.caption'),? FROM json_each(?) WHERE ${fresh} ON CONFLICT(source,listing_id,media_key) DO UPDATE SET revision=excluded.revision,file=excluded.file,position=excluded.position,caption=excluded.caption,state=CASE WHEN listing_media.file=excluded.file THEN listing_media.state ELSE 'pending' END,attempted_at=CASE WHEN listing_media.file=excluded.file THEN listing_media.attempted_at ELSE excluded.attempted_at END,failure=CASE WHEN listing_media.file=excluded.file THEN listing_media.failure ELSE NULL END`,[source,id,now,encoded,...freshValues]));
+        statements.push(prepare(`INSERT INTO listing_media(source,listing_id,media_key,revision,file,position,caption,attempted_at) SELECT ?,?,json_extract(value,'$.key'),json_extract(value,'$.revision'),json_extract(value,'$.file'),json_extract(value,'$.position'),json_extract(value,'$.caption'),? FROM json_each(?) WHERE ${fresh} ON CONFLICT(source,listing_id,media_key) DO UPDATE SET revision=excluded.revision,file=excluded.file,position=excluded.position,caption=excluded.caption,state=CASE WHEN listing_media.file=excluded.file AND NOT (listing_media.state='failed' AND listing_media.attempted_at<=excluded.attempted_at-3600000) THEN listing_media.state ELSE 'pending' END,attempted_at=excluded.attempted_at,failure=CASE WHEN listing_media.file=excluded.file AND NOT (listing_media.state='failed' AND listing_media.attempted_at<=excluded.attempted_at-3600000) THEN listing_media.failure ELSE NULL END`,[source,id,now,encoded,...freshValues]));
         statements.push(prepare(`UPDATE listings SET has_photos=EXISTS(SELECT 1 FROM listing_media WHERE source=? AND listing_id=? AND state='ready') WHERE source=? AND id=? AND ${fresh}`,[source,id,source,id,...freshValues]));
       }
       if(checkpoint) {

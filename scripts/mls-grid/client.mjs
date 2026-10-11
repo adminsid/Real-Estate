@@ -1,4 +1,5 @@
 // Server-side replication client. Never import this module into the browser bundle.
+export const MARKETING_STATUSES = ['Active','Coming Soon','Active Under Contract','Pending'];
 const ENDPOINTS = new Set(['https://api-demo.mlsgrid.com/v2', 'https://api.mlsgrid.com/v2']);
 
 export function createRequestPacer(pause = ms => new Promise(resolve => setTimeout(resolve, ms))) {
@@ -9,17 +10,18 @@ export function createRequestPacer(pause = ms => new Promise(resolve => setTimeo
   };
 }
 
-export function createClient({ token, source, endpoint = 'https://api-demo.mlsgrid.com/v2', fetcher = fetch, pause, beforeRequest = createRequestPacer(pause), pageSize = 20 }) {
-  if (!token || !/^[a-z0-9_-]+$/.test(source || '') || !ENDPOINTS.has(endpoint) || !Number.isInteger(pageSize) || pageSize<1 || pageSize>1000) {
+export function createClient({ token, source, endpoint = 'https://api-demo.mlsgrid.com/v2', fetcher = fetch, pause, beforeRequest = createRequestPacer(pause), pageSize = 20, maxResponseBytes = 32 * 1024 * 1024 }) {
+  if (!token || !/^[a-z0-9_-]+$/.test(source || '') || !ENDPOINTS.has(endpoint) || !Number.isInteger(pageSize) || pageSize<1 || pageSize>1000 || !Number.isInteger(maxResponseBytes) || maxResponseBytes<1 || maxResponseBytes>32*1024*1024) {
     throw new Error('Provide a token, valid source, and approved MLS Grid endpoint');
   }
-  const initial = (timestamp = null, {viewOnly = true} = {}) => {
+  const initial = (timestamp = null, {viewOnly = true, marketOnly = false} = {}) => {
     const url = new URL(`${endpoint}/Property`);
     let filter = `OriginatingSystemName eq '${source}'`;
     if (timestamp) {
       if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/.test(timestamp) || !Number.isFinite(Date.parse(timestamp))) throw new Error('Invalid replication timestamp');
       filter += ` and ModificationTimestamp gt ${timestamp}`;
     } else if(viewOnly) filter += ' and MlgCanView eq true';
+    if(viewOnly && marketOnly) filter += ` and StandardStatus in (${MARKETING_STATUSES.map(status=>`'${status}'`).join(',')})`;
     url.searchParams.set('$filter', filter);
     url.searchParams.set('$expand', 'Media,Rooms,UnitTypes');
     // Small media-expanded pages can be downloaded before their signed URLs expire.
@@ -43,7 +45,7 @@ export function createClient({ token, source, endpoint = 'https://api-demo.mlsgr
     },
     async page(link) {
       const url = validateLink(link);
-      await beforeRequest();
+      const settle = await beforeRequest(maxResponseBytes);
       let response;
       try {
         response = await fetcher(url, {
@@ -62,10 +64,13 @@ export function createClient({ token, source, endpoint = 'https://api-demo.mlsgr
           const { done, value } = await reader.read();
           if (done) break;
           size += value.byteLength;
-          if (size > 32 * 1024 * 1024) throw new Error('MLS Grid page exceeded the development size limit');
+          if (size > maxResponseBytes) throw new Error('MLS Grid page exceeded the development size limit');
           chunks.push(value);
         }
       } finally { await reader.cancel(); }
+      // Retain the reservation on incomplete/oversized responses. Decoded bytes are a
+      // conservative upper bound for compressed payloads; retain larger Content-Length.
+      if(typeof settle === 'function')await settle(Math.max(size,Number(response.headers.get('Content-Length')) || 0));
       const bytes = new Uint8Array(size);
       let offset = 0;
       for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }

@@ -84,6 +84,187 @@ describe('Production listing replica',()=>{
    expect(sqlite.prepare('SELECT COUNT(*) AS n FROM listings').get()?.n).toBe(1)
   }finally{sqlite.close()}
  })
+ it('does no per-photo work for listings excluded from the replica',async()=>{
+  const {sqlite,db}=databaseFixture(),prepared=vi.spyOn(db,'prepare')
+  const outside=Array.from({length:20},(_,i)=>row({ListingKey:`OUT-${i}`,CountyOrParish:'Nassau',Media:Array.from({length:30},(_,j)=>({MediaKey:`P-${i}-${j}`,Permission:['Public']}))}))
+  try {
+   expect(await downloadPhotos(outside,{LIVE_DB:db,LIVE_MEDIA:{put:vi.fn()}},async()=>{})).toEqual({attempted:0,ready:0,failed:0})
+   expect(prepared.mock.calls.length).toBeLessThanOrEqual(2)
+  }finally{sqlite.close()}
+ })
+ it('bounds database work when 100 retained listings already have ready photos',async()=>{
+  const {sqlite,repo,db}=databaseFixture(),lease=await repo.acquire(now)
+  const rows=Array.from({length:100},(_,i)=>row({ListingKey:`READY-${i}`,Media:Array.from({length:10},(_,j)=>({MediaKey:`PHOTO-${i}-${j}`,Permission:['Public']}))}))
+  try {
+   await repo.apply(rows,null,lease,now)
+   sqlite.exec("UPDATE listing_media SET state='ready'")
+   const prepared=vi.spyOn(db,'prepare'),fetcher=vi.fn()
+   expect(await downloadPhotos(rows,{LIVE_DB:db,LIVE_MEDIA:{put:vi.fn()}},async()=>{},{fetcher,now:()=>now})).toEqual({attempted:0,ready:0,failed:0})
+   expect(prepared.mock.calls.length).toBeLessThanOrEqual(2)
+   expect(fetcher).not.toHaveBeenCalled()
+  }finally{sqlite.close()}
+ })
+ it('settles a bounded feed response to actual bytes without refunding request counts',async()=>{
+  const {sqlite,repo}=databaseFixture(),lease=await repo.acquire(now)
+  try {
+   await repo.request(lease,now,8*1024*1024)
+   await repo.settleBytes(lease,now,8*1024*1024,1000,now)
+   expect(sqlite.prepare('SELECT requests,bytes FROM feed_budget').get()).toEqual({requests:1,bytes:1000})
+   await expect(repo.settleBytes(lease,now,8*1024*1024,9*1024*1024,now)).rejects.toThrow('byte accounting')
+   await expect(repo.settleBytes('wrong-lease',now,8*1024*1024,1000,now)).rejects.toThrow('lease expired')
+  }finally{sqlite.close()}
+ })
+ it('bootstraps current marketing inventory and accepts 100-row bounded pages',async()=>{
+  const {sqlite,db}=databaseFixture(),links:string[]=[]
+  const rows=Array.from({length:100},(_,i)=>row({ListingKey:`N-${i}`,Media:[]}))
+  try {
+   const result=await syncLive({LIVE_SYNC_ENABLED:'true',MLS_GRID_ACCESS_TOKEN:'test-only',LIVE_DB:db,LIVE_MEDIA:{put:vi.fn()}},{fetcher:async(input:string)=>{links.push(input);return Response.json({value:rows})},pause:async()=>{},now:()=>now,maxPhotos:0})
+   expect(result.status).toBe('ok');expect(result.records).toBe(100)
+   expect(new URL(links[0]).searchParams.get('$top')).toBe('100')
+   expect(new URL(links[0]).searchParams.get('$filter')).toContain("StandardStatus in ('Active','Coming Soon','Active Under Contract','Pending')")
+   expect((await replica(db).state()).phase).toBe('catchup')
+   await syncLive({LIVE_SYNC_ENABLED:'true',MLS_GRID_ACCESS_TOKEN:'test-only',LIVE_DB:db,LIVE_MEDIA:{put:vi.fn()}},{fetcher:async(input:string)=>{links.push(input);return Response.json({value:[]})},pause:async()=>{},now:()=>now,maxPhotos:0})
+   expect(new URL(links[1]).searchParams.get('$filter')).not.toContain('StandardStatus')
+   expect(new URL(links[1]).searchParams.get('$filter')).not.toContain('MlgCanView')
+  }finally{sqlite.close()}
+ })
+ it('charges fully consumed photo and redirect bodies instead of maximum reservations',async()=>{
+  const {sqlite,db}=databaseFixture(),sourceRow=row(),image=new Uint8Array([255,216,255,0])
+  const body=JSON.stringify({value:[sourceRow]}),redirectBody='redirect',requests:string[]=[]
+  try {
+   const result=await syncLive({LIVE_SYNC_ENABLED:'true',MLS_GRID_ACCESS_TOKEN:'test-only',LIVE_DB:db,LIVE_MEDIA:{put:vi.fn(async()=>{})}},{fetcher:async(input:string,init?:RequestInit)=>{
+    requests.push(input)
+    if(input.startsWith('https://api.'))return new Response(body)
+    if(input.startsWith('https://media.')){expect(init?.headers).toEqual({'User-Agent':'test-only'});return new Response(redirectBody,{status:302,headers:{Location:'https://mlsgrid.'+'a'.repeat(32)+'.r2.cloudflarestorage.com/photo'}})}
+    expect(init?.headers).toBeUndefined()
+    return new Response(image,{headers:{'Content-Length':'20'}})
+   },pause:async()=>{},now:()=>now})
+   expect(result.status).toBe('ok');expect(result.photoAttempts).toBe(1)
+   expect(sqlite.prepare('SELECT requests,bytes FROM feed_budget').get()).toEqual({requests:3,bytes:new TextEncoder().encode(body).length+redirectBody.length+20})
+   expect(requests).toHaveLength(3)
+  }finally{sqlite.close()}
+ })
+ it('keeps the full photo reservation for an interrupted stream',async()=>{
+  const {sqlite,db}=databaseFixture(),sourceRow=row(),body=JSON.stringify({value:[sourceRow]})
+  try {
+   const result=await syncLive({LIVE_SYNC_ENABLED:'true',MLS_GRID_ACCESS_TOKEN:'test-only',LIVE_DB:db,LIVE_MEDIA:{put:vi.fn()}},{fetcher:async(input:string)=>input.startsWith('https://api.')?new Response(body):new Response(new ReadableStream({start(controller){controller.enqueue(new Uint8Array([255,216,255]));controller.error(Error('interrupted'))}})),pause:async()=>{},now:()=>now})
+   expect(result.status).toBe('ok')
+   expect(sqlite.prepare('SELECT requests,bytes FROM feed_budget').get()).toEqual({requests:2,bytes:new TextEncoder().encode(body).length+15*1024*1024})
+   expect(sqlite.prepare('SELECT state FROM listing_media').get()?.state).toBe('failed')
+  }finally{sqlite.close()}
+ })
+ it('retains the maximum reservation and never stores an oversized media body',async()=>{
+  const {sqlite,db}=databaseFixture(),body=JSON.stringify({value:[row()]}),bucket={put:vi.fn()}
+  try {
+   const result=await syncLive({LIVE_SYNC_ENABLED:'true',MLS_GRID_ACCESS_TOKEN:'test-only',LIVE_DB:db,LIVE_MEDIA:bucket},{fetcher:async(input:string)=>input.startsWith('https://api.')?new Response(body):new Response(new Uint8Array(15*1024*1024+1)),pause:async()=>{},now:()=>now})
+   expect(result.status).toBe('ok');expect(bucket.put).not.toHaveBeenCalled()
+   expect(sqlite.prepare('SELECT requests,bytes FROM feed_budget').get()).toEqual({requests:2,bytes:new TextEncoder().encode(body).length+15*1024*1024})
+   expect(sqlite.prepare('SELECT state FROM listing_media').get()?.state).toBe('failed')
+  }finally{sqlite.close()}
+ })
+ it('settles a consumed media error while preserving provider backoff and facts',async()=>{
+  const {sqlite,db}=databaseFixture(),body=JSON.stringify({value:[row()]})
+  try {
+   const result=await syncLive({LIVE_SYNC_ENABLED:'true',MLS_GRID_ACCESS_TOKEN:'test-only',LIVE_DB:db,LIVE_MEDIA:{put:vi.fn()}},{fetcher:async(input:string)=>input.startsWith('https://api.')?new Response(body):new Response('throttled',{status:429}),pause:async()=>{},now:()=>now})
+   expect(result.status).toBe('rate_limit')
+   expect(sqlite.prepare('SELECT requests,bytes FROM feed_budget').get()).toEqual({requests:2,bytes:new TextEncoder().encode(body).length+9})
+   expect((await replica(db).state()).retry_after).toBe(now+900000)
+   expect(sqlite.prepare('SELECT COUNT(*) AS n FROM listings').get()?.n).toBe(1)
+  }finally{sqlite.close()}
+ })
+ it('backs off on throttling even when the media error body is interrupted',async()=>{
+  const {sqlite,db}=databaseFixture(),body=JSON.stringify({value:[row()]})
+  try {
+   const result=await syncLive({LIVE_SYNC_ENABLED:'true',MLS_GRID_ACCESS_TOKEN:'test-only',LIVE_DB:db,LIVE_MEDIA:{put:vi.fn()}},{fetcher:async(input:string)=>input.startsWith('https://api.')?new Response(body):new Response(new ReadableStream({start(controller){controller.error(Error('interrupted error body'))}}),{status:429}),pause:async()=>{},now:()=>now})
+   expect(result.status).toBe('rate_limit')
+   expect(sqlite.prepare('SELECT requests,bytes FROM feed_budget').get()).toEqual({requests:2,bytes:new TextEncoder().encode(body).length+15*1024*1024})
+   expect((await replica(db).state()).retry_after).toBe(now+900000)
+  }finally{sqlite.close()}
+ })
+ it('does not regenerate still-valid backfill URLs on the next cron pass',async()=>{
+  const {sqlite,db,repo}=databaseFixture(),lease=await repo.acquire(now)
+  const covers=Array.from({length:12},(_,i)=>row({ListingKey:`BACKFILL-${i}`,ListingId:`KEYBACKFILL${i}`,Media:[0,1].map(j=>({MediaKey:`B-${i}-${j}`,Permission:['Public'],Order:j,MediaURL:`https://media.mlsgrid.com/backfill-${i}-${j}`}))}))
+  const fetcher=vi.fn(async(input:string)=>input.startsWith('https://api.')?Response.json({value:covers}):new Response(new Uint8Array([255,216,255,0])))
+  const env={LIVE_SYNC_ENABLED:'true',MLS_GRID_ACCESS_TOKEN:'test-only',LIVE_DB:db,LIVE_MEDIA:{put:vi.fn(async()=>{})}}
+  try {
+   await repo.apply(covers,null,lease,now);sqlite.exec('UPDATE listing_media SET attempted_at=0');await repo.release(lease)
+   const first=await syncLive(env,{fetcher,pause:async()=>{},now:()=>now,maxPages:0})
+   expect(first.photoAttempts).toBe(12)
+   const second=await syncLive(env,{fetcher,pause:async()=>{},now:()=>now+60000,maxPages:0})
+   expect(second.photoAttempts).toBe(0)
+   expect(fetcher.mock.calls.filter(([input])=>input.startsWith('https://api.'))).toHaveLength(1)
+  }finally{sqlite.close()}
+ })
+ it('records URL freshness for recent failures without retrying them early',async()=>{
+  const {sqlite,db,repo}=databaseFixture(),lease=await repo.acquire(now)
+  const sourceRow=row({Media:[0,1].map(j=>({MediaKey:`M-${j}`,Permission:['Public'],Order:j,MediaURL:`https://media.mlsgrid.com/mixed-${j}`}))})
+  const fetcher=vi.fn(async(input:string)=>input.startsWith('https://api.')?Response.json({value:[sourceRow]}):new Response(new Uint8Array([255,216,255,0])))
+  const env={LIVE_SYNC_ENABLED:'true',MLS_GRID_ACCESS_TOKEN:'test-only',LIVE_DB:db,LIVE_MEDIA:{put:vi.fn(async()=>{})}}
+  try {
+   await repo.apply([sourceRow],null,lease,now)
+   sqlite.exec('UPDATE listing_media SET attempted_at=0')
+   sqlite.prepare("UPDATE listing_media SET state='failed',attempted_at=? WHERE media_key='M-1'").run(now-3599999)
+   await repo.release(lease)
+   const first=await syncLive(env,{fetcher,pause:async()=>{},now:()=>now,maxPages:0})
+   expect(first.photoAttempts).toBe(1)
+   expect(sqlite.prepare("SELECT state,attempted_at FROM listing_media WHERE media_key='M-1'").get()).toEqual({state:'failed',attempted_at:now})
+   const second=await syncLive(env,{fetcher,pause:async()=>{},now:()=>now+60000,maxPages:0})
+   expect(second.photoAttempts).toBe(0)
+   expect(fetcher.mock.calls.filter(([input])=>input.startsWith('https://api.'))).toHaveLength(1)
+  }finally{sqlite.close()}
+ })
+ it('records fresh media URLs on price updates even when photo files are unchanged',async()=>{
+  const {sqlite,db,repo}=databaseFixture(),lease=await repo.acquire(now)
+  const sourceRow=row()
+  try {
+   await repo.apply([sourceRow],null,lease,now)
+   sqlite.exec('UPDATE listing_media SET attempted_at=0')
+   await repo.apply([row({ListPrice:510000,ModificationTimestamp:'2026-10-09T19:00:00Z'})],null,lease,now)
+   expect(sqlite.prepare('SELECT attempted_at FROM listing_media').get()?.attempted_at).toBe(now)
+  }finally{sqlite.close()}
+ })
+ it('starts no further photo jobs after the bounded run deadline',async()=>{
+  const {sqlite,db,repo}=databaseFixture(),lease=await repo.acquire(now);let clock=now
+  const rows=Array.from({length:3},(_,i)=>row({ListingKey:`DEADLINE-${i}`,Media:[{MediaKey:`D-${i}`,Permission:['Public'],MediaURL:`https://media.mlsgrid.com/deadline-${i}`}]}))
+  try {
+   await repo.apply(rows,null,lease,now)
+   const result=await downloadPhotos(rows,{LIVE_DB:db,LIVE_MEDIA:{put:vi.fn(async()=>{})},MLS_GRID_ACCESS_TOKEN:'test-only'},async()=>{}, {fetcher:async()=>{clock+=80000;return new Response(new Uint8Array([255,216,255,0]))},now:()=>clock,deadline:now+150000,maxDownloads:3})
+   expect(result.attempted).toBe(2)
+   expect(sqlite.prepare("SELECT COUNT(*) AS n FROM listing_media WHERE state='pending'").get()?.n).toBe(1)
+  }finally{sqlite.close()}
+ })
+ it('downloads one ordered cover per listing before filling a gallery',async()=>{
+  const {sqlite,db,repo}=databaseFixture(),lease=await repo.acquire(now)
+  const rows=Array.from({length:3},(_,i)=>row({ListingKey:`COVER-${i}`,Media:[2,0,1].map(j=>({MediaKey:`P-${i}-${j}`,Permission:['Public'],Order:j,MediaURL:`https://media.mlsgrid.com/p-${i}-${j}`}))}))
+  const downloaded:string[]=[]
+  try {
+   await repo.apply(rows,null,lease,now)
+   const result=await downloadPhotos(rows,{LIVE_DB:db,LIVE_MEDIA:{put:vi.fn(async()=>{})},MLS_GRID_ACCESS_TOKEN:'test-only'},async()=>{}, {fetcher:async(input:string)=>{downloaded.push(input);return new Response(new Uint8Array([255,216,255,0]))},now:()=>now,maxDownloads:3})
+   expect(result.ready).toBe(3)
+   expect(downloaded).toEqual(['https://media.mlsgrid.com/p-0-0','https://media.mlsgrid.com/p-1-0','https://media.mlsgrid.com/p-2-0'])
+   expect(sqlite.prepare('SELECT COUNT(*) AS n FROM listings WHERE has_photos=1').get()?.n).toBe(3)
+  }finally{sqlite.close()}
+ })
+ it('backfills listings without cover photos ahead of an existing gallery',async()=>{
+  const {sqlite,db,repo}=databaseFixture(),lease=await repo.acquire(now)
+  const gallery=row({ListingKey:'A-GALLERY',ListingId:'KEYGALLERY',Media:[0,1].map(j=>({MediaKey:`G-${j}`,Permission:['Public'],Order:j,MediaURL:`https://media.mlsgrid.com/gallery-${j}`}))})
+  const covers=Array.from({length:12},(_,i)=>row({ListingKey:`B-COVER-${i}`,ListingId:`KEYCOVER${i}`,Media:[{MediaKey:`C-${i}`,Permission:['Public'],Order:0,MediaURL:`https://media.mlsgrid.com/cover-${i}`}]}))
+  const requested:string[]=[]
+  try {
+   await repo.apply([gallery,...covers],null,lease,now)
+   sqlite.exec("UPDATE listing_media SET attempted_at=0; UPDATE listing_media SET state='ready' WHERE media_key='G-0'; UPDATE listings SET has_photos=1 WHERE id='A-GALLERY'")
+   await repo.release(lease)
+   const result=await syncLive({LIVE_SYNC_ENABLED:'true',MLS_GRID_ACCESS_TOKEN:'test-only',LIVE_DB:db,LIVE_MEDIA:{put:vi.fn(async()=>{})}},{fetcher:async(input:string)=>{
+    if(input.startsWith('https://api.')){requested.push(input);const filter=new URL(input).searchParams.get('$filter') || '';return Response.json({value:covers.filter(item=>filter.includes(`'${item.ListingId}'`))})}
+    return new Response(new Uint8Array([255,216,255,0]))
+   },pause:async()=>{},now:()=>now,maxPages:0})
+   expect(result.status).toBe('ok');expect(result.photoAttempts).toBe(12)
+   const filter=new URL(requested[0]).searchParams.get('$filter')
+   expect(filter).not.toContain('KEYGALLERY')
+   for(let i=0;i<12;i++)expect(filter).toContain(`'KEYCOVER${i}'`)
+   expect(sqlite.prepare('SELECT COUNT(*) AS n FROM listings WHERE has_photos=1').get()?.n).toBe(13)
+  }finally{sqlite.close()}
+ })
  it('reads the replication cursor only after acquiring its exclusive lease',async()=>{
   const {sqlite,db}=databaseFixture()
   let acquired=false
