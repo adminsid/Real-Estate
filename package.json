@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "Globally available Real Estate Workspace — PWA built for Cloudflare",
+  "description": "Globally available Real Estate Workspace \u2014 PWA built for Cloudflare",
   "scripts": {
     "dev": "vite",
     "build": "node scripts/gen-icons.mjs && tsc && vite build",
@@ -21,7 +21,10 @@
     "search:build": "node scripts/mls-grid/build-staging.mjs",
     "search:typecheck": "tsc --noEmit -p workers/property-search/tsconfig.json",
     "search:dev": "npm run search:build && wrangler dev --config workers/property-search/wrangler.jsonc",
-    "search:deploy:staging": "npm run search:build && wrangler deploy --config workers/property-search/wrangler.jsonc"
+    "search:deploy:staging": "npm run search:build && wrangler deploy --config workers/property-search/wrangler.jsonc",
+    "search:build:production": "node scripts/mls-grid/build-production.mjs",
+    "search:typecheck:production": "tsc --noEmit -p workers/property-search/tsconfig.production.json",
+    "search:deploy:production": "npm run search:build:production && wrangler deploy --config workers/property-search/wrangler.production.jsonc"
   },
   "dependencies": {
     "@cloudflare/kv-asset-handler": "^0.5.0",

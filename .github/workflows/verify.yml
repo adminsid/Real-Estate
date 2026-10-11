@@ -22,3 +22,6 @@ jobs:
       - run: npm run search:build
       - run: npm run search:typecheck
       - run: npx wrangler deploy --dry-run --config workers/property-search/wrangler.jsonc
+      - run: npm run search:build:production
+      - run: npm run search:typecheck:production
+      - run: npx wrangler deploy --dry-run --config workers/property-search/wrangler.production.jsonc

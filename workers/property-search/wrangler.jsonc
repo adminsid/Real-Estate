@@ -3,31 +3,68 @@
   "name": "prime-property-search-staging",
   "main": "src/index.ts",
   "account_id": "4db3065ea9180585a8de09c7fcff6d83",
-  "compatibility_date": "2026-10-08",
-  "compatibility_flags": ["nodejs_compat"],
+  "compatibility_date": "2026-10-09",
+  "compatibility_flags": [
+    "nodejs_compat"
+  ],
   "workers_dev": false,
   "preview_urls": false,
-  "routes": [{ "pattern": "preview-search.primeamericany.com", "custom_domain": true }],
+  "routes": [
+    {
+      "pattern": "preview-search.primeamericany.com",
+      "custom_domain": true
+    }
+  ],
   "assets": {
     "directory": "./public",
     "binding": "ASSETS",
     "run_worker_first": true
   },
-  "observability": { "enabled": true, "head_sampling_rate": 1 },
-  "secrets": { "required": ["MLS_GRID_ACCESS_TOKEN"] },
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1
+  },
+  "secrets": {
+    "required": [
+      "MLS_GRID_ACCESS_TOKEN"
+    ]
+  },
   "vars": {
     "APP_ENV": "staging",
     "PUBLIC_ORIGIN": "https://preview-search.primeamericany.com",
     "ACCESS_TEAM_DOMAIN": "primeamerica.cloudflareaccess.com",
     "ACCESS_AUD": "aeb5d1a3e1aacaf377f99f5297ba88a71b1ac4d3fb6c7466a557897aea823755",
-    "DATASET": "synthetic",
-    "FEED_OPERATOR_EMAIL": "lama@primeamericany.com"
+    "DATASET": "live",
+    "FEED_OPERATOR_EMAIL": "lama@primeamericany.com",
+    "LIVE_SYNC_ENABLED": "true"
   },
-  "d1_databases": [{
-    "binding": "SEARCH_DB",
-    "database_name": "prime-property-search-staging",
-    "database_id": "47a4aef3-bc61-4b7c-9500-ae60e99dba55",
-    "migrations_dir": "./migrations"
-  }],
-  "r2_buckets": [{ "binding": "SEARCH_MEDIA", "bucket_name": "prime-property-search-staging-media" }]
+  "d1_databases": [
+    {
+      "binding": "SEARCH_DB",
+      "database_name": "prime-property-search-staging",
+      "database_id": "47a4aef3-bc61-4b7c-9500-ae60e99dba55",
+      "migrations_dir": "./migrations"
+    },
+    {
+      "binding": "LIVE_DB",
+      "database_name": "prime-property-search",
+      "database_id": "7eb56a7c-7a05-4303-998a-4e38a8f7a5f3",
+      "migrations_dir": "./production-migrations"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "SEARCH_MEDIA",
+      "bucket_name": "prime-property-search-staging-media"
+    },
+    {
+      "binding": "LIVE_MEDIA",
+      "bucket_name": "prime-property-search-media"
+    }
+  ],
+  "triggers": {
+    "crons": [
+      "* * * * *"
+    ]
+  }
 }

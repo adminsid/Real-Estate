@@ -1,0 +1,44 @@
+{
+  "inventory": 100000,
+  "engine": "Local Node SQLite",
+  "node": "v22.23.2",
+  "scope": "Statistics + one 24-record page; excludes HTTP, D1 network, rendering, and photo transfer",
+  "results": [
+    {
+      "name": "NYC home prices",
+      "medianMs": 2.34,
+      "p95Ms": 2.76,
+      "plan": [
+        "SEARCH listings USING INDEX listing_price (property_type=? AND status=?)"
+      ]
+    },
+    {
+      "name": "Queens newest",
+      "medianMs": 0.47,
+      "p95Ms": 0.56,
+      "plan": [
+        "SEARCH listings USING INDEX borough_newest (property_type=? AND status=? AND borough=?)"
+      ]
+    },
+    {
+      "name": "Address / ZIP prefix",
+      "medianMs": 65.77,
+      "p95Ms": 66.69,
+      "plan": [
+        "SEARCH listings USING INTEGER PRIMARY KEY (rowid=?)",
+        "LIST SUBQUERY 1",
+        "SCAN listing_search VIRTUAL TABLE INDEX 0:M1",
+        "CREATE BLOOM FILTER",
+        "USE TEMP B-TREE FOR ORDER BY"
+      ]
+    },
+    {
+      "name": "Price, beds, photos",
+      "medianMs": 0.28,
+      "p95Ms": 0.39,
+      "plan": [
+        "SEARCH listings USING INDEX borough_price (property_type=? AND status=? AND borough=?)"
+      ]
+    }
+  ]
+}
