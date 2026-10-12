@@ -1,4 +1,5 @@
 import { initializeBrand } from './brand-editor.mjs';
+import { initializeBottomDock } from './bottom-dock.mjs';
 import { initializeDiscovery } from './discovery.mjs';
 import { connectEmbed } from './embed.mjs';
 connectEmbed();
@@ -45,7 +46,7 @@ function openGallery(l,trigger,index=0) { galleryPhotos=l.media;galleryAddress=a
 $('#gallery-close').addEventListener('click',()=>$('#gallery').close());$('#gallery').addEventListener('close',()=>{photoVersion++;galleryTrigger?.focus();});$('#gallery-previous').addEventListener('click',()=>showPhoto(galleryIndex-1));$('#gallery-next').addEventListener('click',()=>showPhoto(galleryIndex+1));$('#gallery').addEventListener('keydown',event=>{if(event.key==='ArrowRight'){event.preventDefault();showPhoto(galleryIndex+1);}if(event.key==='ArrowLeft'){event.preventDefault();showPhoto(galleryIndex-1);}});
 
 const form = $('#search');
-let discovery;
+let discovery,bottomDock;
 let offset = 0, controller, requestVersion = 0, debounce, pageData;
 let focusIndex = Math.max(0,Math.min(95,Number.parseInt(new URLSearchParams(location.search).get('focus'),10)||0));
 const storageKey = 'prime-america-search-v1';
@@ -176,7 +177,7 @@ function queryParams() {
  const params=new URLSearchParams();for(const [k,v]of new FormData(form))if(v||['type','status'].includes(k))params.set(k,String(v).slice(0,k==='places'?600:200));
  params.set('limit',$('#page-size').value);params.set('sort',$('#sort').value);params.set('offset',String(offset));
  params.set('density',$('#density').value);params.set('view',$('#view').value);params.set('textSize',$('#text-size').value);
- if($('#view').value==='focus')params.set('focus',String(focusIndex));discovery?.params(params);return params;
+ if($('#view').value==='focus')params.set('focus',String(focusIndex));discovery?.params(params);bottomDock?.params(params);return params;
 }
 function updateViewURL() {
  const params=queryParams();history.replaceState(null,'','?'+params);$('#open-full-search').href=document.body.dataset.publicOrigin+'/?'+params;
@@ -437,6 +438,7 @@ function renderListing(l) {
 }
 
 discovery=initializeDiscovery({form,search:()=>scheduleSearch(0),renderCard:card});
+bottomDock=initializeBottomDock();
 const route=location.pathname.match(/^\/listing\/([^/]+)\/([^/]+)$/);
 if(route){$('#search-page').hidden=true;$('#listing-page').hidden=false;$('#back-results').href='/'+location.search;try{const response=await fetch(`/api/listing/${route[1]}/${route[2]}`);if(!response.ok)throw Error();const data=await response.json();renderListing(data.listing);}catch{$('#listing-content').replaceChildren();$('#listing-content').append(el('div','This listing is unavailable. Return to the results to find another property.','error-panel'));}}
 else{const params=new URLSearchParams(location.search);for(const control of form.elements)if(control.name&&params.has(control.name))control.value=params.get(control.name);const restored=Number(params.get('offset')||0);offset=Number.isSafeInteger(restored)&&restored>=0?restored:0;search();}
