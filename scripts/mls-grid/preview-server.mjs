@@ -7,6 +7,7 @@ import { DEFAULT_BRAND, validateBrand, brandCSS } from './brand.mjs';
 import { publicOrigin, renderPage, embedDemo } from './pages.mjs';
 export function createPreviewServer(store, databasePath, options = {}) {
   const assets = { '/app.mjs': ['app.mjs', 'text/javascript; charset=utf-8'], '/consumer.mjs': ['consumer.mjs', 'text/javascript; charset=utf-8'], '/brand.mjs': ['brand.mjs', 'text/javascript; charset=utf-8'], '/brand-editor.mjs': ['brand-editor.mjs', 'text/javascript; charset=utf-8'], '/embed.mjs': ['embed.mjs', 'text/javascript; charset=utf-8'], '/embed-loader.js': ['embed-loader.js', 'text/javascript; charset=utf-8'], '/style.css': ['style.css', 'text/css; charset=utf-8'] };
+  for(const name of ['search-filters.mjs','discovery.mjs','search-map.mjs','nyc-boroughs.json','discovery.css','search-icon.svg'])assets['/'+name]=[name,name.endsWith('.mjs')?'text/javascript; charset=utf-8':name.endsWith('.css')?'text/css; charset=utf-8':name.endsWith('.svg')?'image/svg+xml':'application/json'];
   const configuredOrigin = options.publicURL ? publicOrigin(options.publicURL) : null;
   const embedOrigins = (options.embedOrigins || []).map(publicOrigin);
   const brandPath = join(dirname(databasePath), 'brand.json');
@@ -90,6 +91,7 @@ export function createPreviewServer(store, databasePath, options = {}) {
         return;
       }
       if (url.pathname === '/api/search') { send(200, store.search(Object.fromEntries(url.searchParams))); return; }
+      if (url.pathname === '/api/discovery') { send(200, store.discovery(Object.fromEntries(url.searchParams))); return; }
       const match = url.pathname.match(/^\/api\/listing\/([^/]+)\/([^/]+)$/);
       if (match) {
         const listing = store.listing(decodeURIComponent(match[1]), decodeURIComponent(match[2]));

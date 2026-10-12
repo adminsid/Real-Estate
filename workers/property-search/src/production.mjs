@@ -3,7 +3,7 @@ import { searchStore } from './store.mjs';
 import { feedReady } from './sync.mjs';
 import { DEFAULT_BRAND,brandCSS } from '../../../scripts/mls-grid/brand.mjs';
 import { publicOrigin,renderPage,escapeHTML } from '../../../scripts/mls-grid/pages.mjs';
-const assets=new Set(['/app.mjs','/consumer.mjs','/brand.mjs','/brand-editor.mjs','/embed.mjs','/embed-loader.js','/style.css','/mls-grid.png','/onekey.png']);
+const assets=new Set(['/app.mjs','/consumer.mjs','/search-filters.mjs','/discovery.mjs','/search-map.mjs','/nyc-boroughs.json','/discovery.css','/search-icon.svg','/brand.mjs','/brand-editor.mjs','/embed.mjs','/embed-loader.js','/style.css','/mls-grid.png','/onekey.png']);
 export function productionHeaders(response,{privateReview=false,noindex=false}={}) {
   const headers=new Headers(response.headers);
   // Eligibility and freshness are checked on every read. No cached revoked listings or photos.
@@ -53,6 +53,7 @@ export async function handleProduction(request,env,{privateReview=false,now=Date
       }
     } else if(url.pathname==='/copyright')response=new Response(`<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Copyright notices · Prime America Real Estate</title><link rel="stylesheet" href="/style.css"><main><h1>Copyright and listing-data notices</h1><p>Send listing corrections or copyright notices to <a href="mailto:info@primeamericany.com">info@primeamericany.com</a>.</p>${copyrightNotice}<a href="/">Return to property search</a></main></html>`,{headers:{'Content-Type':'text/html; charset=utf-8'}});
     else if(url.pathname==='/api/search')response=Response.json(await store.search({borough:'NYC',type:'Residential',status:'Active',...Object.fromEntries(url.searchParams)},new Date(now)));
+    else if(url.pathname==='/api/discovery')response=Response.json(await store.discovery({borough:'NYC',type:'Residential',status:'Active',...Object.fromEntries(url.searchParams)},new Date(now)));
     else {
       const api=url.pathname.match(/^\/api\/listing\/([A-Za-z0-9_-]+)\/([A-Za-z0-9_-]+)$/),route=url.pathname.match(/^\/listing\/([A-Za-z0-9_-]+)\/([A-Za-z0-9_-]+)$/),media=url.pathname.match(/^\/media\/([a-f0-9]{64})$/);
       if(api) {

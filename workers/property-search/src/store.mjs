@@ -1,4 +1,5 @@
 import { searchQuery, mediaQuery } from '../../../scripts/mls-grid/search-query.mjs';
+import { discoveryQueries, discoveryResult } from '../../../scripts/mls-grid/discovery-data.mjs';
 
 const safeListing = listing => {
   if (listing.addressWithheld) {
@@ -23,6 +24,11 @@ export function searchStore(db, {production = false} = {}) {
     return listings.map(listing => ({ ...listing, media: (byListing.get(`${listing.source}:${listing.id}`) || []).map(photo => ({ url: `/media/${photo.file}`, caption: listing.addressWithheld ? '' : photo.caption })) }));
   }
   return {
+    async discovery(params={},now=new Date()) {
+      const queries=discoveryQueries(params,now,production);
+      const results=await Promise.all(Object.values(queries).map(query=>rows(query.sql,query.values)));
+      return discoveryResult(...results);
+    },
     async listing(source, id) {
       const record = await first('SELECT public_json FROM listings WHERE source=? AND id=?', [source, id]);
       return record ? (await attach([record]))[0] : null;

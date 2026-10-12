@@ -1,4 +1,5 @@
 import { recentListingDates } from './consumer.mjs';
+import { advancedConditions, featureList, featureSQL } from './search-filters.mjs';
 
 // Shared parameterized filter contract for local SQLite and Cloudflare D1.
 export function searchQuery(params = {}, now = new Date(), indexed = false) {
@@ -18,6 +19,7 @@ export function searchQuery(params = {}, now = new Date(), indexed = false) {
     else conditions.push('0=1');
   }
   if (query && !indexed) { conditions.push("search_text LIKE ? ESCAPE '\\'"); values.push(`%${query.replace(/[\\%_]/g, '\\$&')}%`); }
+  advancedConditions(params,conditions,values);
   if (params.photosOnly === '1') conditions.push(indexed ? 'has_photos=1' : 'EXISTS (SELECT 1 FROM listing_media m WHERE m.source=listings.source AND m.listing_id=listings.id)');
   for (const [param, column] of [['status', 'status'], ['type', 'property_type'], ['source', 'source']]) {
     if (params[param]) { conditions.push(`${column}=?`); values.push(String(params[param])); }
@@ -48,6 +50,8 @@ export function searchQuery(params = {}, now = new Date(), indexed = false) {
   if (!Number.isSafeInteger(requestedOffset) || requestedOffset < 0) throw new Error('Invalid offset');
   const sorts = { priceAsc: 'price IS NULL,price ASC', priceDesc: 'price IS NULL,price DESC', newest: "json_extract(public_json,'$.OnMarketDate') IS NULL,json_extract(public_json,'$.OnMarketDate') DESC" };
   if(indexed) { sorts.priceAsc='missing_price,price ASC'; sorts.priceDesc='missing_price,price DESC'; sorts.newest='missing_date,on_market_date DESC'; }
+  const preferred=featureList(params.preferred);
+  sorts.best=preferred.length ? `(${preferred.map(key=>`CASE WHEN ${featureSQL(key)} THEN 1 ELSE 0 END`).join('+')}) DESC,${sorts.newest}` : sorts.newest;
   const sort = params.sort || 'priceAsc';
   if (!Object.hasOwn(sorts, sort)) throw new Error('Invalid sort');
   const where = conditions.join(' AND ');

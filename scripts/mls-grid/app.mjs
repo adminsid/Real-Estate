@@ -1,4 +1,5 @@
 import { initializeBrand } from './brand-editor.mjs';
+import { initializeDiscovery } from './discovery.mjs';
 import { connectEmbed } from './embed.mjs';
 connectEmbed();
 await initializeBrand();
@@ -44,6 +45,7 @@ function openGallery(l,trigger,index=0) { galleryPhotos=l.media;galleryAddress=a
 $('#gallery-close').addEventListener('click',()=>$('#gallery').close());$('#gallery').addEventListener('close',()=>{photoVersion++;galleryTrigger?.focus();});$('#gallery-previous').addEventListener('click',()=>showPhoto(galleryIndex-1));$('#gallery-next').addEventListener('click',()=>showPhoto(galleryIndex+1));$('#gallery').addEventListener('keydown',event=>{if(event.key==='ArrowRight'){event.preventDefault();showPhoto(galleryIndex+1);}if(event.key==='ArrowLeft'){event.preventDefault();showPhoto(galleryIndex-1);}});
 
 const form = $('#search');
+let discovery;
 let offset = 0, controller, requestVersion = 0, debounce, pageData;
 let focusIndex = Math.max(0,Math.min(95,Number.parseInt(new URLSearchParams(location.search).get('focus'),10)||0));
 const storageKey = 'prime-america-search-v1';
@@ -121,7 +123,7 @@ function card(l,i) {
  body.append(compactAttribution(l));
  const actions=el('div','','card-actions');actions.append(link('View details →',href,'details-link'));
  if((!production || publicEmail(l)) && ['Active','Coming Soon','Active Under Contract'].includes(l.StandardStatus)){const tour=action('Request a showing',()=>{activeListing=l;openContact('tour',tour);},'secondary');actions.append(tour);}
- body.append(actions);node.append(media,body);return node;
+ body.append(actions);node.append(media,body);discovery?.decorateCard(node,l);return node;
 }
 function syncExperience() {
  const type=form.elements.type.value;
@@ -154,25 +156,27 @@ function renderShowcase(data) {
 }
 function syncFilters() {
  syncExperience();
+ discovery?.sync();
  for(const b of document.querySelectorAll('[data-location]')) b.setAttribute('aria-pressed',String(b.dataset.location===form.elements.borough.value));
  for(const b of document.querySelectorAll('[data-type]')) b.setAttribute('aria-pressed',String(b.dataset.type===form.elements.type.value));
  for(const b of document.querySelectorAll('[data-filter]')) b.setAttribute('aria-pressed',String(form.elements[b.dataset.filter].value==='1'));
  const chips=[];
- for(const [key,title]of [['borough','Area'],['q','Place'],['type','Type'],['status','Status'],['minPrice','From'],['maxPrice','To'],['beds','Bedrooms'],['source','Source']]) {
+ for(const [key,title]of [['borough','Area'],['q','Place'],['type','Type'],['status','Status'],['minPrice','From'],['maxPrice','To'],['beds','Bedrooms'],['source','Source'],['baths','Bathrooms'],['subtype','Style'],['minArea','Minimum sq ft'],['minBuildingArea','Minimum building sq ft'],['minLot','Minimum lot sq ft'],['minUnits','Minimum units'],['maxTax','Annual taxes up to'],['maxFee','Monthly fee up to'],['availableBy','Available by'],['parking','Parking']]) {
   const control=form.elements[key],value=control.value;if(!value||(key==='borough'&&value==='NYC')||key==='type'||(key==='status'&&value==='Active'))continue;
   const text=key==='minPrice'||key==='maxPrice'?money(Number(value)):control.tagName==='SELECT'?control.selectedOptions[0]?.textContent:value;
   const chip=action(`${title}: ${String(text).slice(0,80)} ×`,()=>{control.value=key==='borough'?'NYC':'';scheduleSearch(0);});
   chip.setAttribute('aria-label',`Remove ${title.toLowerCase()} filter`);chips.push(chip);
  }
  for(const [key,title]of [['photosOnly','With photos'],['recent','Last 7 days'],['belowOriginal','Below original price'],['savedOnly','Saved properties']])if(form.elements[key].value==='1'){const chip=action(title+' ×',()=>{form.elements[key].value='';scheduleSearch(0);});chip.setAttribute('aria-label',`Remove ${title.toLowerCase()} filter`);chips.push(chip);}
- if(chips.length)chips.push(action('Clear filters',()=>{form.reset();for(const key of ['belowOriginal','recent','savedOnly'])form.elements[key].value='';scheduleSearch(0);}));
+ chips.push(...(discovery?.chips()||[]));
+ if(chips.length)chips.push(action('Clear filters',()=>{resetSearchForm();scheduleSearch(0);}));
  $('#active-filters').hidden=!chips.length;$('#active-filters').replaceChildren(...chips);updateSavedButtons();
 }
 function queryParams() {
- const params=new URLSearchParams();for(const [k,v]of new FormData(form))if(v||['type','status'].includes(k))params.set(k,String(v).slice(0,200));
+ const params=new URLSearchParams();for(const [k,v]of new FormData(form))if(v||['type','status'].includes(k))params.set(k,String(v).slice(0,k==='places'?600:200));
  params.set('limit',$('#page-size').value);params.set('sort',$('#sort').value);params.set('offset',String(offset));
  params.set('density',$('#density').value);params.set('view',$('#view').value);params.set('textSize',$('#text-size').value);
- if($('#view').value==='focus')params.set('focus',String(focusIndex));return params;
+ if($('#view').value==='focus')params.set('focus',String(focusIndex));discovery?.params(params);return params;
 }
 function updateViewURL() {
  const params=queryParams();history.replaceState(null,'','?'+params);$('#open-full-search').href=document.body.dataset.publicOrigin+'/?'+params;
@@ -202,7 +206,12 @@ function stepProperty(direction) {
 }
 $('#focus-previous').addEventListener('click',()=>stepProperty(-1));
 $('#focus-next').addEventListener('click',()=>stepProperty(1));
+function resetSearchForm() {
+ form.reset();
+ for(const control of form.querySelectorAll('input[type=hidden]'))control.value='';
+}
 function setBusy() {
+ discovery?.invalidate();
  controller?.abort();requestVersion++;$('#summary').textContent='Updating your matches…';
  $('#results').setAttribute('aria-busy','true');$('#results').inert=true;
  $('#previous').disabled=$('#next').disabled=$('#mix-photos').disabled=true;
@@ -241,9 +250,10 @@ async function search(pageNavigation=false) {
   const response=await fetch('/api/search?'+apiParams,{signal});if(!response.ok)throw Error();const data=await response.json();
   if(signal.aborted||version!==requestVersion)return;offset=data.offset;params.set('offset',offset);params.set('density',$('#density').value);params.set('view',$('#view').value);history.replaceState(null,'','?'+params);$('#open-full-search').href=document.body.dataset.publicOrigin+'/?'+params;
   pageData=data;renderResults();if(!data.total){$('#focus-navigation').hidden=true;$('#results').replaceChildren();}
-  if(!data.total){const empty=el('div','','empty-results');empty.append(el('h3',form.elements.savedOnly.value==='1'?'Your saved homes will appear here.':'A little more room to explore.'),el('p',form.elements.savedOnly.value==='1'?'Save a home with the heart button. Saved homes also need to match your other filters.':(production?'No properties':'No demo properties')+' match all these choices. Broaden an area, price range, or property type.'),action('Reset filters',()=>{form.reset();scheduleSearch(0);}));if(form.elements.photosOnly.value==='1')empty.append(action('Include listings without imported photos',()=>{form.elements.photosOnly.value='';scheduleSearch(0);},'secondary'));$('#results').append(empty);}
+  if(!data.total){const empty=el('div','','empty-results');empty.append(el('h3',form.elements.savedOnly.value==='1'?'Your saved homes will appear here.':'A little more room to explore.'),el('p',form.elements.savedOnly.value==='1'?'Save a home with the heart button. Saved homes also need to match your other filters.':(production?'No properties':'No demo properties')+' match all these choices. Broaden an area, price range, or property type.'),action('Reset filters',()=>{resetSearchForm();scheduleSearch(0);}));if(form.elements.photosOnly.value==='1')empty.append(action('Include listings without imported photos',()=>{form.elements.photosOnly.value='';scheduleSearch(0);},'secondary'));$('#results').append(empty);}
   if(!data.total)$('#summary').textContent=production?'No matching properties':'No matching demo properties';
   renderShowcase(data);renderPages(data);updateSavedButtons();updateViewURL();
+  discovery?.refresh(apiParams);discovery?.restorePosition();
   if(pageNavigation===true){$('#matches-heading').focus({preventScroll:true});$('#matches-heading').scrollIntoView({block:'start',behavior:'instant'});}
   const insights=[['withPhotos','with imported photos'],['recentlyListed','listed in the last 7 days'],['belowOriginal','below original asking price']];
   $('#match-insights').replaceChildren(...insights.filter(([key])=>data.insights[key]>0).map(([key,title])=>{const item=el('div','','insight');item.append(el('strong',number(data.insights[key])),document.createTextNode(title));return item;}));
@@ -285,8 +295,9 @@ $('#save-search').addEventListener('click',()=>{
 });
 $('#saved-searches').addEventListener('change',()=>{
  const value=$('#saved-searches').value;$('#remove-search').disabled=value==='';if(value==='')return;
- const item=preferences.searches[Number(value)];if(!item)return;form.reset();const params=new URLSearchParams(item.query);
+ const item=preferences.searches[Number(value)];if(!item)return;resetSearchForm();const params=new URLSearchParams(item.query);
  for(const control of form.elements)if(control.name)control.value=params.get(control.name)||'';
+ discovery?.restore(params);
  if(!form.elements.borough.value)form.elements.borough.value='NYC';scheduleSearch(0);
 });
 $('#remove-search').addEventListener('click',()=>{const value=$('#saved-searches').value;if(value==='')return;preferences.searches.splice(Number(value),1);populateSavedSearches();persist('Saved search removed.');});
@@ -402,7 +413,8 @@ function renderListing(l) {
  if(l.PropertyType?.includes('Lease'))right.append(el('p',provided(l.LeaseAmountFrequency)?`Price period: ${valueText(l.LeaseAmountFrequency)}`:'Quoted price · period not supplied','price-note'));
  heading.append(left,right);root.append(heading);
  const sharing=el('div','','listing-sharing'),shareStatus=el('span','','share-status'),publicLink=document.body.dataset.publicOrigin+location.pathname;shareStatus.setAttribute('role','status');
- sharing.append(action('Share listing',async()=>{try{await navigator.clipboard.writeText(publicLink);shareStatus.textContent='Link copied.';}catch{shareStatus.replaceChildren(el('span','Copy this link: '));const field=el('input');field.value=publicLink;field.readOnly=true;field.setAttribute('aria-label','Listing share link');shareStatus.append(field);field.focus();field.select();}},'secondary'),link('Contact','#listing-contact','button secondary'),shareStatus);root.append(sharing);
+ const separate=link('Open separately ↗',location.href,'button secondary');separate.target='_blank';separate.rel='noopener';
+ sharing.append(action('Share listing',async()=>{try{await navigator.clipboard.writeText(publicLink);shareStatus.textContent='Link copied.';}catch{shareStatus.replaceChildren(el('span','Copy this link: '));const field=el('input');field.value=publicLink;field.readOnly=true;field.setAttribute('aria-label','Listing share link');shareStatus.append(field);field.focus();field.select();}},'secondary'),link('Contact','#listing-contact','button secondary'),separate,shareStatus);root.append(sharing);
  if(l.media.length){
   const hero=el('div','',`hero${l.media.length===1?' one-photo':''}`);
   l.media.slice(0,3).forEach((photo,i)=>{const button=action('',()=>openGallery(l,button,i));button.setAttribute('aria-label',`Open listing photo ${i+1}`);button.append(img(photo,`Listing photo ${i+1} for ${address(l)}`,i===0,'display'));hero.append(button);});
@@ -424,6 +436,7 @@ function renderListing(l) {
  $('#freshness').textContent=`Last imported: ${stamp(l.obtainedAt)} · Source updated: ${stamp(l.ModificationTimestamp)}`;
 }
 
+discovery=initializeDiscovery({form,search:()=>scheduleSearch(0),renderCard:card});
 const route=location.pathname.match(/^\/listing\/([^/]+)\/([^/]+)$/);
 if(route){$('#search-page').hidden=true;$('#listing-page').hidden=false;$('#back-results').href='/'+location.search;try{const response=await fetch(`/api/listing/${route[1]}/${route[2]}`);if(!response.ok)throw Error();const data=await response.json();renderListing(data.listing);}catch{$('#listing-content').replaceChildren();$('#listing-content').append(el('div','This listing is unavailable. Return to the results to find another property.','error-panel'));}}
 else{const params=new URLSearchParams(location.search);for(const control of form.elements)if(control.name&&params.has(control.name))control.value=params.get(control.name);const restored=Number(params.get('offset')||0);offset=Number.isSafeInteger(restored)&&restored>=0?restored:0;search();}

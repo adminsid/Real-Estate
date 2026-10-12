@@ -1,6 +1,7 @@
 import { DatabaseSync } from 'node:sqlite';
 import { publicProjection } from './client.mjs';
 import { searchQuery, mediaQuery } from './search-query.mjs';
+import { discoveryQueries, discoveryResult } from './discovery-data.mjs';
 
 export function openStore(path) {
   const db = new DatabaseSync(path);
@@ -22,6 +23,11 @@ export function openStore(path) {
       created_at TEXT NOT NULL, request_json TEXT NOT NULL);`);
   return {
     close: () => db.close(),
+    discovery(params={},now=new Date()) {
+      const queries=discoveryQueries(params,now);
+      const results=Object.values(queries).map(query=>db.prepare(query.sql).all(...query.values));
+      return discoveryResult(...results);
+    },
     checkpoint(source) { return db.prepare('SELECT * FROM checkpoints WHERE source=?').get(source); },
     apply(source, page, { checkpoint = true } = {}) {
       const old = this.checkpoint(source);
