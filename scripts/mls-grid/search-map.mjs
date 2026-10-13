@@ -1,36 +1,43 @@
 import { BOROUGH_NAMES } from './search-filters.mjs';
-const ns='http://www.w3.org/2000/svg';
-const centers={Manhattan:[-73.976,40.782],Brooklyn:[-73.964,40.649],Queens:[-73.826,40.72],Bronx:[-73.87,40.859],'Staten Island':[-74.145,40.587]};
-const extent=[-74.29,40.45,-73.65,40.95];
-const project=([lon,lat])=>[(lon-extent[0])/0.64*800,(extent[3]-lat)/0.5*800];
-function svgNode(name,attributes={}){const node=document.createElementNS(ns,name);for(const[key,value]of Object.entries(attributes))node.setAttribute(key,String(value));return node;}
-function button(text,callback){const node=document.createElement('button');node.type='button';node.className='secondary';node.textContent=text;node.addEventListener('click',callback);return node;}
-export function createSearchMap({selectBorough,selectListing,searchBounds,clearBounds}) {
-  const container=document.querySelector('#search-map'),status=document.querySelector('#map-status'),areaButtons=document.querySelector('#map-areas');
-  const svg=svgNode('svg',{viewBox:'0 0 800 800',role:'img','aria-label':'New York City borough map. Use the borough buttons to choose an area.'});
-  const shapes=svgNode('g',{class:'borough-shapes'}),labels=svgNode('g',{class:'borough-labels'}),points=svgNode('g',{class:'property-points'});
-  svg.append(shapes,labels,points);container.prepend(svg);
-  let geometry,zoom=1,center=[400,400],data,selected='NYC';
-  const searchButton=document.querySelector('#map-search-area');
-  function view(){const size=800/zoom;svg.setAttribute('viewBox',`${center[0]-size/2} ${center[1]-size/2} ${size} ${size}`);searchButton.disabled=!data?.mapped;}
-  function pan(dx,dy){center=[Math.max(0,Math.min(800,center[0]+dx/zoom)),Math.max(0,Math.min(800,center[1]+dy/zoom))];view();}
-  document.querySelector('#map-controls').append(button('+',()=>{zoom=Math.min(8,zoom*1.5);render();}),button('−',()=>{zoom=Math.max(1,zoom/1.5);render();}),button('←',()=>pan(-100,0)),button('↑',()=>pan(0,-100)),button('↓',()=>pan(0,100)),button('→',()=>pan(100,0)),button('All NYC',()=>{zoom=1;center=[400,400];clearBounds();render();}));
-  ['Zoom in','Zoom out','Move map west','Move map north','Move map south','Move map east','Reset map to NYC'].forEach((label,index)=>document.querySelector('#map-controls').children[index].setAttribute('aria-label',label));
-  searchButton.addEventListener('click',()=>{
-    const size=800/zoom,left=center[0]-size/2,top=center[1]-size/2;
-    searchBounds([Math.max(extent[0],extent[0]+left/800*0.64),Math.max(extent[1],extent[3]-(top+size)/800*0.5),Math.min(extent[2],extent[0]+(left+size)/800*0.64),Math.min(extent[3],extent[3]-top/800*0.5)].map(value=>value.toFixed(5)).join(','));
-  });
-  async function load(){if(geometry)return;const response=await fetch('/nyc-boroughs.json');if(!response.ok)throw Error('Map unavailable');geometry=await response.json();for(const feature of geometry.features){const path=svgNode('path',{d:feature.polygons.map(p=>p.map(r=>r.map((coordinate,index)=>`${index?'L':'M'}${project(coordinate).join(',')}`).join(' ')+'Z').join(' ')).join(' '),class:'borough-shape','data-borough':feature.name});path.addEventListener('click',()=>selectBorough(feature.name));shapes.append(path);}render();}
-  function render(){if(!data)return;
-    labels.replaceChildren();points.replaceChildren();areaButtons.replaceChildren();
-    const counts=new Map(data.areas.map(area=>[area.borough,area.total]));
-    for(const borough of BOROUGH_NAMES){const count=counts.get(borough)||0,node=button(`${borough==='Bronx'?'The Bronx':borough} · ${count.toLocaleString()}`,()=>selectBorough(borough));node.setAttribute('aria-pressed',String(selected===borough));areaButtons.append(node);const [x,y]=project(centers[borough]);const label=svgNode('text',{x,y,class:'borough-name'});label.textContent=borough;const total=svgNode('text',{x,y:y+23,class:'borough-count'});total.textContent=`${count.toLocaleString()} matches`;labels.append(label,total);}
-    for(const path of shapes.children)path.classList.toggle('selected',path.dataset.borough===selected);
-    // Cluster the entire permitted coordinate set, independently of result pagination.
-    const cells=new Map();for(const point of data.points){const [x,y]=project([point.longitude,point.latitude]),key=`${Math.floor(x/(32/zoom))}:${Math.floor(y/(32/zoom))}`;if(!cells.has(key))cells.set(key,[]);cells.get(key).push(point);}
-    for(const group of cells.values()){const [x,y]=project([group[0].longitude,group[0].latitude]),mark=svgNode('g',{class:'map-marker'}),dot=svgNode('circle',{cx:x,cy:y,r:group.length===1?7:15}),text=svgNode('text',{x,y:y+4});mark.dataset.keys=group.map(point=>`${point.source}:${point.id}`).join(',');if(group.length>1)text.textContent=group.length;mark.append(dot,text);mark.addEventListener('click',()=>{if(group.length===1)selectListing(group[0]);else{center=[x,y];zoom=Math.min(8,zoom*2);render();}});points.append(mark);}
-    status.textContent=data.mapped?`${data.mapped.toLocaleString()} matches have published map locations. ${data.unmapped.toLocaleString()} matching listings have no published map location.${data.capped?' Map limited to 2,500 properties; narrow your search.':''}`:'Explore by borough. Exact property locations were not supplied in this import; listings without coordinates are included in search results.';
-    view();
-  }
-  return {load,update(next,borough){data=next;selected=borough;render();},highlight(id){for(const mark of points.children)mark.classList.toggle('selected',mark.dataset.keys.split(',').includes(id));}};
+import { NYC_BOUNDS,NYS_BOUNDS } from './location-model.mjs';
+const button=(text,callback)=>{const node=document.createElement('button');node.type='button';node.className='secondary';node.textContent=text;node.addEventListener('click',callback);return node;};
+let libraryPromise;
+function loadLibrary(){
+ if(!libraryPromise)libraryPromise=new Promise((resolve,reject)=>{
+  const css=document.createElement('link');css.rel='stylesheet';css.href='/vendor/maplibre-4.7.1.css';document.head.append(css);
+  const script=document.createElement('script');script.src='/vendor/maplibre-4.7.1.js';script.onload=()=>{window.maplibregl.setWorkerUrl('/vendor/maplibre-worker-4.7.1.js');resolve(window.maplibregl);};script.onerror=()=>{libraryPromise=null;script.remove();reject(Error('Map library unavailable'));};document.head.append(script);
+ });return libraryPromise;
+}
+export function createSearchMap({selectBorough,selectListing,searchBounds,clearBounds}){
+ const container=document.querySelector('#search-map'),status=document.querySelector('#map-status'),areaButtons=document.querySelector('#map-areas'),searchButton=document.querySelector('#map-search-area');
+ let map,data,selected='NYC',loading,highlighted,generation=0;
+ const reduced=()=>matchMedia('(prefers-reduced-motion:reduce)').matches;
+ const scopeBounds=()=>selected==='NYS'?NYS_BOUNDS:NYC_BOUNDS;
+ function reset(){const b=scopeBounds();map?.fitBounds([[b[0],b[1]],[b[2],b[3]]],{padding:24,duration:0});}
+ const controls=document.querySelector('#map-controls');
+ controls.append(button('+',()=>map?.zoomIn({duration:reduced()?0:150})),button('−',()=>map?.zoomOut({duration:reduced()?0:150})),...[[ '←',-100,0],['↑',0,-100],['↓',0,100],['→',100,0]].map(([text,x,y])=>button(text,()=>map?.panBy([x,y],{duration:reduced()?0:100}))),button('Reset area',()=>{clearBounds();reset();}),button('Search NYS',()=>selectBorough('NYS')));
+ ['Zoom in','Zoom out','Move map west','Move map north','Move map south','Move map east','Reset map area','Search New York State'].forEach((label,index)=>controls.children[index].setAttribute('aria-label',label));
+ searchButton.addEventListener('click',()=>{if(!map)return;const b=map.getBounds(),ny=NYS_BOUNDS;const bounds=[Math.max(ny[0],b.getWest()),Math.max(ny[1],b.getSouth()),Math.min(ny[2],b.getEast()),Math.min(ny[3],b.getNorth())];if(bounds[0]>=bounds[2]||bounds[1]>=bounds[3]){status.textContent='Move the map into New York State to search this area.';return;}searchBounds(bounds.map(n=>n.toFixed(5)).join(','));});
+ async function load(){
+  if(map){map.resize();return;}if(loading)return loading;
+  loading=(async()=>{const L=await loadLibrary();map=new L.Map({container,style:'https://tiles.openfreemap.org/styles/liberty',center:[-73.94,40.74],zoom:10,attributionControl:true,cooperativeGestures:true,maxBounds:[[NYS_BOUNDS[0],NYS_BOUNDS[1]],[NYS_BOUNDS[2],NYS_BOUNDS[3]]],fadeDuration:reduced()?0:150});
+   await new Promise((resolve,reject)=>{map.once('load',resolve);map.once('error',event=>{if(!map.isStyleLoaded())reject(event.error);});});
+   map.addSource('properties',{type:'geojson',data:{type:'FeatureCollection',features:[]},cluster:true,clusterRadius:55,clusterMaxZoom:17,generateId:false});
+   map.addLayer({id:'clusters',type:'circle',source:'properties',filter:['has','point_count'],paint:{'circle-color':'#315f4c','circle-radius':['step',['get','point_count'],19,25,24,100,30],'circle-stroke-color':'#fff','circle-stroke-width':2}});
+   map.addLayer({id:'cluster-count',type:'symbol',source:'properties',filter:['has','point_count'],layout:{'text-field':['get','point_count_abbreviated'],'text-font':['Noto Sans Regular'],'text-size':13},paint:{'text-color':'#fff'}});
+   map.addLayer({id:'properties',type:'circle',source:'properties',filter:['!',['has','point_count']],paint:{'circle-color':['case',['boolean',['feature-state','selected'],false],'#8b6935','#315f4c'],'circle-radius':8,'circle-stroke-color':'#fff','circle-stroke-width':2}});
+   map.on('click','properties',event=>{const feature=event.features[0],point=data?.points.find(point=>`${point.source}:${point.id}`===feature.properties.key);if(point)selectListing(point);});
+   map.on('click','clusters',async event=>{const version=generation,feature=event.features[0],source=map.getSource('properties'),id=feature.properties.cluster_id;try{const zoom=await source.getClusterExpansionZoom(id);if(version!==generation)return;if(zoom<=18&&map.getZoom()<18)map.easeTo({center:feature.geometry.coordinates,zoom,duration:reduced()?0:200});else{const leaves=await source.getClusterLeaves(id,50,0),panel=document.querySelector('#map-selected');if(version!==generation)return;const title=document.createElement('p');title.textContent='Choose a property at this location';panel.replaceChildren(title,...leaves.map(leaf=>button(`${leaf.properties.price? '$'+Number(leaf.properties.price).toLocaleString():'Price not reported'} · ${leaf.properties.area||leaf.properties.id}`,()=>{const point=data.points.find(point=>point.id===leaf.properties.id&&point.source===leaf.properties.source);if(point)selectListing(point);})));}}catch{status.textContent='Refresh your search to update these locations.';}});
+   for(const layer of ['properties','clusters']){map.on('mouseenter',layer,()=>{map.getCanvas().style.cursor='pointer';});map.on('mouseleave',layer,()=>{map.getCanvas().style.cursor='';});}
+   new ResizeObserver(()=>{if(container.getBoundingClientRect().width)map.resize();}).observe(container);reset();render();
+  })().catch(error=>{map?.remove();map=null;loading=null;status.textContent='Street map unavailable. Listings and area filters still work.';throw error;});return loading;
+ }
+ function render(){if(!data)return;
+  document.querySelector('#map-pane .map-heading strong').textContent=selected==='NYS'?'Explore New York State':'Explore NYC';
+  const counts=new Map(data.areas.map(area=>[area.borough,area.total]));areaButtons.replaceChildren(...BOROUGH_NAMES.map(borough=>{const node=button(`${borough==='Bronx'?'The Bronx':borough} · ${(counts.get(borough)||0).toLocaleString()}`,()=>selectBorough(borough));node.setAttribute('aria-pressed',String(selected===borough));return node;}));
+  if(map?.getSource('properties'))map.getSource('properties').setData({type:'FeatureCollection',features:data.points.map(point=>({type:'Feature',id:`${point.source}:${point.id}`,properties:{key:`${point.source}:${point.id}`,id:point.id,source:point.source,price:point.price,area:point.area},geometry:{type:'Point',coordinates:[point.longitude,point.latitude]}}))});
+  searchButton.disabled=!data.mapped;
+  status.textContent=data.mapped?`${data.mapped.toLocaleString()} matching properties have map locations; ${data.unmapped.toLocaleString()} have no verified map location.${data.capped?' Showing up to 2,500 map properties. Narrow your search for more.':''} Address-derived locations are approximate; confirm before visiting.`:'Street and neighborhood labels are available. Property locations are being prepared from public addresses; unverified locations stay out of the map.';
+ }
+ return {load,update(next,borough){generation++;const oldScope=selected==='NYS';data=next;selected=borough;if(map&&oldScope!==(borough==='NYS'))reset();render();},highlight(id){if(!map?.getSource('properties'))return;if(highlighted)map.setFeatureState({source:'properties',id:highlighted},{selected:false});highlighted=id;map.setFeatureState({source:'properties',id},{selected:true});}};
 }

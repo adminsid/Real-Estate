@@ -1,3 +1,4 @@
+import { areaSQL, coordinatesInNY, indexedCoordinateSQL, NYS_BOUNDS } from './location-model.mjs';
 // The same filter contract is used by SQLite, D1 and the browser. Missing is never false.
 export const FEATURE_FILTERS = {
   laundry: {label:'In-unit laundry', fields:['LaundryFeatures'], values:['In Unit']},
@@ -41,11 +42,11 @@ export function reportedFeatures(listing) {
   })).map(([key])=>key);
 }
 export function locationCoordinates(listing) {
-  const lat=listing.Latitude,lon=listing.Longitude;
-  return !listing.addressWithheld && typeof lat==='number' && typeof lon==='number' && Number.isFinite(lat) && Number.isFinite(lon) && lat>=40.45 && lat<=40.95 && lon>=-74.3 && lon<=-73.65 ? [lon,lat] : null;
+  const lat=listing.mapLocation?.latitude??listing.Latitude,lon=listing.mapLocation?.longitude??listing.Longitude;
+  return !listing.addressWithheld && coordinatesInNY(lat,lon) ? [lon,lat] : null;
 }
-export const coordinateSQL = "COALESCE(json_extract(public_json,'$.addressWithheld'),0)=0 AND json_type(public_json,'$.Latitude') IN ('integer','real') AND json_type(public_json,'$.Longitude') IN ('integer','real') AND json_extract(public_json,'$.Latitude') BETWEEN 40.45 AND 40.95 AND json_extract(public_json,'$.Longitude') BETWEEN -74.3 AND -73.65";
-export function advancedConditions(params,conditions,values) {
+export const coordinateSQL = "COALESCE(json_extract(public_json,'$.addressWithheld'),0)=0 AND json_type(public_json,'$.Latitude') IN ('integer','real') AND json_type(public_json,'$.Longitude') IN ('integer','real') AND json_extract(public_json,'$.Latitude') BETWEEN 40.45 AND 45.1 AND json_extract(public_json,'$.Longitude') BETWEEN -79.8 AND -71.8";
+export function advancedConditions(params,conditions,values,indexed=false) {
   const numeric=(key,field,operator,max=1e10)=>{
     if(params[key]===undefined||params[key]==='')return;
     const number=Number(params[key]);if(!Number.isFinite(number)||number<0||number>max)throw Error('Invalid '+key);
@@ -69,13 +70,14 @@ export function advancedConditions(params,conditions,values) {
   }
   if(params.subtype){if(!Object.hasOwn(SUBTYPES,params.subtype))throw Error('Invalid subtype');conditions.push(`json_extract(public_json,'$.PropertySubType') IN (${SUBTYPES[params.subtype].map(()=>'?').join(',')})`);values.push(...SUBTYPES[params.subtype]);}
   const places=parsePlaces(params.places);if(places.length){conditions.push(`city IN (${places.map(()=>'?').join(',')})`);values.push(...places);}
+  const areas=parsePlaces(params.areas);if(areas.length){conditions.push(`${areaSQL} IN (${areas.map(()=>'?').join(',')})`);values.push(...areas);}
   if(params.availableBy){const date=String(params.availableBy),instant=Date.parse(date+'T12:00:00Z');if(!/^\d{4}-\d{2}-\d{2}$/.test(date)||!Number.isFinite(instant)||new Date(instant).toISOString().slice(0,10)!==date)throw Error('Invalid availability date');conditions.push("json_type(public_json,'$.AvailabilityDate')='text' AND substr(json_extract(public_json,'$.AvailabilityDate'),1,10)=date(substr(json_extract(public_json,'$.AvailabilityDate'),1,10)) AND substr(json_extract(public_json,'$.AvailabilityDate'),1,10)<=?");values.push(date);}
   if(params.parking==='1')conditions.push("((json_type(public_json,'$.ParkingTotal') IN ('integer','real') AND json_extract(public_json,'$.ParkingTotal')>=1) OR (json_type(public_json,'$.GarageSpaces') IN ('integer','real') AND json_extract(public_json,'$.GarageSpaces')>=1))");
   for(const key of featureList(params.required))conditions.push(featureSQL(key));
   featureList(params.preferred);
   if(params.bounds){
     const bounds=String(params.bounds).split(',').map(Number);
-    if(bounds.length!==4||bounds.some(value=>!Number.isFinite(value))||bounds[0]<-74.3||bounds[2]>-73.65||bounds[1]<40.45||bounds[3]>40.95||bounds[0]>=bounds[2]||bounds[1]>=bounds[3])throw Error('Invalid map bounds');
-    conditions.push(coordinateSQL,"json_extract(public_json,'$.Longitude') BETWEEN ? AND ? AND json_extract(public_json,'$.Latitude') BETWEEN ? AND ?");values.push(bounds[0],bounds[2],bounds[1],bounds[3]);
+    if(bounds.length!==4||bounds.some(value=>!Number.isFinite(value))||bounds[0]<NYS_BOUNDS[0]||bounds[2]>NYS_BOUNDS[2]||bounds[1]<NYS_BOUNDS[1]||bounds[3]>NYS_BOUNDS[3]||bounds[0]>=bounds[2]||bounds[1]>=bounds[3])throw Error('Invalid map bounds');
+    conditions.push(indexed?indexedCoordinateSQL:coordinateSQL,indexed?"longitude BETWEEN ? AND ? AND latitude BETWEEN ? AND ?":"json_extract(public_json,'$.Longitude') BETWEEN ? AND ? AND json_extract(public_json,'$.Latitude') BETWEEN ? AND ?");values.push(bounds[0],bounds[2],bounds[1],bounds[3]);
   }
 }

@@ -47,3 +47,5 @@ body:has(#search-page:not([hidden])) main{max-width:1840px}
 @media(prefers-reduced-motion:reduce){.search-map *{transition:none!important}}
 
 @media(max-width:560px){.results-toolbar{align-items:stretch;flex-direction:column}.result-actions{justify-content:space-between}.result-actions label{flex:1}.map-controls button:focus-visible,.map-view-switch button:focus-visible{outline:3px solid var(--accent);outline-offset:3px}}
+
+.search-map .maplibregl-map{height:100%}.search-map{position:relative;height:440px;aspect-ratio:auto}.maplibregl-ctrl-attrib{font-size:11px!important}.maplibregl-canvas:focus-visible{outline:3px solid var(--accent);outline-offset:-3px}@media(max-width:560px){.search-map{height:360px}}

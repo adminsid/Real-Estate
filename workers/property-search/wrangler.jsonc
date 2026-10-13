@@ -36,7 +36,8 @@
     "ACCESS_AUD": "aeb5d1a3e1aacaf377f99f5297ba88a71b1ac4d3fb6c7466a557897aea823755",
     "DATASET": "live",
     "FEED_OPERATOR_EMAIL": "lama@primeamericany.com",
-    "LIVE_SYNC_ENABLED": "true"
+    "LIVE_SYNC_ENABLED": "true",
+    "LOCATION_REFRESH_ENABLED": "true"
   },
   "d1_databases": [
     {

@@ -1,7 +1,8 @@
 import { mkdir, readFile, writeFile, copyFile } from 'node:fs/promises';
 const output = new URL('../../workers/property-search/public/',import.meta.url);
 await mkdir(output,{recursive:true});
-for (const name of ['bottom-dock.mjs','bottom-dock.css','app.mjs','consumer.mjs','search-filters.mjs','discovery.mjs','search-map.mjs','nyc-boroughs.json','discovery.css','search-icon.svg','brand.mjs','brand-editor.mjs','embed.mjs','embed-loader.js','style.css']) await copyFile(new URL(name,import.meta.url),new URL(name,output));
+await mkdir(new URL('vendor/',output),{recursive:true});
+for (const name of ['location-model.mjs', 'vendor/maplibre-4.7.1.js', 'vendor/maplibre-worker-4.7.1.js', 'vendor/maplibre-4.7.1.css', 'vendor/MAPLIBRE-LICENSE.txt','bottom-dock.mjs','bottom-dock.css','app.mjs','consumer.mjs','search-filters.mjs','discovery.mjs','search-map.mjs','nyc-boroughs.json','discovery.css','search-icon.svg','brand.mjs','brand-editor.mjs','embed.mjs','embed-loader.js','style.css']) await copyFile(new URL(name,import.meta.url),new URL(name,output));
 let template = await readFile(new URL('preview.html',import.meta.url),'utf8');
 template=template.replace('Demo listings from OneKey MLS, distributed by MLS GRID.','Fictional inventory for testing. These are not MLS listings or properties offered for sale.').replace('Sample listings · preview only','Synthetic listings · private staging').replace('Sample MLS listings, not verified current inventory. Showing requests and messages stay on this computer and are not delivered to agents.','Fictional listings and illustrations for testing. Requests stay in private staging and are not delivered to agents.').replace('<option value="onekey2">OneKey MLS</option>','<option value="synthetic">Synthetic staging</option>');
 await writeFile(new URL('_template.html',output),template);

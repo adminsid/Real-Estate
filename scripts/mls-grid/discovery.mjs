@@ -13,7 +13,7 @@ export function initializeDiscovery({form,search,renderCard}) {
   try{layout=urlLayout||localStorage.getItem('property-search-layout');}catch{layout=urlLayout;}
   if(!['homes','split','map'].includes(layout))layout=matchMedia('(min-width: 1000px)').matches?'split':'homes';
   const map=createSearchMap({
-    selectBorough(borough){form.elements.borough.value=borough;form.elements.bounds.value='';search();},
+    selectBorough(borough){form.elements.borough.value=borough;form.elements.bounds.value='';form.elements.areas.value='';form.elements.places.value='';search();},
     selectListing:selectMapListing,
     searchBounds(bounds){form.elements.bounds.value=bounds;search();},
     clearBounds(){if(form.elements.bounds.value){form.elements.bounds.value='';search();}},
@@ -37,7 +37,7 @@ export function initializeDiscovery({form,search,renderCard}) {
     select.append(new Option('No preference',''),new Option('Required','required'),new Option('Preferred','preferred'));label.append(select);$('#amenity-filters').append(label);amenityControls.set(key,select);
     select.addEventListener('change',()=>{for(const kind of ['required','preferred'])form.elements[kind].value=[...amenityControls].filter(([,control])=>control.value===kind).map(([feature])=>feature).join(',');if(form.elements.preferred.value)$('#sort').value='best';search();});
   }
-  $('#place-picker').addEventListener('change',()=>{const control=$('#place-picker'),places=safePlaces(form.elements.places.value);if(control.value&&!places.includes(control.value)&&places.length<8){form.elements.places.value=JSON.stringify([...places,control.value]);search();}control.value='';});
+  $('#place-picker').addEventListener('change',()=>{const control=$('#place-picker'),places=safePlaces(form.elements.areas.value);if(control.value&&!places.includes(control.value)&&places.length<8){form.elements.areas.value=JSON.stringify([...places,control.value]);search();}control.value='';});
   function sync(){
     const type=form.elements.type.value;
     for(const label of document.querySelectorAll('label[data-intents]')){const applies=!type||label.dataset.intents.split(',').includes(type);label.hidden=!applies;for(const control of label.querySelectorAll('input,select')){control.disabled=!applies;if(!applies)control.value=control.name==='bedMatch'?'minimum':'';}}
@@ -46,11 +46,11 @@ export function initializeDiscovery({form,search,renderCard}) {
     $('#bathroom-filter').hidden=['Land','Commercial Sale','Commercial Lease'].includes(type);form.elements.baths.disabled=$('#bathroom-filter').hidden;if(form.elements.baths.disabled)form.elements.baths.value='';
     const required=safeList(form.elements.required.value),preferred=safeList(form.elements.preferred.value);
     for(const[key,control]of amenityControls)control.value=required.includes(key)?'required':preferred.includes(key)?'preferred':'';
-    const places=safePlaces(form.elements.places.value);$('#selected-places').replaceChildren(...places.map(place=>action(place+' ×',()=>{const remaining=places.filter(value=>value!==place);form.elements.places.value=remaining.length?JSON.stringify(remaining):'';search();})));
+    const places=safePlaces(form.elements.areas.value);$('#selected-places').replaceChildren(...places.map(place=>action(place+' ×',()=>{const remaining=places.filter(value=>value!==place);form.elements.areas.value=remaining.length?JSON.stringify(remaining):'';search();})));
     const count=['subtype','baths','minArea','minBuildingArea','minLot','minUnits','availableBy','maxTax','maxFee','parking'].filter(key=>form.elements[key].value).length+required.length+preferred.length+places.length;
     $('#filter-count').textContent=count?`(${count})`:'';
   }
-  function chips(){const chips=[];for(const place of safePlaces(form.elements.places.value))chips.push(action(place+' ×',()=>{const remaining=safePlaces(form.elements.places.value).filter(value=>value!==place);form.elements.places.value=remaining.length?JSON.stringify(remaining):'';search();}));for(const kind of ['required','preferred'])for(const key of safeList(form.elements[kind].value)){const chip=action(`${FEATURE_FILTERS[key].label} · ${kind==='required'?'required':'preferred'} ×`,()=>{form.elements[kind].value=safeList(form.elements[kind].value).filter(value=>value!==key).join(',');search();});chips.push(chip);}if(form.elements.bounds.value)chips.push(action('Map area ×',()=>{form.elements.bounds.value='';search();}));return chips;}
+  function chips(){const chips=[];for(const place of safePlaces(form.elements.places.value))chips.push(action('City: '+place+' ×',()=>{const remaining=safePlaces(form.elements.places.value).filter(value=>value!==place);form.elements.places.value=remaining.length?JSON.stringify(remaining):'';search();}));for(const place of safePlaces(form.elements.areas.value))chips.push(action(place+' ×',()=>{const remaining=safePlaces(form.elements.areas.value).filter(value=>value!==place);form.elements.areas.value=remaining.length?JSON.stringify(remaining):'';search();}));for(const kind of ['required','preferred'])for(const key of safeList(form.elements[kind].value)){const chip=action(`${FEATURE_FILTERS[key].label} · ${kind==='required'?'required':'preferred'} ×`,()=>{form.elements[kind].value=safeList(form.elements[kind].value).filter(value=>value!==key).join(',');search();});chips.push(chip);}if(form.elements.bounds.value)chips.push(action('Map area ×',()=>{form.elements.bounds.value='';search();}));return chips;}
   function restore(params){const exact=params.get('bedsExact');if(exact!==null){form.elements.beds.value=exact==='0'?'studio':exact;form.elements.bedMatch.value='exact';}}
   function invalidate(){
     controller?.abort();selectionController?.abort();version++;mapData=null;
@@ -64,7 +64,7 @@ export function initializeDiscovery({form,search,renderCard}) {
     $('#map-status').textContent='Updating locations…';
     const query=new URLSearchParams(params);query.delete('offset');
     try{const response=await fetch('/api/discovery?'+query,{signal:controller.signal});if(!response.ok)throw Error();const data=await response.json();if(current!==version)return;mapData=data;$('#map-areas').inert=false;$('#search-map').inert=false;map.update(data,form.elements.borough.value);
-      const selected=safePlaces(form.elements.places.value);$('#place-picker').replaceChildren(new Option('Choose an area',''),...data.places.filter(place=>!selected.includes(place.city)).map(place=>new Option(`${place.city} (${place.total.toLocaleString()})`,place.city)));$('#place-picker').disabled=selected.length>=8;
+      const selected=safePlaces(form.elements.areas.value);$('#place-picker').replaceChildren(new Option('Choose an area',''),...data.places.filter(place=>!selected.includes(place.city)).map(place=>new Option(`${place.city} (${place.total.toLocaleString()})`,place.city)));$('#place-picker').disabled=selected.length>=8;
       $('#mapped-picker-label').hidden=!data.points.length;$('#mapped-picker').replaceChildren(new Option('Select a property',''),...data.points.map(point=>new Option(`${typeof point.price==='number'?'$'+point.price.toLocaleString():'Price not reported'} · ${point.id}`,`${point.source}:${point.id}`)));
     }catch(error){if(error.name!=='AbortError'&&current===version){mapData=null;map.update({areas:[],points:[],mapped:0,unmapped:0},form.elements.borough.value);$('#map-status').textContent='Location results could not update. Retry your search; property results remain available.';}}
   }

@@ -12,7 +12,7 @@ export function searchStore(db, {production = false} = {}) {
   const rows = async (sql, values = []) => (await db.prepare(sql).bind(...values).all()).results;
   const first = (sql, values = []) => db.prepare(sql).bind(...values).first();
   async function attach(records) {
-    const listings = records.map(row => safeListing(JSON.parse(row.public_json)));
+    const listings = records.map(row => {const listing=safeListing(JSON.parse(row.public_json));if(production&&!listing.addressWithheld&&typeof row.latitude==='number'&&typeof row.longitude==='number')listing.mapLocation={latitude:row.latitude,longitude:row.longitude,source:row.map_source};return listing;});
     if (!listings.length) return [];
     const query = mediaQuery(listings,production), photos = await rows(query.sql, query.values);
     const byListing = new Map();
@@ -30,7 +30,7 @@ export function searchStore(db, {production = false} = {}) {
       return discoveryResult(...results);
     },
     async listing(source, id) {
-      const record = await first('SELECT public_json FROM listings WHERE source=? AND id=?', [source, id]);
+      const record = await first('SELECT * FROM listings WHERE source=? AND id=?', [source, id]);
       return record ? (await attach([record]))[0] : null;
     },
     mediaFile(file) {
@@ -41,7 +41,7 @@ export function searchStore(db, {production = false} = {}) {
       const stats = await first(`SELECT COUNT(*) AS total, SUM(CASE WHEN ${mediaCondition} THEN 1 ELSE 0 END) AS withPhotos, SUM(CASE WHEN ${belowCondition} THEN 1 ELSE 0 END) AS belowOriginal, SUM(CASE WHEN ${recentCondition} THEN 1 ELSE 0 END) AS recentlyListed FROM listings WHERE ${where}`, values);
       const total = production ? Math.min(stats.total,2500) : stats.total, offset = Math.min(Math.floor(requestedOffset / limit) * limit, Math.max(0, Math.ceil(total / limit) - 1) * limit);
       const [records, checkpoints] = await Promise.all([
-        rows(`SELECT public_json FROM listings WHERE ${where} ORDER BY ${sortExpression},id,source LIMIT ? OFFSET ?`, [...values,Math.min(limit,total-offset),offset]),
+        rows(`SELECT * FROM listings WHERE ${where} ORDER BY ${sortExpression},id,source LIMIT ? OFFSET ?`, [...values,Math.min(limit,total-offset),offset]),
         rows(production ? 'SELECT source,initial_complete AS complete,last_complete AS updated_at FROM feed_state' : 'SELECT source,complete,updated_at FROM checkpoints'),
       ]);
       const listings = await attach(records);

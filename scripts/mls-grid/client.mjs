@@ -37,6 +37,7 @@ export function createClient({ token, source, endpoint = 'https://api-demo.mlsgr
   };
   return {
     initial,
+    locationInitial() {return initial(null,{viewOnly:true,marketOnly:true});},
     properties(ids) {
       if (!Array.isArray(ids) || !ids.length || ids.length > 50 || ids.some(id => typeof id !== 'string' || !/^[A-Za-z0-9_-]+$/.test(id))) throw new Error('Invalid media backfill identifiers');
       const url = new URL(initial());
@@ -92,7 +93,7 @@ export function createClient({ token, source, endpoint = 'https://api-demo.mlsgr
 
 // Explicit development field inventory; never copy an unreviewed source record into the browser.
 // Production requires each MLS's authorized IDX field inventory, including local fields.
-export const PUBLIC_FIELDS = ['ListingId', 'StandardStatus', 'ListPrice', 'OriginalListPrice', 'ClosePrice', 'CloseDate', 'PropertyType', 'PropertySubType', 'OwnershipType', 'BedroomsTotal', 'BathroomsTotalInteger', 'BathroomsFull', 'BathroomsHalf', 'LivingArea', 'LivingAreaUnits', 'LivingAreaSource', 'LotSizeSquareFeet', 'LotSizeAcres', 'LotSizeUnits', 'LotSizeSource', 'City', 'CountyOrParish', 'StateOrProvince', 'PostalCode', 'PublicRemarks', 'ListOfficeName', 'ListOfficePhone', 'ListAgentFullName', 'AttributionContact', 'ModificationTimestamp', 'OnMarketDate', 'DaysOnMarket', 'AssociationFee', 'AssociationFeeFrequency', 'AssociationFeeIncludes', 'AssociationFee2', 'AssociationFee2Frequency', 'TaxAnnualAmount', 'TaxYear', 'TaxLegalDescription', 'ParkingTotal', 'YearBuilt', 'YearBuiltSource', 'Stories', 'StoriesTotal', 'NumberOfUnitsTotal', 'RoomsTotal', 'GarageSpaces', 'CarportSpaces', 'ArchitecturalStyle', 'Cooling', 'Heating', 'Appliances', 'InteriorFeatures', 'ExteriorFeatures', 'LaundryFeatures', 'ParkingFeatures', 'Basement', 'Flooring', 'WaterSource', 'Sewer', 'Utilities', 'LotFeatures', 'View', 'WaterfrontYN', 'WaterfrontFeatures', 'PoolFeatures', 'AccessibilityFeatures', 'PetsAllowed', 'AssociationAmenities', 'ElementarySchool', 'MiddleOrJuniorSchool', 'HighSchool', 'HighSchoolDistrict', 'LeaseTerm', 'LeaseAmountFrequency', 'AvailabilityDate', 'SecurityDeposit', 'RentIncludes', 'TenantPays', 'Zoning', 'BusinessType', 'BuildingAreaTotal', 'BuildingAreaUnits', 'GrossIncome', 'OperatingExpense', 'NetOperatingIncome'];
+export const PUBLIC_FIELDS = ['ListingId', 'StandardStatus', 'ListPrice', 'OriginalListPrice', 'ClosePrice', 'CloseDate', 'PropertyType', 'PropertySubType', 'OwnershipType', 'BedroomsTotal', 'BathroomsTotalInteger', 'BathroomsFull', 'BathroomsHalf', 'LivingArea', 'LivingAreaUnits', 'LivingAreaSource', 'LotSizeSquareFeet', 'LotSizeAcres', 'LotSizeUnits', 'LotSizeSource', 'City', 'PostalCity', 'KEY_ManNYNeighborhood', 'KEY_Hamlet', 'KEY_Village', 'SubdivisionName', 'CountyOrParish', 'StateOrProvince', 'PostalCode', 'PublicRemarks', 'ListOfficeName', 'ListOfficePhone', 'ListAgentFullName', 'AttributionContact', 'ModificationTimestamp', 'OnMarketDate', 'DaysOnMarket', 'AssociationFee', 'AssociationFeeFrequency', 'AssociationFeeIncludes', 'AssociationFee2', 'AssociationFee2Frequency', 'TaxAnnualAmount', 'TaxYear', 'TaxLegalDescription', 'ParkingTotal', 'YearBuilt', 'YearBuiltSource', 'Stories', 'StoriesTotal', 'NumberOfUnitsTotal', 'RoomsTotal', 'GarageSpaces', 'CarportSpaces', 'ArchitecturalStyle', 'Cooling', 'Heating', 'Appliances', 'InteriorFeatures', 'ExteriorFeatures', 'LaundryFeatures', 'ParkingFeatures', 'Basement', 'Flooring', 'WaterSource', 'Sewer', 'Utilities', 'LotFeatures', 'View', 'WaterfrontYN', 'WaterfrontFeatures', 'PoolFeatures', 'AccessibilityFeatures', 'PetsAllowed', 'AssociationAmenities', 'ElementarySchool', 'MiddleOrJuniorSchool', 'HighSchool', 'HighSchoolDistrict', 'LeaseTerm', 'LeaseAmountFrequency', 'AvailabilityDate', 'SecurityDeposit', 'RentIncludes', 'TenantPays', 'Zoning', 'BusinessType', 'BuildingAreaTotal', 'BuildingAreaUnits', 'GrossIncome', 'OperatingExpense', 'NetOperatingIncome'];
 const ADDRESS_FIELDS = ['UnparsedAddress', 'StreetNumber', 'StreetNumberNumeric', 'StreetDirPrefix', 'StreetName', 'StreetSuffix', 'StreetDirSuffix', 'UnitNumber', 'Latitude', 'Longitude'];
 
 export function publicProjection(row) {
@@ -100,6 +101,7 @@ export function publicProjection(row) {
   const projected = { id: row.ListingKey, source: row.OriginatingSystemName, addressWithheld: row.InternetAddressDisplayYN === false };
   for (const field of [...PUBLIC_FIELDS, ...(projected.addressWithheld ? [] : ADDRESS_FIELDS)]) {
     const value = row[field];
+    if(['PostalCity','KEY_ManNYNeighborhood','KEY_Hamlet','KEY_Village','SubdivisionName'].includes(field)&&value!==null&&typeof value!=='string')continue;
     if (value === null || typeof value === 'string' || typeof value === 'boolean' || (typeof value === 'number' && Number.isFinite(value))) projected[field] = value;
     else if (Array.isArray(value) && value.every(item => typeof item === 'string')) projected[field] = value;
   }
