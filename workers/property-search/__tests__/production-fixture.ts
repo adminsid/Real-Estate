@@ -4,6 +4,7 @@ import { replica } from '../src/replica.mjs'
 export function databaseFixture() {
  const sqlite=new DatabaseSync(':memory:')
  sqlite.exec(readFileSync(new URL('../production-migrations/0001_replica.sql',import.meta.url),'utf8'));sqlite.exec(readFileSync(new URL('../production-migrations/0002_locations.sql',import.meta.url),'utf8'))
+ sqlite.exec(readFileSync(new URL('../production-migrations/0003_feed_monitor.sql',import.meta.url),'utf8'))
  function prepare(sql:string) {
   let values: (string|number|null)[]=[]
   return {

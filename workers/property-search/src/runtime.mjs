@@ -1,3 +1,4 @@
+import { monitorSnapshot, monitorPage } from './feed-monitor.mjs';
 import { handleProduction } from './production.mjs';
 import { replica } from './replica.mjs';
 import { syncLive } from './sync.mjs';
@@ -36,7 +37,7 @@ function secure(response) {
 
 export async function handleRequest(request, env, {authorize = authorized, feedFetcher = fetch} = {}) {
   try {
-    const url = new URL(request.url), feedOperations = ['/ops/mls-grid','/ops/mls-sync'].includes(url.pathname);
+    const url = new URL(request.url), feedOperations = ['/admin','/ops/mls-grid','/ops/mls-sync','/ops/mls-sync/status','/ops/mls-sync.mjs','/ops/mls-sync.css'].includes(url.pathname);
     if (feedOperations && !env.FEED_OPERATOR_EMAIL) return secure(json(403,{error:'Feed operator is not configured.'}));
     if (!await authorize(request,env,undefined,Date.now(),feedOperations ? env.FEED_OPERATOR_EMAIL : null)) return secure(json(403,{error:'Private staging. Sign in through Cloudflare Access.'}));
     const origin = publicOrigin(env.PUBLIC_ORIGIN);
@@ -45,15 +46,17 @@ export async function handleRequest(request, env, {authorize = authorized, feedF
     if (feedOperations) {
       if (!['GET','HEAD','POST'].includes(request.method)) return secure(json(405,{error:'Method not allowed'}));
       if (request.method === 'POST' && request.headers.get('Origin') !== origin) return secure(json(403,{error:'Request origin rejected'}));
-      if(url.pathname==='/ops/mls-sync') {
+      if(url.pathname==='/admin')return secure(new Response(null,{status:302,headers:{Location:'/ops/mls-sync'}}));
+      if(['/ops/mls-sync.mjs','/ops/mls-sync.css'].includes(url.pathname)){
+        if(!['GET','HEAD'].includes(request.method))return secure(json(405,{error:'Method not allowed'}));
+        return secure(await env.ASSETS.fetch(request));
+      }
+      if(['/ops/mls-sync','/ops/mls-sync/status'].includes(url.pathname)) {
         if(!env.LIVE_DB)return secure(json(503,{error:'Live replica is not configured.'}));
         const result=request.method==='POST'?await syncLive(env,{fetcher:feedFetcher}):null;
-        const state=await env.LIVE_DB.prepare('SELECT phase,initial_complete,last_complete,last_attempt,failure FROM feed_state WHERE source=?').bind('onekey2').first();
-        const totals=await env.LIVE_DB.prepare("SELECT COUNT(*) AS listings,SUM(has_photos) AS photographed,SUM(latitude IS NOT NULL AND longitude IS NOT NULL) AS mapped FROM listings").first();
-        const locations=await env.LIVE_DB.prepare('SELECT processed,complete,failure FROM location_refresh WHERE id=1').first();
-        const progress=await env.LIVE_DB.prepare('SELECT COUNT(*) AS records FROM listing_versions').first();
-        const safe=escapeHTML;
-        const html=`<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Live listing replica</title><link rel="stylesheet" href="/style.css"><main class="integration-demo"><h1>Live listing replica</h1><p>OneKey MLS · production connection · owner-only operations</p><p>Public release remains closed. A completed import does not establish website approval.</p><dl><dt>Import phase</dt><dd>${safe(state.phase||'initial')}</dd><dt>Source records processed</dt><dd>${safe(progress.records)}</dd><dt>Initial import</dt><dd>${state.initial_complete?'Complete':'In progress / not started'}</dd><dt>New York listings</dt><dd>${safe(totals.listings)}</dd><dt>Listings with photos</dt><dd>${safe(totals.photographed||0)}</dd><dt>Listings with map locations</dt><dd>${safe(totals.mapped||0)}</dd><dt>Location refresh</dt><dd>${safe(locations.processed)} records · ${locations.complete?'Complete':'In progress'}${locations.failure?' · '+safe(locations.failure):''}</dd><dt>Last complete feed check</dt><dd>${safe(state.last_complete||'Not yet completed')}</dd><dt>Last attempt</dt><dd>${safe(state.last_attempt||'Not started')}</dd><dt>Feed health</dt><dd>${safe(state.failure||'No recorded failure')}</dd></dl>${result?`<p role="status">Pass: ${safe(result.status)} · ${safe(result.records||0)} source records · ${safe(result.photoAttempts||0)} photo attempts${result.diagnostic?' · '+safe(result.diagnostic):''}${result.locations?' · Map lookups: '+safe(result.locations.attempted)+' attempted, '+safe(result.locations.matched)+' matched, '+safe(result.locations.unmatched)+' unmatched, '+safe(result.locations.unavailable)+' unavailable':''}</p>`:''}<form method="post"><button type="submit">Run one sync pass</button></form><p><a href="/ops/mls-sync">Refresh status</a> · <a href="/ops/mls-grid">Check connection</a> · <a href="/">Search preview</a></p></main></html>`;
+        const snapshot=await monitorSnapshot(env.LIVE_DB);
+        if(url.pathname.endsWith('/status'))return secure(json(200,result?{result,snapshot}:snapshot));
+        const html=monitorPage(snapshot,{syncEnabled:env.LIVE_SYNC_ENABLED==='true',result});
         return secure(new Response(request.method==='HEAD'?null:html,{headers:{'Content-Type':'text/html; charset=utf-8'}}));
       }
       let result=null;

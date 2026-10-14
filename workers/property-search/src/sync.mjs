@@ -20,10 +20,11 @@ export async function syncLive(env,{fetcher=fetch,pause,now=()=>Date.now(),maxPa
   const client=createClient({token:env.MLS_GRID_ACCESS_TOKEN,source:'onekey2',endpoint:'https://api.mlsgrid.com/v2',fetcher,beforeRequest,pageSize:100,maxResponseBytes:8*1024*1024});
   let pages=0,records=0,photos=0,locations;
   const start=now(),seen=new Set();
+  const finish=async(result)=>{await env.LIVE_DB.prepare("UPDATE feed_state SET last_result=?,last_result_at=? WHERE source='onekey2' AND lease_id=? AND lease_until>?").bind(JSON.stringify(result),new Date(now()).toISOString(),lease,now()).run();return result;};
   try {
     const state=await repo.state();
-    if(!state.initial_complete && state.bootstrap_started && now()-state.bootstrap_started>6*86400000)return {status:'reconciliation_required'};
-    if(state.last_complete && now()-Date.parse(state.last_complete)>6*86400000)return {status:'reconciliation_required'};
+    if(!state.initial_complete && state.bootstrap_started && now()-state.bootstrap_started>6*86400000)return await finish({status:'reconciliation_required'});
+    if(state.last_complete && now()-Date.parse(state.last_complete)>6*86400000)return await finish({status:'reconciliation_required'});
     if(env.LOCATION_REFRESH_ENABLED==='true'){
       try{await refreshNYCLocations(env,repo,client,lease,{now});await refreshLocationInventory(env,repo,client,lease,{now,maxPages:1});}catch(error){await env.LIVE_DB.prepare("UPDATE location_refresh SET failure=? WHERE id=1 AND EXISTS(SELECT 1 FROM feed_state WHERE source='onekey2' AND lease_id=? AND lease_until>?)").bind('Refresh paused; will retry within feed budget',lease,now()).run();throw error;}
       locations=await geocodeListings(env,lease,{fetcher,now});
@@ -51,11 +52,11 @@ export async function syncLive(env,{fetcher=fetch,pause,now=()=>Date.now(),maxPa
         const result=await downloadPhotos(page.rows,env,beforeRequest,{fetcher,maxDownloads:maxPhotos-photos,now,deadline:start+150000});photos+=result.attempted;
       }
     }
-    return {status:'ok',pages,records,photoAttempts:photos,locations,initialComplete:Boolean((await repo.state()).initial_complete)};
+    return await finish({status:'ok',pages,records,photoAttempts:photos,locations,initialComplete:Boolean((await repo.state()).initial_complete)});
   } catch(error) {
     const reason=await repo.failure(lease,error,now());const messages=['MLS Grid connection failed','MLS Grid returned HTTP','Invalid MLS Grid JSON','Invalid MLS Grid page','Invalid MLS Grid record','Rejected unsafe','Invalid replication','Replication lease expired','Provider budget','Feed page exceeds','MLS Grid page exceeded'];
     const diagnostic=String(error.message).match(/^MLS Grid returned HTTP [0-9]{3}/)?.[0]||messages.find(message=>String(error.message).startsWith(message))||'internal_processing';
-    return {status:reason,diagnostic,pages,records,photoAttempts:photos,locations};
+    return await finish({status:reason,diagnostic,pages,records,photoAttempts:photos,locations});
   } finally {await repo.release(lease);}
 }
 export async function feedReady(db,now=Date.now()) {
