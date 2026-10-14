@@ -37,6 +37,7 @@ export function createClient({ token, source, endpoint = 'https://api-demo.mlsgr
   };
   return {
     initial,
+    locationInitial() {return initial(null,{viewOnly:true,marketOnly:true});},
     properties(ids) {
       if (!Array.isArray(ids) || !ids.length || ids.length > 50 || ids.some(id => typeof id !== 'string' || !/^[A-Za-z0-9_-]+$/.test(id))) throw new Error('Invalid media backfill identifiers');
       const url = new URL(initial());
@@ -53,7 +54,14 @@ export function createClient({ token, source, endpoint = 'https://api-demo.mlsgr
           redirect: 'manual', signal: AbortSignal.timeout(30_000),
         });
       } catch { throw new Error('MLS Grid connection failed; checkpoint retained'); }
-      if (!response.ok) throw new Error(`MLS Grid returned HTTP ${response.status}; checkpoint retained`);
+      if (!response.ok) {
+        const error=new Error(`MLS Grid returned HTTP ${response.status}; checkpoint retained`);
+        if(response.status===400&&response.body){
+          const reader=response.body.getReader();let text='',length=0;
+          try{while(length<4096){const {done,value}=await reader.read();if(done)break;length+=value.byteLength;if(length>4096)break;text+=new TextDecoder().decode(value);}const normalized=text.toLowerCase();error.providerReason=normalized.includes('listingid')?'listing_id_filter':normalized.includes('modificationtimestamp')?'timestamp_filter':normalized.includes('skip')?'pagination_offset':normalized.includes('filter')?'filter_validation':'unclassified_request';}catch{error.providerReason='unclassified_request';}finally{await reader.cancel();}
+        }
+        throw error;
+      }
       // Bound decompressed size as well as record count, even if upstream ignores $top.
       if (!response.body) throw new Error('MLS Grid returned an empty response');
       const reader = response.body.getReader();
@@ -92,7 +100,7 @@ export function createClient({ token, source, endpoint = 'https://api-demo.mlsgr
 
 // Explicit development field inventory; never copy an unreviewed source record into the browser.
 // Production requires each MLS's authorized IDX field inventory, including local fields.
-export const PUBLIC_FIELDS = ['ListingId', 'StandardStatus', 'ListPrice', 'OriginalListPrice', 'ClosePrice', 'CloseDate', 'PropertyType', 'PropertySubType', 'OwnershipType', 'BedroomsTotal', 'BathroomsTotalInteger', 'BathroomsFull', 'BathroomsHalf', 'LivingArea', 'LivingAreaUnits', 'LivingAreaSource', 'LotSizeSquareFeet', 'LotSizeAcres', 'LotSizeUnits', 'LotSizeSource', 'City', 'CountyOrParish', 'StateOrProvince', 'PostalCode', 'PublicRemarks', 'ListOfficeName', 'ListOfficePhone', 'ListAgentFullName', 'AttributionContact', 'ModificationTimestamp', 'OnMarketDate', 'DaysOnMarket', 'AssociationFee', 'AssociationFeeFrequency', 'AssociationFeeIncludes', 'AssociationFee2', 'AssociationFee2Frequency', 'TaxAnnualAmount', 'TaxYear', 'TaxLegalDescription', 'ParkingTotal', 'YearBuilt', 'YearBuiltSource', 'Stories', 'StoriesTotal', 'NumberOfUnitsTotal', 'RoomsTotal', 'GarageSpaces', 'CarportSpaces', 'ArchitecturalStyle', 'Cooling', 'Heating', 'Appliances', 'InteriorFeatures', 'ExteriorFeatures', 'LaundryFeatures', 'ParkingFeatures', 'Basement', 'Flooring', 'WaterSource', 'Sewer', 'Utilities', 'LotFeatures', 'View', 'WaterfrontYN', 'WaterfrontFeatures', 'PoolFeatures', 'AccessibilityFeatures', 'PetsAllowed', 'AssociationAmenities', 'ElementarySchool', 'MiddleOrJuniorSchool', 'HighSchool', 'HighSchoolDistrict', 'LeaseTerm', 'LeaseAmountFrequency', 'AvailabilityDate', 'SecurityDeposit', 'RentIncludes', 'TenantPays', 'Zoning', 'BusinessType', 'BuildingAreaTotal', 'BuildingAreaUnits', 'GrossIncome', 'OperatingExpense', 'NetOperatingIncome'];
+export const PUBLIC_FIELDS = ['ListingId', 'StandardStatus', 'ListPrice', 'OriginalListPrice', 'ClosePrice', 'CloseDate', 'PropertyType', 'PropertySubType', 'OwnershipType', 'BedroomsTotal', 'BathroomsTotalInteger', 'BathroomsFull', 'BathroomsHalf', 'LivingArea', 'LivingAreaUnits', 'LivingAreaSource', 'LotSizeSquareFeet', 'LotSizeAcres', 'LotSizeUnits', 'LotSizeSource', 'City', 'PostalCity', 'KEY_ManNYNeighborhood', 'KEY_Hamlet', 'KEY_Village', 'SubdivisionName', 'CountyOrParish', 'StateOrProvince', 'PostalCode', 'PublicRemarks', 'ListOfficeName', 'ListOfficePhone', 'ListAgentFullName', 'AttributionContact', 'ModificationTimestamp', 'OnMarketDate', 'DaysOnMarket', 'AssociationFee', 'AssociationFeeFrequency', 'AssociationFeeIncludes', 'AssociationFee2', 'AssociationFee2Frequency', 'TaxAnnualAmount', 'TaxYear', 'TaxLegalDescription', 'ParkingTotal', 'YearBuilt', 'YearBuiltSource', 'Stories', 'StoriesTotal', 'NumberOfUnitsTotal', 'RoomsTotal', 'GarageSpaces', 'CarportSpaces', 'ArchitecturalStyle', 'Cooling', 'Heating', 'Appliances', 'InteriorFeatures', 'ExteriorFeatures', 'LaundryFeatures', 'ParkingFeatures', 'Basement', 'Flooring', 'WaterSource', 'Sewer', 'Utilities', 'LotFeatures', 'View', 'WaterfrontYN', 'WaterfrontFeatures', 'PoolFeatures', 'AccessibilityFeatures', 'PetsAllowed', 'AssociationAmenities', 'ElementarySchool', 'MiddleOrJuniorSchool', 'HighSchool', 'HighSchoolDistrict', 'LeaseTerm', 'LeaseAmountFrequency', 'AvailabilityDate', 'SecurityDeposit', 'RentIncludes', 'TenantPays', 'Zoning', 'BusinessType', 'BuildingAreaTotal', 'BuildingAreaUnits', 'GrossIncome', 'OperatingExpense', 'NetOperatingIncome'];
 const ADDRESS_FIELDS = ['UnparsedAddress', 'StreetNumber', 'StreetNumberNumeric', 'StreetDirPrefix', 'StreetName', 'StreetSuffix', 'StreetDirSuffix', 'UnitNumber', 'Latitude', 'Longitude'];
 
 export function publicProjection(row) {
@@ -100,6 +108,7 @@ export function publicProjection(row) {
   const projected = { id: row.ListingKey, source: row.OriginatingSystemName, addressWithheld: row.InternetAddressDisplayYN === false };
   for (const field of [...PUBLIC_FIELDS, ...(projected.addressWithheld ? [] : ADDRESS_FIELDS)]) {
     const value = row[field];
+    if(['PostalCity','KEY_ManNYNeighborhood','KEY_Hamlet','KEY_Village','SubdivisionName'].includes(field)&&value!==null&&typeof value!=='string')continue;
     if (value === null || typeof value === 'string' || typeof value === 'boolean' || (typeof value === 'number' && Number.isFinite(value))) projected[field] = value;
     else if (Array.isArray(value) && value.every(item => typeof item === 'string')) projected[field] = value;
   }

@@ -20,6 +20,7 @@
     "binding": "ASSETS",
     "run_worker_first": true
   },
+  "images": {"binding":"IMAGES"},
   "observability": {
     "enabled": true,
     "head_sampling_rate": 1
@@ -30,13 +31,16 @@
     ]
   },
   "vars": {
+    "IMAGE_TRANSFORM_LIMIT": "1000",
+    "MEDIA_BATCH_SIZE": "48",
     "APP_ENV": "staging",
     "PUBLIC_ORIGIN": "https://preview-search.primeamericany.com",
     "ACCESS_TEAM_DOMAIN": "primeamerica.cloudflareaccess.com",
     "ACCESS_AUD": "aeb5d1a3e1aacaf377f99f5297ba88a71b1ac4d3fb6c7466a557897aea823755",
     "DATASET": "live",
     "FEED_OPERATOR_EMAIL": "lama@primeamericany.com",
-    "LIVE_SYNC_ENABLED": "true"
+    "LIVE_SYNC_ENABLED": "true",
+    "LOCATION_REFRESH_ENABLED": "true"
   },
   "d1_databases": [
     {

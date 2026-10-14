@@ -1,3 +1,4 @@
+import { monitorSnapshot, monitorPage } from './feed-monitor.mjs';
 import { handleProduction } from './production.mjs';
 import { replica } from './replica.mjs';
 import { syncLive } from './sync.mjs';
@@ -9,7 +10,7 @@ import { validateInquiry } from '../../../scripts/mls-grid/consumer.mjs';
 import { DEFAULT_BRAND, brandCSS } from '../../../scripts/mls-grid/brand.mjs';
 import { publicOrigin, renderPage, embedDemo } from '../../../scripts/mls-grid/pages.mjs';
 
-const assets = new Set(['/app.mjs','/consumer.mjs','/brand.mjs','/brand-editor.mjs','/embed.mjs','/embed-loader.js','/style.css']);
+const assets = new Set(['/location-model.mjs','/vendor/maplibre-4.7.1.js','/vendor/maplibre-worker-4.7.1.js','/vendor/maplibre-4.7.1.css','/vendor/MAPLIBRE-LICENSE.txt','/bottom-dock.mjs','/bottom-dock.css','/app.mjs','/consumer.mjs','/search-filters.mjs','/discovery.mjs','/search-map.mjs','/nyc-boroughs.json','/discovery.css','/search-icon.svg','/brand.mjs','/brand-editor.mjs','/embed.mjs','/embed-loader.js','/style.css']);
 const json = (status, body) => Response.json(body,{status});
 async function bodyJSON(request) {
   if (!request.body) throw Error('Empty body');
@@ -30,13 +31,13 @@ function secure(response) {
   headers.set('X-Robots-Tag','noindex, nofollow');
   headers.set('X-Content-Type-Options','nosniff');
   headers.set('Referrer-Policy','same-origin');
-  headers.set('Content-Security-Policy',"default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; frame-src 'self'; object-src 'none'; frame-ancestors 'self'; base-uri 'none'; form-action 'self'");
+  headers.set('Content-Security-Policy',"default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob: https://tiles.openfreemap.org; connect-src 'self' https://tiles.openfreemap.org; worker-src 'self'; frame-src 'self'; object-src 'none'; frame-ancestors 'self'; base-uri 'none'; form-action 'self'");
   return new Response(response.body,{status:response.status,headers});
 }
 
 export async function handleRequest(request, env, {authorize = authorized, feedFetcher = fetch} = {}) {
   try {
-    const url = new URL(request.url), feedOperations = ['/ops/mls-grid','/ops/mls-sync'].includes(url.pathname);
+    const url = new URL(request.url), feedOperations = ['/admin','/ops/mls-grid','/ops/mls-sync','/ops/mls-sync/status','/ops/mls-sync.mjs','/ops/mls-sync.css'].includes(url.pathname);
     if (feedOperations && !env.FEED_OPERATOR_EMAIL) return secure(json(403,{error:'Feed operator is not configured.'}));
     if (!await authorize(request,env,undefined,Date.now(),feedOperations ? env.FEED_OPERATOR_EMAIL : null)) return secure(json(403,{error:'Private staging. Sign in through Cloudflare Access.'}));
     const origin = publicOrigin(env.PUBLIC_ORIGIN);
@@ -45,14 +46,17 @@ export async function handleRequest(request, env, {authorize = authorized, feedF
     if (feedOperations) {
       if (!['GET','HEAD','POST'].includes(request.method)) return secure(json(405,{error:'Method not allowed'}));
       if (request.method === 'POST' && request.headers.get('Origin') !== origin) return secure(json(403,{error:'Request origin rejected'}));
-      if(url.pathname==='/ops/mls-sync') {
+      if(url.pathname==='/admin')return secure(new Response(null,{status:302,headers:{Location:'/ops/mls-sync'}}));
+      if(['/ops/mls-sync.mjs','/ops/mls-sync.css'].includes(url.pathname)){
+        if(!['GET','HEAD'].includes(request.method))return secure(json(405,{error:'Method not allowed'}));
+        return secure(await env.ASSETS.fetch(request));
+      }
+      if(['/ops/mls-sync','/ops/mls-sync/status'].includes(url.pathname)) {
         if(!env.LIVE_DB)return secure(json(503,{error:'Live replica is not configured.'}));
         const result=request.method==='POST'?await syncLive(env,{fetcher:feedFetcher}):null;
-        const state=await env.LIVE_DB.prepare('SELECT phase,initial_complete,last_complete,last_attempt,failure FROM feed_state WHERE source=?').bind('onekey2').first();
-        const totals=await env.LIVE_DB.prepare("SELECT COUNT(*) AS listings,SUM(has_photos) AS photographed FROM listings").first();
-        const progress=await env.LIVE_DB.prepare('SELECT COUNT(*) AS records FROM listing_versions').first();
-        const safe=escapeHTML;
-        const html=`<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Live listing replica</title><link rel="stylesheet" href="/style.css"><main class="integration-demo"><h1>Live listing replica</h1><p>OneKey MLS · production connection · owner-only operations</p><p>Public release remains closed. A completed import does not establish website approval.</p><dl><dt>Import phase</dt><dd>${safe(state.phase||'initial')}</dd><dt>Source records processed</dt><dd>${safe(progress.records)}</dd><dt>Initial import</dt><dd>${state.initial_complete?'Complete':'In progress / not started'}</dd><dt>NYC listings</dt><dd>${safe(totals.listings)}</dd><dt>Listings with photos</dt><dd>${safe(totals.photographed||0)}</dd><dt>Last complete feed check</dt><dd>${safe(state.last_complete||'Not yet completed')}</dd><dt>Last attempt</dt><dd>${safe(state.last_attempt||'Not started')}</dd><dt>Feed health</dt><dd>${safe(state.failure||'No recorded failure')}</dd></dl>${result?`<p role="status">Pass: ${safe(result.status)} · ${safe(result.records||0)} source records · ${safe(result.photoAttempts||0)} photo attempts</p>`:''}<form method="post"><button type="submit">Run one sync pass</button></form><p><a href="/ops/mls-sync">Refresh status</a> · <a href="/ops/mls-grid">Check connection</a> · <a href="/">Search preview</a></p></main></html>`;
+        const snapshot=await monitorSnapshot(env.LIVE_DB);
+        if(url.pathname.endsWith('/status'))return secure(json(200,result?{result,snapshot}:snapshot));
+        const html=monitorPage(snapshot,{syncEnabled:env.LIVE_SYNC_ENABLED==='true',result});
         return secure(new Response(request.method==='HEAD'?null:html,{headers:{'Content-Type':'text/html; charset=utf-8'}}));
       }
       let result=null;
@@ -84,6 +88,7 @@ export async function handleRequest(request, env, {authorize = authorized, feedF
     if (url.pathname === '/api/brand') response=json(200,{brand,demo:true,readOnly:true});
     else if (url.pathname === '/theme.css') response=new Response(brandCSS(brand),{headers:{'Content-Type':'text/css; charset=utf-8'}});
     else if (url.pathname === '/api/search') response=json(200,await store.search(Object.fromEntries(url.searchParams)));
+    else if (url.pathname === '/api/discovery') response=json(200,await store.discovery(Object.fromEntries(url.searchParams)));
     else if (url.pathname === '/embed-demo') response=new Response(embedDemo(brand,origin),{headers:{'Content-Type':'text/html; charset=utf-8'}});
     else if (assets.has(url.pathname)) response=await env.ASSETS.fetch(request);
     else {
@@ -92,7 +97,7 @@ export async function handleRequest(request, env, {authorize = authorized, feedF
         const listing=await store.listing(api[1],api[2]);response=listing?json(200,{environment:'demo',listing}):json(404,{error:'This listing is no longer available.'});
       } else if (media) {
         const record=await store.mediaFile(media[1]);if(!record)return secure(json(404,{error:'Photo unavailable'}));
-        const variant=url.searchParams.get('variant');if(variant&&!['card','thumb','display'].includes(variant))return secure(json(400,{error:'Unknown image size'}));
+        const variant=url.searchParams.get('variant');if(variant&&!['cardSmall','card','cardLarge','thumb','display','displayLarge'].includes(variant))return secure(json(400,{error:'Unknown image size'}));
         let object=variant?await env.SEARCH_MEDIA.get(`optimized/${record.file}-${variant}.webp`):null;
         const derived=Boolean(object);object??=await env.SEARCH_MEDIA.get(record.file);
         if(!object || !await store.mediaFile(media[1]))return secure(json(404,{error:'Photo unavailable'}));

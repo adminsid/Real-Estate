@@ -1,19 +1,20 @@
+import { imageObject, IMAGE_VARIANTS } from './image-variants.mjs';
 import { copyrightNotice,idxNotice } from './display.mjs';
 import { searchStore } from './store.mjs';
 import { feedReady } from './sync.mjs';
 import { DEFAULT_BRAND,brandCSS } from '../../../scripts/mls-grid/brand.mjs';
 import { publicOrigin,renderPage,escapeHTML } from '../../../scripts/mls-grid/pages.mjs';
-const assets=new Set(['/app.mjs','/consumer.mjs','/brand.mjs','/brand-editor.mjs','/embed.mjs','/embed-loader.js','/style.css','/mls-grid.png','/onekey.png']);
+const assets=new Set(['/location-model.mjs','/vendor/maplibre-4.7.1.js','/vendor/maplibre-worker-4.7.1.js','/vendor/maplibre-4.7.1.css','/vendor/MAPLIBRE-LICENSE.txt','/bottom-dock.mjs','/bottom-dock.css','/app.mjs','/consumer.mjs','/search-filters.mjs','/discovery.mjs','/search-map.mjs','/nyc-boroughs.json','/discovery.css','/search-icon.svg','/brand.mjs','/brand-editor.mjs','/embed.mjs','/embed-loader.js','/style.css','/mls-grid.png','/onekey.png']);
 export function productionHeaders(response,{privateReview=false,noindex=false}={}) {
   const headers=new Headers(response.headers);
   // Eligibility and freshness are checked on every read. No cached revoked listings or photos.
   headers.set('Cache-Control','private, no-store');headers.set('X-Content-Type-Options','nosniff');headers.set('Referrer-Policy','strict-origin-when-cross-origin');
-  headers.set('Content-Security-Policy',"default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; frame-src 'self'; object-src 'none'; frame-ancestors 'self' https://primeamericany.com https://www.primeamericany.com; base-uri 'none'; form-action 'self'");
+  headers.set('Content-Security-Policy',"default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob: https://tiles.openfreemap.org; connect-src 'self' https://tiles.openfreemap.org; worker-src 'self'; frame-src 'self'; object-src 'none'; frame-ancestors 'self' https://primeamericany.com https://www.primeamericany.com; base-uri 'none'; form-action 'self'");
   if(privateReview || noindex || response.status>=400)headers.set('X-Robots-Tag','noindex, nofollow');
   return new Response(response.body,{status:response.status,headers});
 }
 export async function handleProduction(request,env,{privateReview=false,now=Date.now()}={}) {
-  const wrap=response=>productionHeaders(response,{privateReview});
+  const wrap=response=>{const result=productionHeaders(response,{privateReview});if((response.status===200||response.status===304)&&/^\/media\/[a-f0-9]{64}$/.test(new URL(request.url).pathname))result.headers.set('Cache-Control','private, no-cache');if(response.ok&&assets.has(new URL(request.url).pathname)&&new URL(request.url).pathname.startsWith('/vendor/'))result.headers.set('Cache-Control','private, max-age=31536000, immutable');return result;};
   try {
     const url=new URL(request.url),origin=publicOrigin(env.PUBLIC_ORIGIN);
     if(url.origin!==origin)return wrap(Response.json({error:'Unrecognized origin'},{status:403}));
@@ -53,17 +54,19 @@ export async function handleProduction(request,env,{privateReview=false,now=Date
       }
     } else if(url.pathname==='/copyright')response=new Response(`<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Copyright notices · Prime America Real Estate</title><link rel="stylesheet" href="/style.css"><main><h1>Copyright and listing-data notices</h1><p>Send listing corrections or copyright notices to <a href="mailto:info@primeamericany.com">info@primeamericany.com</a>.</p>${copyrightNotice}<a href="/">Return to property search</a></main></html>`,{headers:{'Content-Type':'text/html; charset=utf-8'}});
     else if(url.pathname==='/api/search')response=Response.json(await store.search({borough:'NYC',type:'Residential',status:'Active',...Object.fromEntries(url.searchParams)},new Date(now)));
+    else if(url.pathname==='/api/discovery')response=Response.json(await store.discovery({borough:'NYC',type:'Residential',status:'Active',...Object.fromEntries(url.searchParams)},new Date(now)));
     else {
       const api=url.pathname.match(/^\/api\/listing\/([A-Za-z0-9_-]+)\/([A-Za-z0-9_-]+)$/),route=url.pathname.match(/^\/listing\/([A-Za-z0-9_-]+)\/([A-Za-z0-9_-]+)$/),media=url.pathname.match(/^\/media\/([a-f0-9]{64})$/);
       if(api) {
         const listing=await store.listing(api[1],api[2]);response=Response.json(listing?{environment:'production',listing}:{error:'This listing is no longer available.'},{status:listing?200:404});
       } else if(media) {
         const record=await store.mediaFile(media[1]);if(!record)return wrap(new Response('Photo unavailable',{status:404}));
-        const variant=url.searchParams.get('variant');if(variant&&!['card','thumb','display'].includes(variant))throw Error('Invalid image size');
-        let object=variant?await env.SEARCH_MEDIA.get(`optimized/${record.file}-${variant}.webp`):null;
-        const derived=Boolean(object);object??=await env.SEARCH_MEDIA.get(record.file);
-        if(!object || !await store.mediaFile(media[1]))return wrap(new Response('Photo unavailable',{status:404}));
-        response=new Response(object.body,{headers:{'Content-Type':derived?'image/webp':record.type,'Content-Length':String(object.size)}});
+        const variant=url.searchParams.get('variant');if(variant&&!Object.hasOwn(IMAGE_VARIANTS,variant))throw Error('Invalid image size');
+        const image=await imageObject(env,store,record,variant,{now});
+        if(!image||!await store.mediaFile(media[1]))return wrap(new Response('Photo unavailable',{status:404}));
+        const etag='"'+record.file+'-'+image.representation+'"';
+        if(request.headers.get('If-None-Match')===etag)response=new Response(null,{status:304,headers:{ETag:etag}});
+        else response=new Response(image.object.body,{headers:{'Content-Type':image.type,'Content-Length':String(image.object.size),ETag:etag}});
       } else if(url.pathname==='/' || url.pathname==='/embed' || route) {
         const asset=await env.ASSETS.fetch(new Request(origin+'/_production.html'));if(!asset.ok)throw Error('Template missing');
         const listing=route?await store.listing(route[1],route[2]):null,unavailable=Boolean(route&&!listing);

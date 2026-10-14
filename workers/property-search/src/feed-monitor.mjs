@@ -1,0 +1,29 @@
+import { escapeHTML } from '../../../scripts/mls-grid/pages.mjs';
+const labels={initial:'Importing current inventory',catchup:'Checking changes and removals',delta:'Keeping listings up to date'};
+export async function monitorSnapshot(db,now=Date.now()){
+ const state=await db.prepare(`SELECT phase,initial_complete,last_complete,last_attempt,failure,retry_after,lease_until,last_result,last_result_at FROM feed_state WHERE source='onekey2'`).first();
+ if(!state)throw Error('Feed state is not initialized');
+ const cached=await db.prepare('SELECT captured_at,counts_json FROM feed_monitor_counts WHERE id=1').first();
+ let counts,capturedAt;
+ if(cached&&cached.captured_at<=now&&now-cached.captured_at<60000){counts=JSON.parse(cached.counts_json);capturedAt=cached.captured_at;}
+ else{
+ const [inventory,media,versions,refresh,budget,geocoding,transformations]=await Promise.all([
+  db.prepare('SELECT COUNT(*) AS listings,COALESCE(SUM(has_photos),0) AS photographed,COALESCE(SUM(latitude IS NOT NULL AND longitude IS NOT NULL),0) AS mapped,COALESCE(SUM(projection_version=1),0) AS locationsRefreshed FROM listings').first(),
+  db.prepare('SELECT state,COUNT(*) AS total FROM listing_media GROUP BY state').all(),
+  db.prepare('SELECT COUNT(*) AS total FROM listing_versions').first(),
+  db.prepare('SELECT processed,complete,last_attempt,failure FROM location_refresh WHERE id=1').first(),
+  db.prepare('SELECT COALESCE(SUM(CASE WHEN hour>=? THEN requests ELSE 0 END),0) AS hourlyRequests,COALESCE(SUM(CASE WHEN hour>=? THEN bytes ELSE 0 END),0) AS hourlyBytes,COALESCE(SUM(requests),0) AS dailyRequests,COALESCE(SUM(bytes),0) AS dailyBytes FROM feed_budget WHERE hour>=?').bind(Math.floor(now/3600000)-1,Math.floor(now/3600000)-1,Math.floor(now/3600000)-24).first(),
+  db.prepare('SELECT requests FROM geocode_budget WHERE day=?').bind(new Date(now).toISOString().slice(0,10)).first(),
+  db.prepare('SELECT attempts FROM image_transform_budget WHERE month=?').bind(new Date(now).toISOString().slice(0,7)).first(),
+ ]);
+ counts={inventory,media,versions,refresh,budget,geocoding,transformations};capturedAt=now;
+ await db.prepare('INSERT INTO feed_monitor_counts VALUES (1,?,?) ON CONFLICT(id) DO UPDATE SET captured_at=excluded.captured_at,counts_json=excluded.counts_json WHERE captured_at<=excluded.captured_at').bind(now,JSON.stringify(counts)).run();
+ }
+ const {inventory,media,versions,refresh,budget,geocoding,transformations}=counts;
+ let lastRun=null;try{lastRun=state.last_result?JSON.parse(state.last_result):null;}catch{/* Keep current counts available if the summary is malformed. */}
+ return {countsAt:new Date(capturedAt).toISOString(),observedAt:new Date(now).toISOString(),phase:labels[state.phase]||'Import not started',initialComplete:Boolean(state.initial_complete),running:state.lease_until>now,retryAt:state.retry_after>now?new Date(state.retry_after).toISOString():null,lastAttempt:state.last_attempt,lastComplete:state.last_complete,health:state.failure||'No recorded failure',lastRun,lastRunAt:state.last_result_at,inventory,photos:Object.fromEntries(media.results.map(row=>[row.state,row.total])),sourceRecords:versions.total,locationRefresh:refresh?{processed:refresh.processed,complete:Boolean(refresh.complete),lastAttempt:refresh.last_attempt,failure:refresh.failure}:null,budget:{...budget,hourlyRequestLimit:6000,hourlyByteLimit:3000000000,dailyRequestLimit:35000,dailyByteLimit:50000000000,geocoderRequests:geocoding?.requests||0,geocoderLimit:1000,imageTransformAttempts:transformations?.attempts||0,imageTransformLimit:1000}};
+}
+export function monitorPage(snapshot,{syncEnabled=false,result=null}={}){
+ const safe=escapeHTML;
+ return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>MLS import · Private admin</title><link rel="stylesheet" href="/ops/mls-sync.css"><script type="module" src="/ops/mls-sync.mjs"></script></head><body><main><header><div><p class="eyebrow">PRIME AMERICA · PRIVATE ADMIN</p><h1>MLS import</h1><p class="muted">OneKey MLS · live production database</p></div><nav aria-label="Admin navigation"><a href="/">Search preview</a><a href="/ops/mls-grid">Connection check</a></nav></header><div class="toolbar"><span id="refresh-state" role="status">Connecting to live progress…</span><button id="refresh" type="button">Refresh now</button><form method="post"><button id="run-sync" type="submit" ${syncEnabled?'':'disabled'}>Run one sync pass</button></form></div><div id="monitor" aria-busy="true"></div><p id="action-status" role="status">${result?safe('Sync result: '+result.status):''}</p><section class="explanation"><h2>What these numbers mean</h2><p>This panel reads the same listing database used by the consumer production service. Status refreshes every 15 seconds while this tab is visible. Large inventory counts refresh at most once per minute to limit database reads. Viewing progress does not request more data from MLS GRID.</p><p>The source does not provide a verified total for this replication, so an overall percentage or finish time would be misleading. Source records examined includes records excluded from public display. Known photo and location totals are shown separately.</p><p>Import completion, website approval, and opening the public search are separate checks. This panel does not change release permissions or automatically run additional imports.</p></section><noscript><section><h2>Current snapshot</h2><p>${safe(snapshot.phase)} · ${safe(snapshot.sourceRecords)} source records examined · ${safe(snapshot.inventory.listings)} stored listings · ${safe(snapshot.health)}</p><p>Last checked: ${safe(snapshot.observedAt)}. Use your browser’s refresh to update this snapshot.</p></section></noscript></main></body></html>`;
+}
