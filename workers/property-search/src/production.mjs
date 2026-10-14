@@ -1,3 +1,4 @@
+import { imageObject, IMAGE_VARIANTS } from './image-variants.mjs';
 import { copyrightNotice,idxNotice } from './display.mjs';
 import { searchStore } from './store.mjs';
 import { feedReady } from './sync.mjs';
@@ -13,7 +14,7 @@ export function productionHeaders(response,{privateReview=false,noindex=false}={
   return new Response(response.body,{status:response.status,headers});
 }
 export async function handleProduction(request,env,{privateReview=false,now=Date.now()}={}) {
-  const wrap=response=>{const result=productionHeaders(response,{privateReview});if(response.ok&&assets.has(new URL(request.url).pathname)&&new URL(request.url).pathname.startsWith('/vendor/'))result.headers.set('Cache-Control','private, max-age=31536000, immutable');return result;};
+  const wrap=response=>{const result=productionHeaders(response,{privateReview});if((response.status===200||response.status===304)&&/^\/media\/[a-f0-9]{64}$/.test(new URL(request.url).pathname))result.headers.set('Cache-Control','private, no-cache');if(response.ok&&assets.has(new URL(request.url).pathname)&&new URL(request.url).pathname.startsWith('/vendor/'))result.headers.set('Cache-Control','private, max-age=31536000, immutable');return result;};
   try {
     const url=new URL(request.url),origin=publicOrigin(env.PUBLIC_ORIGIN);
     if(url.origin!==origin)return wrap(Response.json({error:'Unrecognized origin'},{status:403}));
@@ -60,11 +61,12 @@ export async function handleProduction(request,env,{privateReview=false,now=Date
         const listing=await store.listing(api[1],api[2]);response=Response.json(listing?{environment:'production',listing}:{error:'This listing is no longer available.'},{status:listing?200:404});
       } else if(media) {
         const record=await store.mediaFile(media[1]);if(!record)return wrap(new Response('Photo unavailable',{status:404}));
-        const variant=url.searchParams.get('variant');if(variant&&!['card','thumb','display'].includes(variant))throw Error('Invalid image size');
-        let object=variant?await env.SEARCH_MEDIA.get(`optimized/${record.file}-${variant}.webp`):null;
-        const derived=Boolean(object);object??=await env.SEARCH_MEDIA.get(record.file);
-        if(!object || !await store.mediaFile(media[1]))return wrap(new Response('Photo unavailable',{status:404}));
-        response=new Response(object.body,{headers:{'Content-Type':derived?'image/webp':record.type,'Content-Length':String(object.size)}});
+        const variant=url.searchParams.get('variant');if(variant&&!Object.hasOwn(IMAGE_VARIANTS,variant))throw Error('Invalid image size');
+        const image=await imageObject(env,store,record,variant,{now});
+        if(!image||!await store.mediaFile(media[1]))return wrap(new Response('Photo unavailable',{status:404}));
+        const etag='"'+record.file+'-'+image.representation+'"';
+        if(request.headers.get('If-None-Match')===etag)response=new Response(null,{status:304,headers:{ETag:etag}});
+        else response=new Response(image.object.body,{headers:{'Content-Type':image.type,'Content-Length':String(image.object.size),ETag:etag}});
       } else if(url.pathname==='/' || url.pathname==='/embed' || route) {
         const asset=await env.ASSETS.fetch(new Request(origin+'/_production.html'));if(!asset.ok)throw Error('Template missing');
         const listing=route?await store.listing(route[1],route[2]):null,unavailable=Boolean(route&&!listing);

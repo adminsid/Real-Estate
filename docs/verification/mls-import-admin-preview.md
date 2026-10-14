@@ -24,4 +24,4 @@ Verification:
 
 Known importer condition remains tracked in GitHub issue19: the primary persisted catch-up request returns HTTP400 and initial reconciliation is incomplete. Location refresh and geocoder can progress independently; the dashboard deliberately displays these separately.
 
-Operational note: aggregate counts scan the retained inventory and media state index while the panel is visible. Watch D1 rows-read usage as feed size or simultaneous operator sessions grow; no background polling runs from hidden tabs and no MLS requests result from dashboard refreshes.
+Operational note: aggregate counts scan the retained inventory and media state index. Migration0004 now persists those aggregates for one minute; the run state still polls every 15 seconds. Both capture times are displayed. The panel also shows monthly image transformation attempts. Watch D1 rows-read usage as feed size or simultaneous operator sessions grow; no background polling runs from hidden tabs and no MLS requests result from dashboard refreshes. See [listing-photo-preview.md](listing-photo-preview.md) for the subsequent release and verification.

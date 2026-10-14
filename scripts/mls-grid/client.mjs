@@ -54,7 +54,14 @@ export function createClient({ token, source, endpoint = 'https://api-demo.mlsgr
           redirect: 'manual', signal: AbortSignal.timeout(30_000),
         });
       } catch { throw new Error('MLS Grid connection failed; checkpoint retained'); }
-      if (!response.ok) throw new Error(`MLS Grid returned HTTP ${response.status}; checkpoint retained`);
+      if (!response.ok) {
+        const error=new Error(`MLS Grid returned HTTP ${response.status}; checkpoint retained`);
+        if(response.status===400&&response.body){
+          const reader=response.body.getReader();let text='',length=0;
+          try{while(length<4096){const {done,value}=await reader.read();if(done)break;length+=value.byteLength;if(length>4096)break;text+=new TextDecoder().decode(value);}const normalized=text.toLowerCase();error.providerReason=normalized.includes('listingid')?'listing_id_filter':normalized.includes('modificationtimestamp')?'timestamp_filter':normalized.includes('skip')?'pagination_offset':normalized.includes('filter')?'filter_validation':'unclassified_request';}catch{error.providerReason='unclassified_request';}finally{await reader.cancel();}
+        }
+        throw error;
+      }
       // Bound decompressed size as well as record count, even if upstream ignores $top.
       if (!response.body) throw new Error('MLS Grid returned an empty response');
       const reader = response.body.getReader();

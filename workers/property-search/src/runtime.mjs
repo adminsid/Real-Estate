@@ -97,7 +97,7 @@ export async function handleRequest(request, env, {authorize = authorized, feedF
         const listing=await store.listing(api[1],api[2]);response=listing?json(200,{environment:'demo',listing}):json(404,{error:'This listing is no longer available.'});
       } else if (media) {
         const record=await store.mediaFile(media[1]);if(!record)return secure(json(404,{error:'Photo unavailable'}));
-        const variant=url.searchParams.get('variant');if(variant&&!['card','thumb','display'].includes(variant))return secure(json(400,{error:'Unknown image size'}));
+        const variant=url.searchParams.get('variant');if(variant&&!['cardSmall','card','cardLarge','thumb','display','displayLarge'].includes(variant))return secure(json(400,{error:'Unknown image size'}));
         let object=variant?await env.SEARCH_MEDIA.get(`optimized/${record.file}-${variant}.webp`):null;
         const derived=Boolean(object);object??=await env.SEARCH_MEDIA.get(record.file);
         if(!object || !await store.mediaFile(media[1]))return secure(json(404,{error:'Photo unavailable'}));
