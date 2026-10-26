@@ -52,6 +52,39 @@ export async function checkFeed(env, fetcher = fetch) {
 }
 
 const escapeHTML = value => String(value).replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
+export async function checkMemberFeed(env,fetcher=fetch){
+  const base={endpoint,source,resource:'Member',checkedAt:new Date().toISOString()};
+  const result=(state,message,extra={})=>({...base,state,message,...extra});
+  if(typeof env.MLS_GRID_ACCESS_TOKEN!=='string'||!env.MLS_GRID_ACCESS_TOKEN.trim())return result('not_configured','The MLS GRID secret is not configured.');
+  const url=new URL(endpoint+'/Member');
+  url.searchParams.set('$filter',`OriginatingSystemName eq '${source}' and MlgCanView eq true`);
+  url.searchParams.set('$select','OriginatingSystemName,MemberKey,MemberMlsId,MlgCanView,MlgCanUse,Media');
+  url.searchParams.set('$expand','Media');url.searchParams.set('$top','10');
+  let response;
+  try{response=await fetcher(url.href,{headers:{Authorization:`Bearer ${env.MLS_GRID_ACCESS_TOKEN}`,Accept:'application/json','Accept-Encoding':'gzip,deflate'},redirect:'manual',signal:AbortSignal.timeout(15000),cache:'no-store'});}catch{return result('connection_failed','The Member API could not be reached.');}
+  if(!response.ok){try{await response.body?.cancel();}catch{/* Discard upstream details. */}return result(response.status===401?'authentication_failed':response.status===403?'access_denied':response.status===429?'rate_limited':'upstream_error','Member request returned HTTP '+response.status+'. No retry or redirect was followed.',{upstreamStatus:response.status});}
+  let data;try{data=await readJSON(response);}catch{return result('invalid_response','Member response was empty, oversized or invalid JSON.');}
+  if(!data||!Array.isArray(data.value)||data.value.length>10||data.value.some(row=>!row||row.OriginatingSystemName!==source||row.MlgCanView!==true||(row.Media!==undefined&&!Array.isArray(row.Media))))return result('invalid_response','Member response did not match the bounded OneKey sample.');
+  const rows=data.value;let membersWithMedia=0,publicMediaEntries=0,membersWithPublicMedia=0,membersAllowingIdx=0,membersWithIdentifiers=0;
+  for(const row of rows){
+    if(typeof row.MemberKey==='string'||typeof row.MemberMlsId==='string')membersWithIdentifiers++;
+    const idx=Array.isArray(row.MlgCanUse)&&row.MlgCanUse.some(value=>typeof value==='string'&&value.toLowerCase()==='idx');if(idx)membersAllowingIdx++;
+    const media=row.Media||[];if(media.length)membersWithMedia++;
+    let permitted=0;
+    for(const entry of media){
+      const permissions=Array.isArray(entry?.Permission)?entry.Permission:[entry?.Permission];
+      if(!idx||!permissions.some(value=>['public','idx'].includes(String(value).toLowerCase()))||permissions.some(value=>String(value).toLowerCase()==='private')||typeof entry?.MediaURL!=='string')continue;
+      try{const url=new URL(entry.MediaURL);if(url.protocol==='https:'&&url.hostname==='media.mlsgrid.com'&&!url.username&&!url.password&&!url.port&&!url.hash)permitted++;}catch{/* Count only well-formed source media links. */}
+    }
+    publicMediaEntries+=permitted;if(permitted)membersWithPublicMedia++;
+  }
+  return result(rows.length?'connected':'connected_empty',rows.length?'OneKey Member access verified. Counts describe this sample only; image files were not downloaded.':'Member request accepted, but the sample was empty.',{upstreamStatus:response.status,sampledMembers:rows.length,membersWithIdentifiers,membersAllowingIdx,membersWithMedia,membersWithPublicMedia,publicMediaEntries});
+}
+export function memberFeedPage(env,result=null){
+  const fields=['state','checkedAt','upstreamStatus','sampledMembers','membersWithIdentifiers','membersAllowingIdx','membersWithMedia','membersWithPublicMedia','publicMediaEntries'];
+  const summary=result?'<section><h2>Member check result</h2><p>'+escapeHTML(result.message)+'</p><dl>'+fields.filter(key=>result[key]!==undefined).map(key=>'<dt>'+escapeHTML(key)+'</dt><dd>'+escapeHTML(result[key])+'</dd>').join('')+'</dl></section>':'';
+  return '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>OneKey Member feed check</title><link rel="stylesheet" href="/style.css"></head><body><main class="search-page"><p><a href="/ops/mls-sync">Import admin</a></p><h1>OneKey Member feed check</h1><p>Owner-only diagnostic. One request, up to 10 viewable members, with expanded media metadata. No names, contact details, identifiers or signed media links are shown or retained. An empty photo sample does not establish that the whole feed has no photos.</p>'+summary+'<form method="post" action="/ops/mls-members"><button type="submit" '+(!env.MLS_GRID_ACCESS_TOKEN?'disabled':'')+'>Check Member feed</button></form></main></body></html>';
+}
 export function feedPage(env, result = null) {
   const configured = typeof env.MLS_GRID_ACCESS_TOKEN === 'string' && Boolean(env.MLS_GRID_ACCESS_TOKEN.trim());
   const status = result ? `<section aria-live="polite"><h2>Connection result</h2><p><strong>${escapeHTML(result.message)}</strong></p><p>State: ${escapeHTML(result.state)} · Checked: ${escapeHTML(result.checkedAt)}</p>${result.upstreamStatus ? `<p>API status: ${result.upstreamStatus}</p>` : ''}</section>` : '';

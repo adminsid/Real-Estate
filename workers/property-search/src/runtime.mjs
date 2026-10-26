@@ -4,7 +4,7 @@ import { replica } from './replica.mjs';
 import { syncLive } from './sync.mjs';
 import { escapeHTML } from '../../../scripts/mls-grid/pages.mjs';
 import { authorized } from './access.mjs';
-import { checkFeed, feedPage } from './feed-check.mjs';
+import { checkFeed, feedPage, checkMemberFeed, memberFeedPage } from './feed-check.mjs';
 import { searchStore } from './store.mjs';
 import { validateInquiry } from '../../../scripts/mls-grid/consumer.mjs';
 import { DEFAULT_BRAND, brandCSS } from '../../../scripts/mls-grid/brand.mjs';
@@ -37,7 +37,7 @@ function secure(response) {
 
 export async function handleRequest(request, env, {authorize = authorized, feedFetcher = fetch} = {}) {
   try {
-    const url = new URL(request.url), feedOperations = ['/admin','/ops/mls-grid','/ops/mls-sync','/ops/mls-sync/status','/ops/mls-sync.mjs','/ops/mls-sync.css'].includes(url.pathname);
+    const url = new URL(request.url), feedOperations = ['/admin','/ops/mls-grid','/ops/mls-members','/ops/mls-sync','/ops/mls-sync/status','/ops/mls-sync.mjs','/ops/mls-sync.css'].includes(url.pathname);
     if (feedOperations && !env.FEED_OPERATOR_EMAIL) return secure(json(403,{error:'Feed operator is not configured.'}));
     if (!await authorize(request,env,undefined,Date.now(),feedOperations ? env.FEED_OPERATOR_EMAIL : null)) return secure(json(403,{error:'Private staging. Sign in through Cloudflare Access.'}));
     const origin = publicOrigin(env.PUBLIC_ORIGIN);
@@ -59,16 +59,17 @@ export async function handleRequest(request, env, {authorize = authorized, feedF
         const html=monitorPage(snapshot,{syncEnabled:env.LIVE_SYNC_ENABLED==='true',result});
         return secure(new Response(request.method==='HEAD'?null:html,{headers:{'Content-Type':'text/html; charset=utf-8'}}));
       }
+      const memberCheck=url.pathname==='/ops/mls-members',check=memberCheck?checkMemberFeed:checkFeed,page=memberCheck?memberFeedPage:feedPage;
       let result=null;
       if(request.method==='POST' && env.LIVE_SYNC_ENABLED==='true') {
         const repo=replica(env.LIVE_DB),lease=await repo.acquire();
         if(!lease)return secure(json(409,{error:'A feed sync is already running or paused. Try again later.'}));
         try {
           const delay=await repo.request(lease);await new Promise(resolve=>setTimeout(resolve,Math.max(550,delay)));
-          result=await checkFeed(env,feedFetcher);
+          result=await check(env,feedFetcher);
         }finally{await repo.release(lease);}
-      } else if(request.method==='POST')result=await checkFeed(env,feedFetcher);
-      return secure(new Response(request.method === 'HEAD' ? null : feedPage(env,result),{headers:{'Content-Type':'text/html; charset=utf-8'}}));
+      } else if(request.method==='POST')result=await check(env,feedFetcher);
+      return secure(new Response(request.method === 'HEAD' ? null : page(env,result),{headers:{'Content-Type':'text/html; charset=utf-8'}}));
     }
     if(env.DATASET==='live')return handleProduction(request,{...env,SEARCH_DB:env.LIVE_DB,SEARCH_MEDIA:env.LIVE_MEDIA},{privateReview:true});
     const store = searchStore(env.SEARCH_DB), brand = {...DEFAULT_BRAND,name:'Property search',descriptor:'Staging',tagline:'Synthetic inventory · private testing'};
