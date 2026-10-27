@@ -1,3 +1,4 @@
+import { followListing,enrichmentMessage } from './listing-enrichment.mjs';
 import { initializeBrand } from './brand-editor.mjs';
 import { initializeBottomDock } from './bottom-dock.mjs';
 import { initializeDiscovery } from './discovery.mjs';
@@ -29,6 +30,7 @@ function action(text,fn,className='') { const node=el('button',text,className);n
 function grid(l,fields,raw=false) { const node=el('dl','','fact-grid'); for(const f of fields){const item=el('div'),name=el('dt',label(f));if(raw)name.append(el('span',f,'raw-label'));item.append(name,el('dd',raw && typeof l[f]==='number' ? String(l[f]) : fieldText(l,f)));node.append(item);}return node; }
 function section(title,id) { const node=el('section','','section');node.id=id;node.append(el('h2',title));return node; }
 
+let stopGalleryRefresh, galleryListing;
 let galleryPhotos=[],galleryIndex=0,galleryAddress='',galleryTrigger,photoVersion=0,galleryOriginal=false,galleryFullscreen=false;
 async function showPhoto(index) {
   if(index<0||index>=galleryPhotos.length)return;
@@ -42,8 +44,8 @@ async function showPhoto(index) {
   finally { if(version===photoVersion){$('#gallery-image').classList.remove('loading');$('#gallery-image').setAttribute('aria-busy','false');} }
   for(const i of [index+1,index-1])if(galleryPhotos[i]){const next=new Image();next.src=galleryPhotos[i].url+'?variant='+(Math.max(innerWidth,innerHeight)*Math.min(devicePixelRatio||1,2)>1600?'displayLarge':'display');}
 }
-function openGallery(l,trigger,index=0) { galleryOriginal=false;$('#gallery-quality').setAttribute('aria-pressed','false');galleryPhotos=l.media;galleryAddress=address(l);galleryTrigger=trigger;$('#gallery-title').textContent=galleryAddress;$('#gallery-thumbs').replaceChildren(...l.media.map((photo,i)=>{const b=action('',()=>showPhoto(i));b.setAttribute('aria-label',`Show photo ${i+1}`);b.append(img(photo,'',false,'thumb'));return b;}));$('#gallery-image').removeAttribute('src');showPhoto(index);document.body.classList.add('photo-viewing');$('#gallery').showModal(); }
-$('#gallery-close').addEventListener('click',()=>$('#gallery').close());$('#gallery').addEventListener('close',()=>{photoVersion++;document.body.classList.remove('photo-viewing');if(galleryFullscreen&&document.fullscreenElement)void document.exitFullscreen().catch(()=>{});galleryFullscreen=false;galleryTrigger?.focus();});$('#gallery-previous').addEventListener('click',()=>showPhoto(galleryIndex-1));$('#gallery-next').addEventListener('click',()=>showPhoto(galleryIndex+1));$('#gallery').addEventListener('keydown',event=>{if(event.key==='ArrowRight'){event.preventDefault();showPhoto(galleryIndex+1);}if(event.key==='ArrowLeft'){event.preventDefault();showPhoto(galleryIndex-1);}if(event.key==='Home'){event.preventDefault();showPhoto(0);}if(event.key==='End'){event.preventDefault();showPhoto(galleryPhotos.length-1);}});
+function openGallery(l,trigger,index=0) { galleryListing=l;stopGalleryRefresh?.();if(production&&l!==activeListing)stopGalleryRefresh=watchListing(l); galleryOriginal=false;$('#gallery-quality').setAttribute('aria-pressed','false');galleryPhotos=l.media;galleryAddress=address(l);galleryTrigger=trigger;$('#gallery-title').textContent=galleryAddress;$('#gallery-thumbs').replaceChildren(...l.media.map((photo,i)=>{const b=action('',()=>showPhoto(i));b.setAttribute('aria-label',`Show photo ${i+1}`);b.append(img(photo,'',false,'thumb'));return b;}));$('#gallery-image').removeAttribute('src');showPhoto(index);document.body.classList.add('photo-viewing');$('#gallery').showModal(); }
+$('#gallery-close').addEventListener('click',()=>$('#gallery').close());$('#gallery').addEventListener('close',()=>{photoVersion++;stopGalleryRefresh?.();document.body.classList.remove('photo-viewing');if(galleryFullscreen&&document.fullscreenElement)void document.exitFullscreen().catch(()=>{});galleryFullscreen=false;if(!galleryTrigger?.isConnected&&galleryListing===activeListing)galleryTrigger=$('[data-listing-photos] .all-photos')||$('#back-results');galleryTrigger?.focus();});$('#gallery-previous').addEventListener('click',()=>showPhoto(galleryIndex-1));$('#gallery-next').addEventListener('click',()=>showPhoto(galleryIndex+1));$('#gallery').addEventListener('keydown',event=>{if(event.key==='ArrowRight'){event.preventDefault();showPhoto(galleryIndex+1);}if(event.key==='ArrowLeft'){event.preventDefault();showPhoto(galleryIndex-1);}if(event.key==='Home'){event.preventDefault();showPhoto(0);}if(event.key==='End'){event.preventDefault();showPhoto(galleryPhotos.length-1);}});
 
 $('#gallery-quality').addEventListener('click',()=>{galleryOriginal=!galleryOriginal;$('#gallery-quality').setAttribute('aria-pressed',String(galleryOriginal));showPhoto(galleryIndex);});
 $('#gallery-fullscreen').addEventListener('click',async()=>{try{if(document.fullscreenElement)await document.exitFullscreen();else if(document.documentElement.requestFullscreen){await document.documentElement.requestFullscreen();galleryFullscreen=true;}}catch{$('#gallery-caption').textContent+=' · Full-screen mode is unavailable here; the viewer fills this window.';}});
@@ -315,7 +317,7 @@ for(const [id,key]of [['density','density'],['view','view'],['text-size','textSi
 }
 applyView();populateSavedSearches();updateSavedButtons();
 
-let activeListing,contactKind='tour',contactTrigger,contactSaved=false,contactVersion=0;
+let activeListing,stopListingRefresh,contactKind='tour',contactTrigger,contactSaved=false,contactVersion=0;
 function openContact(kind,trigger) {
  contactVersion++;contactSaved=false;contactKind=kind;contactTrigger=trigger;
  $('#contact-title').textContent=kind==='tour'?'Request a showing':'Ask a question';$('#contact-property').textContent=address(activeListing);
@@ -412,6 +414,31 @@ function listingLocation(l) {
  mapLink.target='_blank';mapLink.rel='noopener noreferrer';
  node.append(el('p',address(l)),el('p',locationText(l),'muted'),mapLink,el('p','Location supplied by the listing source. Confirm the property location before visiting.','muted'));return node;
 }
+function listingPhotos(l) {
+ if(l.media.length){
+  const hero=el('div','',`hero${l.media.length===1?' one-photo':''}`);
+  l.media.slice(0,3).forEach((photo,i)=>{const button=action('',()=>openGallery(l,button,i));button.setAttribute('aria-label',`Open listing photo ${i+1}`);button.append(img(photo,`Listing photo ${i+1} for ${address(l)}`,i===0,'display'));hero.append(button);});
+  const all=action(`All ${l.media.length} photos`,()=>openGallery(l,all),'all-photos');hero.append(all);hero.dataset.listingPhotos='';return hero;
+ }else {const empty=el('div',production?'Photos are being prepared. Listing details are available below.':'Photos not available in this sample.','hero-empty');empty.dataset.listingPhotos='';return empty;}
+}
+function watchListing(l) {
+ return followListing(l,{
+  onStatus:status=>{if(galleryListing===l&&$('#gallery').open)$('#gallery-count').textContent=`Photo ${galleryIndex+1} of ${galleryPhotos.length}`+(['queued','waiting'].includes(status?.state)?' · More photos requested':'');if(activeListing===l){const node=$('#listing-photo-progress');if(node)node.textContent=enrichmentMessage(status);}},
+  onUpdate:next=>{
+   const changed=JSON.stringify(l.media)!==JSON.stringify(next.media);
+   const factsChanged=l.ModificationTimestamp!==next.ModificationTimestamp||l.addressWithheld!==next.addressWithheld;
+   Object.assign(l,next);
+   if(factsChanged&&activeListing===l)renderListing(l);
+   if(changed&&activeListing===l){const current=$('[data-listing-photos]');if(current&&!current.contains(document.activeElement))current.replaceWith(listingPhotos(l));}
+   if(changed&&galleryListing===l&&$('#gallery').open){
+    const current=galleryPhotos[galleryIndex]?.url;galleryPhotos=l.media;
+    $('#gallery-thumbs').replaceChildren(...l.media.map((photo,i)=>{const button=action('',()=>showPhoto(i));button.setAttribute('aria-label',`Show photo ${i+1}`);button.append(img(photo,'',false,'thumb'));return button;}));
+    const index=l.media.findIndex(photo=>photo.url===current);if(l.media.length)void showPhoto(Math.max(0,index));else{$('#gallery-image').removeAttribute('src');$('#gallery').close();}
+   }
+  },
+  onUnavailable:()=>{if(galleryListing===l&&$('#gallery').open)$('#gallery').close();if(activeListing===l){$('#listing-content').replaceChildren(el('p','This listing is no longer available. Return to the results to find another property.','error-panel'));}}
+ });
+}
 function renderListing(l) {
  activeListing=l;const profile=consumerProfile(l),target=$('#listing-content'),root=el('div');root.id='listing-content';
  document.body.dataset.experience=profile.key==='rental'?'rental':profile.key.startsWith('commercial')?'commercial':profile.key==='investment'?'investment':profile.key==='land'?'land':'home';root.className=`profile-${profile.key}`;
@@ -423,11 +450,7 @@ function renderListing(l) {
  const sharing=el('div','','listing-sharing'),shareStatus=el('span','','share-status'),publicLink=document.body.dataset.publicOrigin+location.pathname;shareStatus.setAttribute('role','status');
  const separate=link('Open separately ↗',location.href,'button secondary');separate.target='_blank';separate.rel='noopener';
  sharing.append(action('Share listing',async()=>{try{await navigator.clipboard.writeText(publicLink);shareStatus.textContent='Link copied.';}catch{shareStatus.replaceChildren(el('span','Copy this link: '));const field=el('input');field.value=publicLink;field.readOnly=true;field.setAttribute('aria-label','Listing share link');shareStatus.append(field);field.focus();field.select();}},'secondary'),link('Contact','#listing-contact','button secondary'),separate,shareStatus);root.append(sharing);
- if(l.media.length){
-  const hero=el('div','',`hero${l.media.length===1?' one-photo':''}`);
-  l.media.slice(0,3).forEach((photo,i)=>{const button=action('',()=>openGallery(l,button,i));button.setAttribute('aria-label',`Open listing photo ${i+1}`);button.append(img(photo,`Listing photo ${i+1} for ${address(l)}`,i===0,'display'));hero.append(button);});
-  const all=action(`All ${l.media.length} photos`,()=>openGallery(l,all),'all-photos');hero.append(all);root.append(hero);
- }else root.append(el('div',production?'Photos are not available for this listing yet.':'Photos not available in this sample.','hero-empty'));
+ root.append(listingPhotos(l));if(production){const progress=el('p','','muted');progress.id='listing-photo-progress';progress.setAttribute('role','status');root.append(progress,action('Check for more photos',()=>{stopListingRefresh?.();stopListingRefresh=watchListing(l);},'secondary'));}
  const applyReading=listingReadingControls(root),layout=el('div','','property-layout'),main=el('div','','property-main'),strip=el('div','','fact-strip');
  const summaries=profile.key==='land'?[['LotSizeAcres','acres'],['LotSizeSquareFeet','lot sq ft'],['Zoning','zoning'],['WaterSource','water source']]:profile.key.startsWith('commercial')?[['BuildingAreaTotal',`area (${l.BuildingAreaUnits||'units not supplied'})`],['BusinessType','use'],['ParkingTotal','parking spaces'],['Zoning','zoning']]:profile.key==='investment'?[['NumberOfUnitsTotal','reported units'],['BedroomsTotal','bedrooms'],['YearBuilt','year built'],['LotSizeSquareFeet','lot sq ft']]:[['BedroomsTotal','bedrooms'],['BathroomsFull','full bathrooms'],areaFact(l),['YearBuilt','year built']];
  for(const[field,title]of summaries){if(!provided(l[field]))continue;const item=el('div');item.append(el('strong',fieldText(l,field)),el('span',title));strip.append(item);}if(strip.childNodes.length)main.append(strip);
@@ -447,5 +470,5 @@ function renderListing(l) {
 discovery=initializeDiscovery({form,search:()=>scheduleSearch(0),renderCard:card});
 bottomDock=initializeBottomDock();
 const route=location.pathname.match(/^\/listing\/([^/]+)\/([^/]+)$/);
-if(route){$('#search-page').hidden=true;$('#listing-page').hidden=false;$('#back-results').href='/'+location.search;try{const response=await fetch(`/api/listing/${route[1]}/${route[2]}`);if(!response.ok)throw Error();const data=await response.json();renderListing(data.listing);}catch{$('#listing-content').replaceChildren();$('#listing-content').append(el('div','This listing is unavailable. Return to the results to find another property.','error-panel'));}}
+if(route){$('#search-page').hidden=true;$('#listing-page').hidden=false;$('#back-results').href='/'+location.search;try{const response=await fetch(`/api/listing/${route[1]}/${route[2]}`);if(!response.ok)throw Error();const data=await response.json();renderListing(data.listing);if(production){stopListingRefresh=watchListing(data.listing);window.addEventListener('pagehide',()=>stopListingRefresh?.(),{once:true});}}catch{$('#listing-content').replaceChildren();$('#listing-content').append(el('div','This listing is unavailable. Return to the results to find another property.','error-panel'));}}
 else{const params=new URLSearchParams(location.search);for(const control of form.elements)if(control.name&&params.has(control.name))control.value=params.get(control.name);const restored=Number(params.get('offset')||0);offset=Number.isSafeInteger(restored)&&restored>=0?restored:0;search();}

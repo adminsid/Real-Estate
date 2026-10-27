@@ -30,6 +30,7 @@
     "MEDIA_BATCH_SIZE": "96",
     "MEDIA_CONCURRENCY": "3",
     "FEED_BATCH_PAGES": "3",
+    "PHOTO_IMPORT_MODE": "on-demand",
     "APP_ENV": "production",
     "PUBLIC_ORIGIN": "https://search.primeamericany.com",
     "PUBLIC_RELEASE_ENABLED": "false",

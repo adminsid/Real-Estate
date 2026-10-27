@@ -25,7 +25,7 @@ async function imageBytes(response,settle) {
   const type=bytes[0]===255&&bytes[1]===216&&bytes[2]===255?'image/jpeg':bytes.slice(0,8).join(',')==='137,80,78,71,13,10,26,10'?'image/png':ascii(0,4)==='RIFF'&&ascii(8,12)==='WEBP'?'image/webp':null;
   if(!type)throw Error('Unsupported media');return {bytes,type};
 }
-export async function downloadPhotos(rows,env,beforeRequest,{fetcher=fetch,maxDownloads=12,concurrency=1,now=()=>Date.now(),deadline=Infinity}={}) {
+export async function downloadPhotos(rows,env,beforeRequest,{fetcher=fetch,maxDownloads=12,concurrency=1,now=()=>Date.now(),deadline=Infinity,coversOnly=false}={}) {
   let attempted=0,ready=0,failed=0,bytesStored=0,selected=0,fatal;
   const db=env.LIVE_DB,bucket=env.LIVE_MEDIA;
   if(!rows.length || maxDownloads<=0)return {attempted,ready,failed,bytes:bytesStored};
@@ -39,13 +39,14 @@ export async function downloadPhotos(rows,env,beforeRequest,{fetcher=fetch,maxDo
   const jobs=[];
   for(const row of rows) {
     const identity=JSON.stringify([row.OriginatingSystemName,row.ListingKey]);
-    if(!eligible.has(identity))continue;
+    if(!eligible.has(identity)||(coversOnly&&eligible.get(identity)))continue;
     const manifest=(await photoManifest(row)).sort((a,b)=>a.position-b.position || a.key.localeCompare(b.key));
     let round=0;
     for(const entry of manifest) {
       const record=mediaStates.get(JSON.stringify([row.OriginatingSystemName,row.ListingKey,entry.key,entry.file]));
       if(!record || !['pending','failed'].includes(record.state) || record.state==='failed' && record.attempted_at>now()-3600000)continue;
       jobs.push({row,entry,round:round++,hasPhotos:eligible.get(identity),priority:priorities.get(identity)});
+      if(coversOnly)break;
     }
   }
   // Canonical inventory priority survives arbitrary source response order.

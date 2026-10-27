@@ -2,9 +2,10 @@ import { imageObject, IMAGE_VARIANTS } from './image-variants.mjs';
 import { copyrightNotice,idxNotice } from './display.mjs';
 import { searchStore } from './store.mjs';
 import { feedReady } from './sync.mjs';
+import { requestEnrichment,enrichmentStatus } from './enrichment.mjs';
 import { DEFAULT_BRAND,brandCSS } from '../../../scripts/mls-grid/brand.mjs';
 import { publicOrigin,renderPage,escapeHTML } from '../../../scripts/mls-grid/pages.mjs';
-const assets=new Set(['/location-model.mjs','/vendor/maplibre-4.7.1.js','/vendor/maplibre-worker-4.7.1.js','/vendor/maplibre-4.7.1.css','/vendor/MAPLIBRE-LICENSE.txt','/bottom-dock.mjs','/bottom-dock.css','/app.mjs','/consumer.mjs','/search-filters.mjs','/discovery.mjs','/search-map.mjs','/nyc-boroughs.json','/discovery.css','/search-icon.svg','/brand.mjs','/brand-editor.mjs','/embed.mjs','/embed-loader.js','/style.css','/mls-grid.png','/onekey.png']);
+const assets=new Set(['/location-model.mjs','/vendor/maplibre-4.7.1.js','/vendor/maplibre-worker-4.7.1.js','/vendor/maplibre-4.7.1.css','/vendor/MAPLIBRE-LICENSE.txt','/bottom-dock.mjs','/bottom-dock.css','/app.mjs','/listing-enrichment.mjs','/consumer.mjs','/search-filters.mjs','/discovery.mjs','/search-map.mjs','/nyc-boroughs.json','/discovery.css','/search-icon.svg','/brand.mjs','/brand-editor.mjs','/embed.mjs','/embed-loader.js','/style.css','/mls-grid.png','/onekey.png']);
 export function productionHeaders(response,{privateReview=false,noindex=false}={}) {
   const headers=new Headers(response.headers);
   // Eligibility and freshness are checked on every read. No cached revoked listings or photos.
@@ -18,7 +19,9 @@ export async function handleProduction(request,env,{privateReview=false,now=Date
   try {
     const url=new URL(request.url),origin=publicOrigin(env.PUBLIC_ORIGIN);
     if(url.origin!==origin)return wrap(Response.json({error:'Unrecognized origin'},{status:403}));
-    if(!['GET','HEAD'].includes(request.method))return wrap(Response.json({error:'Use the listing’s published email or phone to contact its brokerage.'},{status:405}));
+    const enrich=url.pathname.match(/^\/api\/listing\/([A-Za-z0-9_-]+)\/([A-Za-z0-9_-]+)\/enrich$/);
+    if(!['GET','HEAD'].includes(request.method)&&!(request.method==='POST'&&enrich))return wrap(Response.json({error:'Method not allowed.'},{status:405}));
+    if(enrich&&(request.method!=='POST'||request.headers.get('Origin')!==origin||request.headers.get('Content-Type')?.split(';')[0]!=='application/json'))return wrap(Response.json({error:'Request origin or method rejected.'},{status:403}));
     const releasing=env.PUBLIC_RELEASE_ENABLED==='true' && env.APPROVED_IDX_ORIGIN===origin && env.DISPLAY_REVIEW_COMPLETE==='true';
     if(!privateReview && releasing && !assets.has(url.pathname) && !['/theme.css','/api/brand','/robots.txt','/copyright'].includes(url.pathname)) {
       const mediaRead=url.pathname.startsWith('/media/');
@@ -38,7 +41,13 @@ export async function handleProduction(request,env,{privateReview=false,now=Date
     }
     const store=searchStore(env.SEARCH_DB,{production:true}),brand={...DEFAULT_BRAND,name:'Prime America Real Estate',descriptor:'NYC property search',tagline:'Clearing obstacles from your path to home.'};
     let response;
-    if(url.pathname==='/api/brand')response=Response.json({brand,demo:false,readOnly:true});
+    if(enrich){
+      if(env.PHOTO_IMPORT_MODE!=='on-demand')return wrap(Response.json({error:'Listing refresh is unavailable.'},{status:503}));
+      if(!await store.listing(enrich[1],enrich[2]))return wrap(Response.json({error:'This listing is no longer available.'},{status:404}));
+      const enrichment=await requestEnrichment(env.SEARCH_DB,enrich[1],enrich[2],now);
+      response=Response.json({enrichment},{status:['queued','waiting'].includes(enrichment.state)?202:200});
+    }
+    else if(url.pathname==='/api/brand')response=Response.json({brand,demo:false,readOnly:true});
     else if(url.pathname==='/theme.css')response=new Response(brandCSS(brand),{headers:{'Content-Type':'text/css; charset=utf-8'}});
     else if(assets.has(url.pathname))response=await env.ASSETS.fetch(request);
     else if(url.pathname==='/robots.txt')response=new Response(privateReview?'User-agent: *\nDisallow: /\n':`User-agent: *\nDisallow: /api/\nDisallow: /ops/\nDisallow: /embed\nSitemap: ${origin}/sitemap.xml\n`,{headers:{'Content-Type':'text/plain'}});
@@ -58,7 +67,9 @@ export async function handleProduction(request,env,{privateReview=false,now=Date
     else {
       const api=url.pathname.match(/^\/api\/listing\/([A-Za-z0-9_-]+)\/([A-Za-z0-9_-]+)$/),route=url.pathname.match(/^\/listing\/([A-Za-z0-9_-]+)\/([A-Za-z0-9_-]+)$/),media=url.pathname.match(/^\/media\/([a-f0-9]{64})$/);
       if(api) {
-        const listing=await store.listing(api[1],api[2]);response=Response.json(listing?{environment:'production',listing}:{error:'This listing is no longer available.'},{status:listing?200:404});
+        const listing=await store.listing(api[1],api[2]);
+        const enrichment=listing&&env.PHOTO_IMPORT_MODE==='on-demand'?await enrichmentStatus(env.SEARCH_DB,api[1],api[2],now):undefined;
+        response=Response.json(listing?{environment:'production',listing,enrichment}:{error:'This listing is no longer available.'},{status:listing?200:404});
       } else if(media) {
         const record=await store.mediaFile(media[1]);if(!record)return wrap(new Response('Photo unavailable',{status:404}));
         const variant=url.searchParams.get('variant');if(variant&&!Object.hasOwn(IMAGE_VARIANTS,variant))throw Error('Invalid image size');
