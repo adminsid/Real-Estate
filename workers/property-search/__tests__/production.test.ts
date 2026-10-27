@@ -72,7 +72,7 @@ describe('Production listing replica',()=>{
   const {sqlite,db}=databaseFixture(),prepared=vi.spyOn(db,'prepare')
   const outside=Array.from({length:20},(_,i)=>row({ListingKey:`OUT-${i}`,CountyOrParish:'Nassau',Media:Array.from({length:30},(_,j)=>({MediaKey:`P-${i}-${j}`,Permission:['Public']}))}))
   try {
-   expect(await downloadPhotos(outside,{LIVE_DB:db,LIVE_MEDIA:{put:vi.fn()}},async()=>{})).toEqual({attempted:0,ready:0,failed:0})
+   expect(await downloadPhotos(outside,{LIVE_DB:db,LIVE_MEDIA:{put:vi.fn()}},async()=>{})).toEqual({attempted:0,ready:0,failed:0,bytes:0})
    expect(prepared.mock.calls.length).toBeLessThanOrEqual(2)
   }finally{sqlite.close()}
  })
@@ -83,7 +83,7 @@ describe('Production listing replica',()=>{
    await repo.apply(rows,null,lease,now)
    sqlite.exec("UPDATE listing_media SET state='ready'")
    const prepared=vi.spyOn(db,'prepare'),fetcher=vi.fn()
-   expect(await downloadPhotos(rows,{LIVE_DB:db,LIVE_MEDIA:{put:vi.fn()}},async()=>{},{fetcher,now:()=>now})).toEqual({attempted:0,ready:0,failed:0})
+   expect(await downloadPhotos(rows,{LIVE_DB:db,LIVE_MEDIA:{put:vi.fn()}},async()=>{},{fetcher,now:()=>now})).toEqual({attempted:0,ready:0,failed:0,bytes:0})
    expect(prepared.mock.calls.length).toBeLessThanOrEqual(2)
    expect(fetcher).not.toHaveBeenCalled()
   }finally{sqlite.close()}

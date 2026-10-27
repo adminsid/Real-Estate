@@ -32,6 +32,32 @@ export function replica(db) {
       return result.meta.changes?lease:null;
     },
     async release(lease) {await prepare('UPDATE feed_state SET lease_until=0,lease_id=NULL WHERE source=? AND lease_id=?',['onekey2',lease]).run();},
+    async beginReconciliation(lease,now=Date.now()) {
+      const generation=crypto.randomUUID(),since=new Date(now-5*60000).toISOString();
+      const results=await db.batch([
+        prepare("DELETE FROM reconciliation_seen WHERE source='onekey2' AND EXISTS(SELECT 1 FROM feed_state WHERE source='onekey2' AND lease_id=? AND lease_until>?)",[lease,now]),
+        prepare("UPDATE feed_state SET phase='initial',next_url=NULL,watermark=NULL,cycle_watermark=NULL,replay_watermark=NULL,initial_baseline=NULL,initial_complete=0,last_complete=NULL,bootstrap_started=?,reconcile_id=?,snapshot_start=?,failure=NULL,retry_after=0 WHERE source='onekey2' AND lease_id=? AND lease_until>?",[now,generation,since,lease,now]),
+      ]);
+      if(!results[1].meta.changes)throw Error('Replication lease expired');
+    },
+    async pruneReconciliation(lease,now=Date.now()) {
+      if(!await fence('onekey2',lease,now).first())throw Error('Replication lease expired');
+      const state=await this.state();if(state.phase!=='reconcile'||!state.reconcile_id)throw Error('Invalid replication reconciliation');
+      const stale=await prepare("SELECT l.id FROM listings l WHERE l.source='onekey2' AND NOT EXISTS(SELECT 1 FROM reconciliation_seen s WHERE s.source=l.source AND s.id=l.id AND s.generation=?) ORDER BY l.id LIMIT 100",[state.reconcile_id]).all();
+      if(stale.results.length){
+        const ids=JSON.stringify(stale.results.map(row=>row.id));
+        await db.batch([
+          prepare("DELETE FROM listing_media WHERE source='onekey2' AND listing_id IN (SELECT value FROM json_each(?)) AND EXISTS(SELECT 1 FROM feed_state WHERE source='onekey2' AND phase='reconcile' AND reconcile_id=? AND lease_id=? AND lease_until>?)",[ids,state.reconcile_id,lease,now]),
+          prepare("DELETE FROM listings WHERE source='onekey2' AND id IN (SELECT value FROM json_each(?)) AND EXISTS(SELECT 1 FROM feed_state WHERE source='onekey2' AND phase='reconcile' AND reconcile_id=? AND lease_id=? AND lease_until>?)",[ids,state.reconcile_id,lease,now]),
+        ]);
+        return {removed:stale.results.length,complete:false};
+      }
+      await db.batch([
+        prepare("DELETE FROM reconciliation_seen WHERE source='onekey2' AND generation=? AND EXISTS(SELECT 1 FROM feed_state WHERE source='onekey2' AND lease_id=? AND lease_until>?)",[state.reconcile_id,lease,now]),
+        prepare("UPDATE feed_state SET phase='delta',initial_complete=1,reconcile_id=NULL,snapshot_start=NULL,failure=NULL,retry_after=0 WHERE source='onekey2' AND phase='reconcile' AND reconcile_id=? AND lease_id=? AND lease_until>?",[state.reconcile_id,lease,now]),
+      ]);
+      return {removed:0,complete:true};
+    },
     async request(lease,now=Date.now(),bytes=32*1024*1024) {
       const hour=Math.floor(now/3600000);
       const result=await prepare(`INSERT INTO feed_budget(hour,requests,bytes) SELECT ?,1,? WHERE EXISTS(SELECT 1 FROM feed_state WHERE source=? AND lease_id=? AND lease_until>?) AND COALESCE((SELECT SUM(requests) FROM feed_budget WHERE hour>=?),0)<6000 AND COALESCE((SELECT SUM(requests) FROM feed_budget WHERE hour>=?),0)<35000 AND COALESCE((SELECT SUM(bytes) FROM feed_budget WHERE hour>=?),0)+?<=3000000000 AND COALESCE((SELECT SUM(bytes) FROM feed_budget WHERE hour>=?),0)+?<=50000000000 ON CONFLICT(hour) DO UPDATE SET requests=requests+1,bytes=feed_budget.bytes+excluded.bytes`,[hour,bytes,'onekey2',lease,now,hour-1,hour-24,hour-1,bytes,hour-24,bytes]).run();
@@ -59,11 +85,12 @@ export function replica(db) {
       const previous=rows.length?await prepare('SELECT v.id,v.modified,COALESCE(l.projection_version,0) AS projection_version FROM listing_versions v LEFT JOIN listings l ON l.source=v.source AND l.id=v.id WHERE v.source=? AND v.id IN (SELECT value FROM json_each(?))',['onekey2',JSON.stringify(rows.map(row=>row.ListingKey))]).all():{results:[]};
       const versions=new Map(previous.results.map(row=>[row.id,row.modified]));
       const projections=new Map(previous.results.map(row=>[row.id,row.projection_version]));
-      let max=state.cycle_watermark || state.watermark || null,baseline=state.initial_baseline || null;
+      let max=state.cycle_watermark || state.watermark || null,baseline=state.initial_baseline || null,replay=state.replay_watermark || state.watermark || null;
       for(const row of rows) {
         if(row.OriginatingSystemName!=='onekey2' || !/^[A-Za-z0-9_-]+$/.test(row.ListingKey || '') || !Number.isFinite(Date.parse(row.ModificationTimestamp)))throw Error('Invalid replication row');
         const modified=timestampKey(row.ModificationTimestamp),iso=row.ModificationTimestamp;
         if(!max || modified>timestampKey(max))max=iso;
+        if(!replay || modified>timestampKey(replay))replay=iso;
         if(state.phase==='initial' && (!baseline || modified<timestampKey(baseline)))baseline=iso;
         const source=row.OriginatingSystemName,id=row.ListingKey;
         const version=versions.get(id);
@@ -101,14 +128,18 @@ export function replica(db) {
         statements.push(prepare(`UPDATE listings SET has_photos=EXISTS(SELECT 1 FROM listing_media WHERE source=? AND listing_id=? AND state='ready') WHERE source=? AND id=? AND ${fresh}`,[source,id,source,id,...freshValues]));
       }
       if(checkpoint) {
+        if(state.reconcile_id){
+          const ids=rows.filter(row=>{const projection=publicProjection(row);return projection&&row.StateOrProvince==='NY'&&MARKETING_STATUSES.includes(projection.StandardStatus);}).map(row=>row.ListingKey);
+          statements.push(prepare("INSERT INTO reconciliation_seen(source,id,generation) SELECT 'onekey2',value,? FROM json_each(?) WHERE EXISTS(SELECT 1 FROM feed_state WHERE source='onekey2' AND reconcile_id=? AND lease_id=? AND lease_until>?) ON CONFLICT(source,id) DO UPDATE SET generation=excluded.generation",[state.reconcile_id,JSON.stringify(ids),state.reconcile_id,lease,now]));
+        }
         // Facts, removals, media permissions, and pagination commit together. Photo bytes are independent.
-        statements.push(prepare('UPDATE feed_state SET next_url=?,cycle_watermark=?,initial_baseline=?,failure=NULL,retry_after=0 WHERE source=? AND lease_id=? AND lease_until>?',[next,max,baseline,'onekey2',lease,now]));
+        statements.push(prepare('UPDATE feed_state SET next_url=?,cycle_watermark=?,initial_baseline=?,replay_watermark=?,failure=NULL,retry_after=0 WHERE source=? AND lease_id=? AND lease_until>?',[next,max,baseline,replay,'onekey2',lease,now]));
         if(!next && state.phase==='initial') {
           // A visible-only bootstrap cannot observe removals during its traversal. Catch up unfiltered
           // from the first received version before any public listing becomes eligible for release.
-          statements.push(prepare("UPDATE feed_state SET phase='catchup',watermark=? WHERE source=? AND lease_id=? AND lease_until>?",[baseline,'onekey2',lease,now]));
+          statements.push(prepare("UPDATE feed_state SET phase='catchup',watermark=?,cycle_watermark=CASE WHEN snapshot_start IS NOT NULL AND (cycle_watermark IS NULL OR cycle_watermark<snapshot_start) THEN snapshot_start ELSE cycle_watermark END,replay_watermark=NULL WHERE source=? AND lease_id=? AND lease_until>?",[state.snapshot_start||baseline,'onekey2',lease,now]));
         } else if(!next) {
-          statements.push(prepare("UPDATE feed_state SET watermark=COALESCE(cycle_watermark,watermark),cycle_watermark=NULL,initial_complete=1,phase='delta',last_complete=? WHERE source=? AND lease_id=? AND lease_until>?",[new Date(now).toISOString(),'onekey2',lease,now]));
+          statements.push(prepare("UPDATE feed_state SET watermark=COALESCE(cycle_watermark,watermark),cycle_watermark=NULL,replay_watermark=NULL,initial_complete=?,phase=?,last_complete=? WHERE source=? AND lease_id=? AND lease_until>?",[state.reconcile_id?0:1,state.reconcile_id?'reconcile':'delta',new Date(now).toISOString(),'onekey2',lease,now]));
         }
       }
       if(statements.length)await db.batch(statements);

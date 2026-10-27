@@ -27,7 +27,9 @@
   },
   "vars": {
     "IMAGE_TRANSFORM_LIMIT": "1000",
-    "MEDIA_BATCH_SIZE": "48",
+    "MEDIA_BATCH_SIZE": "96",
+    "MEDIA_CONCURRENCY": "3",
+    "FEED_BATCH_PAGES": "3",
     "APP_ENV": "production",
     "PUBLIC_ORIGIN": "https://search.primeamericany.com",
     "PUBLIC_RELEASE_ENABLED": "false",

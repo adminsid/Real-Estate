@@ -25,14 +25,15 @@ async function imageBytes(response,settle) {
   const type=bytes[0]===255&&bytes[1]===216&&bytes[2]===255?'image/jpeg':bytes.slice(0,8).join(',')==='137,80,78,71,13,10,26,10'?'image/png':ascii(0,4)==='RIFF'&&ascii(8,12)==='WEBP'?'image/webp':null;
   if(!type)throw Error('Unsupported media');return {bytes,type};
 }
-export async function downloadPhotos(rows,env,beforeRequest,{fetcher=fetch,maxDownloads=12,now=()=>Date.now(),deadline=Infinity}={}) {
-  let attempted=0,ready=0,failed=0;
+export async function downloadPhotos(rows,env,beforeRequest,{fetcher=fetch,maxDownloads=12,concurrency=1,now=()=>Date.now(),deadline=Infinity}={}) {
+  let attempted=0,ready=0,failed=0,bytesStored=0,selected=0,fatal;
   const db=env.LIVE_DB,bucket=env.LIVE_MEDIA;
-  if(!rows.length || maxDownloads<=0)return {attempted,ready,failed};
+  if(!rows.length || maxDownloads<=0)return {attempted,ready,failed,bytes:bytesStored};
   // Do not hash media or perform per-photo D1 reads for discarded source listings.
-  const candidates=await db.prepare('SELECT source,id,has_photos FROM listings WHERE source=? AND id IN (SELECT value FROM json_each(?))').bind('onekey2',JSON.stringify(rows.map(row=>row.ListingKey))).all();
+  const candidates=await db.prepare('SELECT source,id,has_photos,status,borough,on_market_date FROM listings WHERE source=? AND id IN (SELECT value FROM json_each(?))').bind('onekey2',JSON.stringify(rows.map(row=>row.ListingKey))).all();
   const eligible=new Map(candidates.results.map(row=>[JSON.stringify([row.source,row.id]),row.has_photos]));
-  if(!eligible.size)return {attempted,ready,failed};
+  const priorities=new Map(candidates.results.map(row=>[JSON.stringify([row.source,row.id]),{group:row.status==='Active'&&row.borough!==null?0:['Active','Coming Soon','Active Under Contract'].includes(row.status)?1:2,date:row.on_market_date||''}]));
+  if(!eligible.size)return {attempted,ready,failed,bytes:bytesStored};
   const states=await db.prepare('SELECT source,listing_id,media_key,file,state,attempted_at FROM listing_media WHERE source=? AND listing_id IN (SELECT value FROM json_each(?))').bind('onekey2',JSON.stringify(candidates.results.map(row=>row.id))).all();
   const mediaStates=new Map(states.results.map(record=>[JSON.stringify([record.source,record.listing_id,record.media_key,record.file]),record]));
   const jobs=[];
@@ -44,14 +45,14 @@ export async function downloadPhotos(rows,env,beforeRequest,{fetcher=fetch,maxDo
     for(const entry of manifest) {
       const record=mediaStates.get(JSON.stringify([row.OriginatingSystemName,row.ListingKey,entry.key,entry.file]));
       if(!record || !['pending','failed'].includes(record.state) || record.state==='failed' && record.attempted_at>now()-3600000)continue;
-      jobs.push({row,entry,round:round++,hasPhotos:eligible.get(identity)});
+      jobs.push({row,entry,round:round++,hasPhotos:eligible.get(identity),priority:priorities.get(identity)});
     }
   }
-  // Give every candidate its first missing photo before returning for another gallery image.
-  // Within each round, listings without a usable cover go first.
-  jobs.sort((a,b)=>a.round-b.round || a.hasPhotos-b.hasPhotos);
-  for(const {row,entry} of jobs) {
-      if(attempted>=maxDownloads || now()>=deadline)break;
+  // Canonical inventory priority survives arbitrary source response order.
+  // Within each consumer group, missing covers precede round-robin gallery completion.
+  jobs.sort((a,b)=>a.priority.group-b.priority.group || a.hasPhotos-b.hasPhotos || a.round-b.round || b.priority.date.localeCompare(a.priority.date) || a.row.ListingKey.localeCompare(b.row.ListingKey));
+  const work=async()=>{while(!fatal&&selected<jobs.length&&selected<maxDownloads&&now()<deadline){
+      const {row,entry}=jobs[selected++];
       const source=row.OriginatingSystemName,id=row.ListingKey;
       const media=row.Media.find(m=>m.MediaKey===entry.key);
       const claimed=await db.prepare("UPDATE listing_media SET state='downloading',attempted_at=?,failure=NULL WHERE source=? AND listing_id=? AND media_key=? AND file=? AND state IN ('pending','failed') AND EXISTS (SELECT 1 FROM listings WHERE source=? AND id=?)").bind(now(),source,id,entry.key,entry.file,source,id).run();
@@ -63,27 +64,35 @@ export async function downloadPhotos(rows,env,beforeRequest,{fetcher=fetch,maxDo
         const url=new URL(media.MediaURL);
         if(url.protocol!=='https:' || url.hostname!=='media.mlsgrid.com' || url.username || url.password || url.port || url.hash)throw Error('Media host');
         let settle=await beforeRequest(MAX_MEDIA_BYTES);
+        if(fatal){if(typeof settle==='function')await settle(0);throw fatal;}
         let response=await fetcher(media.MediaURL,{headers:{'User-Agent':env.MLS_GRID_ACCESS_TOKEN},redirect:'manual',signal:AbortSignal.timeout(15000)});
         if([301,302,303,307,308].includes(response.status)) {
           const location=response.headers.get('Location');await responseBytes(response,settle);
           const target=new URL(location || '',url);
           if(!location || target.protocol!=='https:' || !/^mlsgrid\.[a-f0-9]{32}\.r2\.cloudflarestorage\.com$/.test(target.hostname) || target.username || target.password || target.port || target.hash)throw Error('Media redirect');
           settle=await beforeRequest(MAX_MEDIA_BYTES);
+          if(fatal){if(typeof settle==='function')await settle(0);throw fatal;}
           response=await fetcher(target.href,{redirect:'manual',signal:AbortSignal.timeout(15000)});
         }
         const {bytes,type}=await imageBytes(response,settle);
         await bucket.put(entry.file,bytes,{httpMetadata:{contentType:type}});
         // A revoked/replaced manifest can never be resurrected by a finishing download.
-        await db.batch([
+        const committed=await db.batch([
           db.prepare("UPDATE listing_media SET state='ready',type=?,failure=NULL WHERE source=? AND listing_id=? AND media_key=? AND file=? AND state='downloading' AND EXISTS (SELECT 1 FROM listings WHERE source=? AND id=?)").bind(type,source,id,entry.key,entry.file,source,id),
           db.prepare("UPDATE listings SET has_photos=EXISTS(SELECT 1 FROM listing_media WHERE source=? AND listing_id=? AND state='ready') WHERE source=? AND id=?").bind(source,id,source,id),
         ]);
-        ready++;
+        if(committed[0].meta.changes){ready++;bytesStored+=bytes.byteLength;}
       } catch(error) {
         failed++;
+        if(/HTTP (401|403|429)/.test(error.message) || /budget/.test(error.message))fatal=Error(error.message.includes('budget')?'Provider budget unavailable':`MLS Grid returned ${error.message.match(/HTTP \d{3}/)[0]}; checkpoint retained`);
         await db.prepare("UPDATE listing_media SET state='failed',failure='download_unavailable' WHERE source=? AND listing_id=? AND media_key=? AND file=? AND state='downloading'").bind(source,id,entry.key,entry.file).run();
-        if(/HTTP (401|403|429)/.test(error.message) || /budget/.test(error.message))throw Error(error.message.includes('budget')?'Provider budget unavailable':`MLS Grid returned ${error.message.match(/HTTP \d{3}/)[0]}; checkpoint retained`);
       }
-  }
-  return {attempted,ready,failed};
+  }};
+  // Drain all in-flight jobs before releasing the replication lease, including on throttling.
+  const results=await Promise.allSettled(Array.from({length:Math.min(3,Math.max(1,Math.floor(concurrency)||1))},async()=>{try{await work();}catch(error){fatal ||= error;throw error;}}));
+  const rejected=results.find(result=>result.status==='rejected');
+  fatal ||= rejected?.reason;
+  const result={attempted,ready,failed,bytes:bytesStored};
+  if(fatal){fatal.photoResult=result;throw fatal;}
+  return result;
 }

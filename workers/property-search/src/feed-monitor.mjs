@@ -1,5 +1,5 @@
 import { escapeHTML } from '../../../scripts/mls-grid/pages.mjs';
-const labels={initial:'Importing current inventory',catchup:'Checking changes and removals',delta:'Keeping listings up to date'};
+const labels={initial:'Importing current inventory',catchup:'Checking changes and removals',reconcile:'Removing listings absent from the fresh inventory',delta:'Keeping listings up to date'};
 export async function monitorSnapshot(db,now=Date.now()){
  const state=await db.prepare(`SELECT phase,initial_complete,last_complete,last_attempt,failure,retry_after,lease_until,last_result,last_result_at FROM feed_state WHERE source='onekey2'`).first();
  if(!state)throw Error('Feed state is not initialized');

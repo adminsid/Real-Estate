@@ -6,6 +6,9 @@ export function databaseFixture() {
  sqlite.exec(readFileSync(new URL('../production-migrations/0001_replica.sql',import.meta.url),'utf8'));sqlite.exec(readFileSync(new URL('../production-migrations/0002_locations.sql',import.meta.url),'utf8'))
  sqlite.exec(readFileSync(new URL('../production-migrations/0003_feed_monitor.sql',import.meta.url),'utf8'))
  sqlite.exec(readFileSync(new URL('../production-migrations/0004_image_variants.sql',import.meta.url),'utf8'))
+ sqlite.exec(readFileSync(new URL('../production-migrations/0005_smart_photo_queue.sql',import.meta.url),'utf8'))
+ sqlite.exec(readFileSync(new URL('../production-migrations/0006_traversal_progress.sql',import.meta.url),'utf8'))
+ sqlite.exec(readFileSync(new URL('../production-migrations/0007_inventory_reconciliation.sql',import.meta.url),'utf8'))
  function prepare(sql:string) {
   let values: (string|number|null)[]=[]
   return {
