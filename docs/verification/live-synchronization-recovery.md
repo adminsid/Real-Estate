@@ -16,6 +16,6 @@ Verification:
 - Live state changed from `catchup / reconciliation_required` to a new `initial` traversal with a fresh generation and start time.
 - At 2026-10-27T08:53:18.825Z (4:53AM ET), last completed pass: status ok, 3 pages, 300 source records, 96 attempted/saved photos, 28,620,076 saved photo bytes, no recorded failure. Fresh membership contained 799 listings. Initial reconciliation was still incomplete.
 - A preceding completed pass independently logged 3 pages, 300 records and 67 saved photos. Busy cron invocations do not start concurrent replication work.
-- Browser verification of the updated owner page awaits the refreshed owner sign-in; backend success was verified directly through aggregate D1 state and sanitized Worker logs.
+- After refreshed owner sign-in, the live connection page showed "Live OneKey inventory · private review" and "Live synchronization: Enabled." The admin dashboard showed an active pass, outcome ok for the preceding pass (300 records / 89 saved photos), three concurrent downloads, and the active-NYC priority. Screenshot: `/private/tmp/live-sync-enabled.jpg`. Backend progress was independently verified through D1 aggregates and sanitized Worker logs.
 
 References: https://docs.mlsgrid.com/api-documentation/api-version-2.0.md (replication, removals and media), https://docs.mlsgrid.com/ (provider limits).
