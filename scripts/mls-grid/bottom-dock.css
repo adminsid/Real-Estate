@@ -1,0 +1,49 @@
+/* A preview interaction option. Existing controls are moved, never duplicated. */
+:root{--search-dock-height:0px}
+body[data-controls=bottom]:has(#search-page:not([hidden])){padding-bottom:calc(var(--search-dock-height) + 24px);scroll-padding-bottom:calc(var(--search-dock-height) + 24px)}
+html:has(body[data-controls=bottom] #search-page:not([hidden])){scroll-padding-bottom:calc(var(--search-dock-height) + 24px)}
+body[data-controls=bottom] #results .listing-card{scroll-margin-bottom:calc(var(--search-dock-height) + 24px)}
+body[data-controls=bottom] .results-toolbar{margin-top:8px;margin-bottom:16px}
+body[data-controls=bottom]:has(#search-page:not([hidden])) .site-header nav{display:none}
+#dock-input-error{color:#a03427;font-size:14px;margin:8px 0}
+#dock-query-summary{font-size:14px;color:var(--muted);margin:4px 0 18px;overflow-wrap:anywhere}
+#dock-top-position{margin:12px 0}
+.search-dock{position:fixed;z-index:20;bottom:max(12px,env(safe-area-inset-bottom));left:50%;transform:translateX(-50%);width:max-content;max-width:calc(100vw - 32px);padding:8px;background:#fff;border:1px solid var(--line);border-radius:16px;box-shadow:0 8px 36px #17243b25}
+.dock-bar{display:flex;align-items:center;justify-content:center;gap:8px}
+.dock-bar button{min-height:46px;white-space:nowrap;font-size:14px}
+.dock-bar #dock-search-open{background:var(--accent);color:#fff;border-color:var(--accent)}
+#dock-layout .map-view-switch{margin:0}.dock-desktop-pages{display:flex;gap:6px}.dock-desktop-pages button{font-size:13px;padding:8px 12px}
+#dock-map-toggle{display:none}
+#dock-comparison .comparison-tray{position:static;margin:0 0 8px;padding:6px 8px;box-shadow:none;border:0;border-bottom:1px solid var(--line);border-radius:0;font-size:13px}
+#dock-comparison .comparison-tray button{min-height:40px;padding:6px 10px}
+.dock-panel{position:fixed;inset:auto 0 max(12px,env(safe-area-inset-bottom));margin:0 auto;width:min(600px,calc(100vw - 24px));max-width:none;max-height:calc(100dvh - 32px);padding:0;border:1px solid var(--line);border-radius:20px;background:#fff;overflow:auto;overscroll-behavior:contain;box-shadow:0 18px 60px #17243b30}
+.dock-panel::backdrop{background:#152b2248}
+.dock-panel-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;position:sticky;top:0;z-index:3;background:#fff;padding:18px 22px;border-bottom:1px solid var(--line)}
+.dock-panel-heading h2{font-size:20px;margin:0}.dock-panel-heading button{min-height:44px}
+.dock-panel-body{padding:18px 22px}
+.dock-panel .discovery-search{padding:0;border:0}
+.dock-panel .intent-tabs{flex-wrap:nowrap;overflow:auto;gap:18px;margin:0 0 18px}.dock-panel .intent-tabs button{flex-shrink:0;white-space:nowrap}
+.dock-panel .primary-filters{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px}
+.dock-panel .primary-filters>label{min-width:0!important}.dock-panel .location-field,.dock-panel .price-filter,.dock-panel .more-filters{grid-column:1/-1;margin:0!important}
+.dock-panel .search-popover{position:static}
+.dock-panel .popover-content{position:static!important;inset:auto!important;width:auto!important;max-width:none!important;max-height:none!important;overflow:visible;padding:14px 0;margin:0;border:0;border-radius:0;box-shadow:none!important;background:#fff}
+.dock-panel .price-range{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.dock-panel .search-popover>summary{width:100%;border:1px solid var(--line);border-radius:8px;margin:0}
+.dock-panel #close-filters{display:none}
+.dock-panel .advanced-filters,.dock-panel #amenity-filters{grid-template-columns:1fr 1fr}
+.dock-panel .result-actions{display:block}.dock-panel .result-actions label{display:block;min-width:0}.dock-panel select,.dock-panel input{max-width:100%;min-height:44px}
+.dock-panel .result-actions .sr-only,.dock-panel .browse-choice .sr-only{position:static;width:auto;height:auto;clip:auto;overflow:visible;white-space:normal;display:block;margin-bottom:6px}
+.dock-panel .browse-layout{display:block;margin:18px 0}.dock-panel .browse-choice{display:flex;align-items:end;gap:12px;margin-bottom:16px}.dock-panel .browse-choice select{max-width:none;min-width:160px}
+.dock-panel .view-preferences .popover-content{padding:16px 0}.dock-panel .view-controls{grid-template-columns:1fr 1fr}
+.dock-panel #dock-pages .pagination{display:block;margin:16px 0}.dock-panel .page-numbers{display:flex;flex-wrap:wrap;justify-content:start;margin:12px 0}
+.dock-page-actions{display:flex;gap:12px}.dock-page-actions button{flex:1;min-height:44px}
+#dock-map-tools{border-top:1px solid var(--line);margin:18px 0;padding-top:16px}#dock-map-tools>h3{font-size:16px;margin:0 0 12px}#dock-map-tools #map-search-area{margin-top:12px}
+.dock-position-setting{margin-top:20px;padding-top:16px;border-top:1px solid var(--line)}
+.dock-panel button:focus-visible,.search-dock button:focus-visible{outline:3px solid var(--accent);outline-offset:3px}
+@media(max-width:1100px){.dock-desktop-pages{display:none}.search-dock{max-width:calc(100vw - 24px)}}
+@media(max-width:650px){.search-dock{width:calc(100vw - 24px);max-width:none;padding:6px;border-radius:14px}.dock-bar{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(0,.8fr) minmax(0,.9fr) minmax(0,.8fr);gap:5px}.dock-bar button{width:100%;min-width:0;padding:8px 6px;font-size:12px;white-space:normal;line-height:1.25}#dock-layout{display:none}#dock-map-toggle{display:block}.dock-panel-heading,.dock-panel-body{padding:16px}.dock-panel .advanced-filters,.dock-panel #amenity-filters{grid-template-columns:1fr}.dock-panel .filter-panel-heading{position:static;padding:0}.dock-panel .browse-choice{flex-wrap:wrap}.dock-panel .intent-tabs button{font-size:14px}.dock-panel{max-height:calc(100dvh - 24px)}#dock-comparison .comparison-tray{gap:8px}#dock-comparison .comparison-tray>span{width:100%;margin:0}}
+@media(max-height:500px){.dock-panel{max-height:calc(100dvh - 16px);bottom:8px}.dock-panel-heading{padding:10px 16px}.search-dock{bottom:8px}.dock-bar button{min-height:44px}}
+@media(prefers-reduced-motion:reduce){.dock-panel,.search-dock{scroll-behavior:auto}}
+/* Keep controls within one panel when a browser reports a physical hinge. */
+@media(horizontal-viewport-segments:2){.search-dock{left:calc(env(viewport-segment-left 0 0) + env(viewport-segment-width 0 0)/2);width:calc(env(viewport-segment-width 0 0) - 24px);max-width:calc(env(viewport-segment-width 0 0) - 24px)}.dock-bar{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(0,.8fr) minmax(0,.9fr) minmax(0,.8fr);gap:5px}.dock-bar button{min-width:0;width:100%;padding:8px 6px;font-size:12px;white-space:normal}#dock-layout,.dock-desktop-pages{display:none}#dock-map-toggle{display:block}.dock-panel{left:calc(env(viewport-segment-left 0 0) + 12px);right:auto;margin:0;width:min(600px,calc(env(viewport-segment-width 0 0) - 24px))}}
+@media(vertical-viewport-segments:2){.dock-panel{max-height:calc(env(viewport-segment-height 0 1) - 24px)}}

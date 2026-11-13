@@ -1,6 +1,7 @@
 import { DatabaseSync } from 'node:sqlite';
 import { publicProjection } from './client.mjs';
 import { searchQuery, mediaQuery } from './search-query.mjs';
+import { discoveryQueries, discoveryResult } from './discovery-data.mjs';
 
 export function openStore(path) {
   const db = new DatabaseSync(path);
@@ -22,6 +23,11 @@ export function openStore(path) {
       created_at TEXT NOT NULL, request_json TEXT NOT NULL);`);
   return {
     close: () => db.close(),
+    discovery(params={},now=new Date()) {
+      const queries=discoveryQueries(params,now);
+      const results=Object.values(queries).map(query=>db.prepare(query.sql).all(...query.values));
+      return discoveryResult(...results);
+    },
     checkpoint(source) { return db.prepare('SELECT * FROM checkpoints WHERE source=?').get(source); },
     apply(source, page, { checkpoint = true } = {}) {
       const old = this.checkpoint(source);
@@ -41,7 +47,7 @@ export function openStore(path) {
             continue;
           }
           record.obtainedAt = new Date().toISOString();
-          const searchable = [record.ListingId, record.UnparsedAddress, record.StreetNumber, record.StreetName, record.UnitNumber, record.City, record.CountyOrParish, record.PostalCode].filter(value => value != null).join(' ').toLowerCase();
+          const searchable = [record.ListingId, record.UnparsedAddress, record.StreetNumber, record.StreetName, record.UnitNumber, record.City, record.PostalCity, record.KEY_ManNYNeighborhood, record.CountyOrParish, record.PostalCode].filter(value => value != null).join(' ').toLowerCase();
           db.prepare(`INSERT OR REPLACE INTO listings VALUES (?,?,?,?,?,?,?,?,?,?)`).run(source, row.ListingKey, record.StandardStatus ?? null, record.City ?? null, record.StateOrProvince ?? null, record.ListPrice ?? null, record.BedroomsTotal ?? null, record.PropertyType ?? null, searchable, JSON.stringify(record));
           if (page.media?.has(row.ListingKey)) {
             db.prepare('DELETE FROM listing_media WHERE source=? AND listing_id=?').run(source, row.ListingKey);

@@ -3,7 +3,7 @@
   "name": "prime-property-search",
   "main": "src/production-index.ts",
   "account_id": "4db3065ea9180585a8de09c7fcff6d83",
-  "compatibility_date": "2026-10-09",
+  "compatibility_date": "2026-11-13",
   "compatibility_flags": [
     "nodejs_compat"
   ],
@@ -20,11 +20,21 @@
     "binding": "ASSETS",
     "run_worker_first": true
   },
+  "queues":{"producers":[
+    {"binding":"GALLERY_JOBS","queue":"prime-search-galleries"},
+    {"binding":"VARIANT_JOBS","queue":"prime-search-variants"}
+  ]},
   "observability": {
     "enabled": true,
     "head_sampling_rate": 1
   },
   "vars": {
+    "IMAGE_TRANSFORM_LIMIT": "0",
+    "PREPARED_MEDIA_ONLY": "true",
+    "MEDIA_BATCH_SIZE": "96",
+    "MEDIA_CONCURRENCY": "3",
+    "FEED_BATCH_PAGES": "3",
+    "PHOTO_IMPORT_MODE": "on-demand",
     "APP_ENV": "production",
     "PUBLIC_ORIGIN": "https://search.primeamericany.com",
     "PUBLIC_RELEASE_ENABLED": "false",

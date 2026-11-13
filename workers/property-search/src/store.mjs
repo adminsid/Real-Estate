@@ -1,4 +1,5 @@
 import { searchQuery, mediaQuery } from '../../../scripts/mls-grid/search-query.mjs';
+import { discoveryQueries, discoveryResult } from '../../../scripts/mls-grid/discovery-data.mjs';
 
 const safeListing = listing => {
   if (listing.addressWithheld) {
@@ -6,39 +7,53 @@ const safeListing = listing => {
   }
   return listing;
 };
+const CARD_FIELDS=new Set(['id','source','addressWithheld','obtainedAt','ModificationTimestamp','ListingId','StandardStatus','ListPrice','OriginalListPrice',
+ 'PropertyType','PropertySubType','OwnershipType','BedroomsTotal','BathroomsFull','BathroomsHalf','BathroomsTotalInteger','LivingArea','LivingAreaUnits',
+ 'BuildingAreaTotal','BuildingAreaUnits','LotSizeAcres','LotSizeSquareFeet','City','PostalCity','KEY_ManNYNeighborhood','KEY_Hamlet','KEY_Village','SubdivisionName',
+ 'StateOrProvince','CountyOrParish','PostalCode','UnparsedAddress','StreetNumber','StreetNumberNumeric','StreetDirPrefix','StreetName','StreetSuffix','StreetDirSuffix','UnitNumber',
+ 'ListOfficeName','ListOfficePhone','ListAgentFullName','AttributionContact','OnMarketDate','NumberOfUnitsTotal','YearBuilt','TaxAnnualAmount','NetOperatingIncome',
+ 'BusinessType','Zoning','Utilities','LeaseAmountFrequency','PetsAllowed','LeaseTerm','RentIncludes','AssociationFee','AssociationFeeFrequency',
+ 'LaundryFeatures','AssociationAmenities','InteriorFeatures','AccessibilityFeatures','ExteriorFeatures']);
 
 export function searchStore(db, {production = false} = {}) {
   const rows = async (sql, values = []) => (await db.prepare(sql).bind(...values).all()).results;
   const first = (sql, values = []) => db.prepare(sql).bind(...values).first();
-  async function attach(records) {
-    const listings = records.map(row => safeListing(JSON.parse(row.public_json)));
+  async function attach(records,{cards=false}={}) {
+    const listings = records.map(row => {let listing=safeListing(JSON.parse(row.public_json));if(production&&cards)listing=Object.fromEntries(Object.entries(listing).filter(([key])=>CARD_FIELDS.has(key)));if(production&&!listing.addressWithheld&&typeof row.latitude==='number'&&typeof row.longitude==='number')listing.mapLocation={latitude:row.latitude,longitude:row.longitude,source:row.map_source};return listing;});
     if (!listings.length) return [];
-    const query = mediaQuery(listings,production), photos = await rows(query.sql, query.values);
+    const query = mediaQuery(listings,production);
+    if(production&&cards)query.sql=`SELECT * FROM (SELECT scoped.*,COUNT(*) OVER(PARTITION BY source,listing_id) AS ready_count,ROW_NUMBER() OVER(PARTITION BY source,listing_id) AS ordinal FROM (${query.sql}) scoped) WHERE ordinal=1`;
+    const photos = await rows(query.sql, query.values);
     const byListing = new Map();
     for (const photo of photos) {
       const key = `${photo.source}:${photo.listing_id}`;
       if (!byListing.has(key)) byListing.set(key, []);
       byListing.get(key).push(photo);
     }
-    return listings.map(listing => ({ ...listing, media: (byListing.get(`${listing.source}:${listing.id}`) || []).map(photo => ({ url: `/media/${photo.file}`, caption: listing.addressWithheld ? '' : photo.caption })) }));
+    return listings.map(listing => {const media=byListing.get(`${listing.source}:${listing.id}`)||[];return { ...listing,...(production&&cards?{photoCount:media[0]?.ready_count||0,summary:true}:{}),media:media.map(photo=>({url:`/media/${photo.file}`,caption:listing.addressWithheld?'':photo.caption,...(production?{previewReady:Boolean(photo.preview_ready)}:{})}))};});
   }
   return {
+    async discovery(params={},now=new Date()) {
+      const queries=discoveryQueries(params,now,production);
+      const results=await Promise.all(Object.values(queries).map(query=>rows(query.sql,query.values)));
+      return discoveryResult(...results);
+    },
     async listing(source, id) {
-      const record = await first('SELECT public_json FROM listings WHERE source=? AND id=?', [source, id]);
+      const record = await first('SELECT * FROM listings WHERE source=? AND id=?', [source, id]);
       return record ? (await attach([record]))[0] : null;
     },
     mediaFile(file) {
-      return first(`SELECT m.file,m.type FROM listing_media m JOIN listings l ON l.source=m.source AND l.id=m.listing_id WHERE m.file=? ${production ? "AND m.state='ready'" : ''} LIMIT 1`, [file]);
+      return first(`SELECT m.file,m.type FROM listing_media m JOIN listings l ON l.source=m.source AND l.id=m.listing_id WHERE m.file=? ${production ? "AND m.state='ready' AND EXISTS(SELECT 1 FROM listing_components c WHERE c.source=m.source AND c.listing_id=m.listing_id AND c.manifest_version=c.core_version)" : ''} LIMIT 1`, [file]);
     },
     async search(params = {}, now = new Date()) {
       const { where, values, limit, requestedOffset, sort, sortExpression, mediaCondition, belowCondition, recentCondition } = searchQuery(params, now,production);
       const stats = await first(`SELECT COUNT(*) AS total, SUM(CASE WHEN ${mediaCondition} THEN 1 ELSE 0 END) AS withPhotos, SUM(CASE WHEN ${belowCondition} THEN 1 ELSE 0 END) AS belowOriginal, SUM(CASE WHEN ${recentCondition} THEN 1 ELSE 0 END) AS recentlyListed FROM listings WHERE ${where}`, values);
       const total = production ? Math.min(stats.total,2500) : stats.total, offset = Math.min(Math.floor(requestedOffset / limit) * limit, Math.max(0, Math.ceil(total / limit) - 1) * limit);
       const [records, checkpoints] = await Promise.all([
-        rows(`SELECT public_json FROM listings WHERE ${where} ORDER BY ${sortExpression},id,source LIMIT ? OFFSET ?`, [...values,Math.min(limit,total-offset),offset]),
+        rows(`SELECT * FROM listings WHERE ${where} ORDER BY ${sortExpression},id,source LIMIT ? OFFSET ?`, [...values,Math.min(limit,total-offset),offset]),
         rows(production ? 'SELECT source,initial_complete AS complete,last_complete AS updated_at FROM feed_state' : 'SELECT source,complete,updated_at FROM checkpoints'),
       ]);
-      const listings = await attach(records);
+      const listings = await attach(records,{cards:true});
       const candidates = listings.filter(listing => listing.media.length), showcase = [];
       while(candidates.length && showcase.length < 2) {
         const listing = candidates.splice(Math.floor(Math.random()*candidates.length),1)[0];

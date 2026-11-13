@@ -5,7 +5,7 @@ let template=await readFile(new URL('preview.html',import.meta.url),'utf8');
 template=template.replace(/<details class="demo-banner">.*?<\/details>/s,'');
 template=template.replace('Demo listings from OneKey MLS, distributed by MLS GRID.','Listings courtesy of OneKey MLS as distributed by MLS GRID. Search provided by Prime America Real Estate.');
 template=template.replace(/<p class="muted">This preview is not approved.*?<\/p>/s,'<p class="muted">For current availability and details, contact the listing brokerage shown with each property. Showing times are requests until the listing brokerage confirms.</p>');
-template=template.replace('<p id="freshness"></p>','<p id="freshness"></p><p>Some IDX listings have been excluded from this website. This release covers New York City listings with a current marketing status, from our licensed OneKey feed.</p><p>Automated scraping and redistribution of listing data are prohibited.</p>');
+template=template.replace('<p id="freshness"></p>','<p id="freshness"></p><p>Some IDX listings have been excluded from this website. Search defaults to NYC and can include New York State listings supplied by our licensed OneKey feed. Coverage depends on the feed and import progress.</p><p>Automated scraping and redistribution of listing data are prohibited.</p>');
 template=template.replace('<option value="Closed">Closed</option>','').replace('All imported sources','All listing sources');
 template=template.replace('Demo only. This saves a request to this computer. It does not contact an agent or reserve a time.','This opens your email app. Send the draft to contact the listing brokerage. A requested time is not a confirmed appointment.');
 template=template.replace('Save demo request','Open email draft');

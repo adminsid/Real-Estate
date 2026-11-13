@@ -10,7 +10,7 @@ export function createRequestPacer(pause = ms => new Promise(resolve => setTimeo
   };
 }
 
-export function createClient({ token, source, endpoint = 'https://api-demo.mlsgrid.com/v2', fetcher = fetch, pause, beforeRequest = createRequestPacer(pause), pageSize = 20, maxResponseBytes = 32 * 1024 * 1024 }) {
+export function createClient({ token, source, endpoint = 'https://api-demo.mlsgrid.com/v2', fetcher = fetch, pause, beforeRequest = createRequestPacer(pause), pageSize = 20, maxResponseBytes = 32 * 1024 * 1024, projection = 'full' }) {
   if (!token || !/^[a-z0-9_-]+$/.test(source || '') || !ENDPOINTS.has(endpoint) || !Number.isInteger(pageSize) || pageSize<1 || pageSize>1000 || !Number.isInteger(maxResponseBytes) || maxResponseBytes<1 || maxResponseBytes>32*1024*1024) {
     throw new Error('Provide a token, valid source, and approved MLS Grid endpoint');
   }
@@ -23,7 +23,7 @@ export function createClient({ token, source, endpoint = 'https://api-demo.mlsgr
     } else if(viewOnly) filter += ' and MlgCanView eq true';
     if(viewOnly && marketOnly) filter += ` and StandardStatus in (${MARKETING_STATUSES.map(status=>`'${status}'`).join(',')})`;
     url.searchParams.set('$filter', filter);
-    url.searchParams.set('$expand', 'Media,Rooms,UnitTypes');
+    if(projection==='full')url.searchParams.set('$expand', 'Media,Rooms,UnitTypes');
     // Small media-expanded pages can be downloaded before their signed URLs expire.
     url.searchParams.set('$top', String(pageSize));
     return url.href;
@@ -37,6 +37,7 @@ export function createClient({ token, source, endpoint = 'https://api-demo.mlsgr
   };
   return {
     initial,
+    locationInitial() {return initial(null,{viewOnly:true,marketOnly:true});},
     properties(ids) {
       if (!Array.isArray(ids) || !ids.length || ids.length > 50 || ids.some(id => typeof id !== 'string' || !/^[A-Za-z0-9_-]+$/.test(id))) throw new Error('Invalid media backfill identifiers');
       const url = new URL(initial());
@@ -52,8 +53,15 @@ export function createClient({ token, source, endpoint = 'https://api-demo.mlsgr
           headers: { Authorization: `Bearer ${token}`, Accept: 'application/json', 'Accept-Encoding': 'gzip,deflate' },
           redirect: 'manual', signal: AbortSignal.timeout(30_000),
         });
-      } catch { throw new Error('MLS Grid connection failed; checkpoint retained'); }
-      if (!response.ok) throw new Error(`MLS Grid returned HTTP ${response.status}; checkpoint retained`);
+      } catch(error) { if(error.sourceFailure)throw error;throw new Error('MLS Grid connection failed; checkpoint retained'); }
+      if (!response.ok) {
+        const error=new Error(`MLS Grid returned HTTP ${response.status}; checkpoint retained`);
+        if(response.status===400&&response.body){
+          const reader=response.body.getReader();let text='',length=0;
+          try{while(length<4096){const {done,value}=await reader.read();if(done)break;length+=value.byteLength;if(length>4096)break;text+=new TextDecoder().decode(value);}const normalized=text.toLowerCase();error.providerReason=normalized.includes('listingid')?'listing_id_filter':normalized.includes('modificationtimestamp')?'timestamp_filter':normalized.includes('skip')?'pagination_offset':normalized.includes('filter')?'filter_validation':'unclassified_request';}catch{error.providerReason='unclassified_request';}finally{await reader.cancel();}
+        }
+        throw error;
+      }
       // Bound decompressed size as well as record count, even if upstream ignores $top.
       if (!response.body) throw new Error('MLS Grid returned an empty response');
       const reader = response.body.getReader();
@@ -82,6 +90,7 @@ export function createClient({ token, source, endpoint = 'https://api-demo.mlsgr
         if (!row || row.OriginatingSystemName !== source || typeof row.ListingKey !== 'string' || !row.ListingKey || typeof row.MlgCanView !== 'boolean' || typeof row.ModificationTimestamp !== 'string' || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/.test(row.ModificationTimestamp) || !Number.isFinite(Date.parse(row.ModificationTimestamp))) {
           throw new Error('Invalid MLS Grid record; checkpoint retained');
         }
+        if(projection==='full'&&['Media','Rooms','UnitTypes'].some(resource=>row[resource]!==undefined&&!Array.isArray(row[resource])))throw new Error('Invalid MLS Grid expanded resource; checkpoint retained');
       }
       const next = data['@odata.nextLink'] ? validateLink(data['@odata.nextLink']) : null;
       if (next === url) throw new Error('MLS Grid returned a repeated pagination URL');
@@ -92,7 +101,7 @@ export function createClient({ token, source, endpoint = 'https://api-demo.mlsgr
 
 // Explicit development field inventory; never copy an unreviewed source record into the browser.
 // Production requires each MLS's authorized IDX field inventory, including local fields.
-export const PUBLIC_FIELDS = ['ListingId', 'StandardStatus', 'ListPrice', 'OriginalListPrice', 'ClosePrice', 'CloseDate', 'PropertyType', 'PropertySubType', 'OwnershipType', 'BedroomsTotal', 'BathroomsTotalInteger', 'BathroomsFull', 'BathroomsHalf', 'LivingArea', 'LivingAreaUnits', 'LivingAreaSource', 'LotSizeSquareFeet', 'LotSizeAcres', 'LotSizeUnits', 'LotSizeSource', 'City', 'CountyOrParish', 'StateOrProvince', 'PostalCode', 'PublicRemarks', 'ListOfficeName', 'ListOfficePhone', 'ListAgentFullName', 'AttributionContact', 'ModificationTimestamp', 'OnMarketDate', 'DaysOnMarket', 'AssociationFee', 'AssociationFeeFrequency', 'AssociationFeeIncludes', 'AssociationFee2', 'AssociationFee2Frequency', 'TaxAnnualAmount', 'TaxYear', 'TaxLegalDescription', 'ParkingTotal', 'YearBuilt', 'YearBuiltSource', 'Stories', 'StoriesTotal', 'NumberOfUnitsTotal', 'RoomsTotal', 'GarageSpaces', 'CarportSpaces', 'ArchitecturalStyle', 'Cooling', 'Heating', 'Appliances', 'InteriorFeatures', 'ExteriorFeatures', 'LaundryFeatures', 'ParkingFeatures', 'Basement', 'Flooring', 'WaterSource', 'Sewer', 'Utilities', 'LotFeatures', 'View', 'WaterfrontYN', 'WaterfrontFeatures', 'PoolFeatures', 'AccessibilityFeatures', 'PetsAllowed', 'AssociationAmenities', 'ElementarySchool', 'MiddleOrJuniorSchool', 'HighSchool', 'HighSchoolDistrict', 'LeaseTerm', 'LeaseAmountFrequency', 'AvailabilityDate', 'SecurityDeposit', 'RentIncludes', 'TenantPays', 'Zoning', 'BusinessType', 'BuildingAreaTotal', 'BuildingAreaUnits', 'GrossIncome', 'OperatingExpense', 'NetOperatingIncome'];
+export const PUBLIC_FIELDS = ['ListingId', 'StandardStatus', 'ListPrice', 'OriginalListPrice', 'ClosePrice', 'CloseDate', 'PropertyType', 'PropertySubType', 'OwnershipType', 'BedroomsTotal', 'BathroomsTotalInteger', 'BathroomsFull', 'BathroomsHalf', 'LivingArea', 'LivingAreaUnits', 'LivingAreaSource', 'LotSizeSquareFeet', 'LotSizeAcres', 'LotSizeUnits', 'LotSizeSource', 'City', 'PostalCity', 'KEY_ManNYNeighborhood', 'KEY_Hamlet', 'KEY_Village', 'SubdivisionName', 'CountyOrParish', 'StateOrProvince', 'PostalCode', 'PublicRemarks', 'ListOfficeName', 'ListOfficePhone', 'ListAgentFullName', 'AttributionContact', 'ModificationTimestamp', 'OnMarketDate', 'DaysOnMarket', 'AssociationFee', 'AssociationFeeFrequency', 'AssociationFeeIncludes', 'AssociationFee2', 'AssociationFee2Frequency', 'TaxAnnualAmount', 'TaxYear', 'TaxLegalDescription', 'ParkingTotal', 'YearBuilt', 'YearBuiltSource', 'Stories', 'StoriesTotal', 'NumberOfUnitsTotal', 'RoomsTotal', 'GarageSpaces', 'CarportSpaces', 'ArchitecturalStyle', 'Cooling', 'Heating', 'Appliances', 'InteriorFeatures', 'ExteriorFeatures', 'LaundryFeatures', 'ParkingFeatures', 'Basement', 'Flooring', 'WaterSource', 'Sewer', 'Utilities', 'LotFeatures', 'View', 'WaterfrontYN', 'WaterfrontFeatures', 'PoolFeatures', 'AccessibilityFeatures', 'PetsAllowed', 'AssociationAmenities', 'ElementarySchool', 'MiddleOrJuniorSchool', 'HighSchool', 'HighSchoolDistrict', 'LeaseTerm', 'LeaseAmountFrequency', 'AvailabilityDate', 'SecurityDeposit', 'RentIncludes', 'TenantPays', 'Zoning', 'BusinessType', 'BuildingAreaTotal', 'BuildingAreaUnits', 'GrossIncome', 'OperatingExpense', 'NetOperatingIncome'];
 const ADDRESS_FIELDS = ['UnparsedAddress', 'StreetNumber', 'StreetNumberNumeric', 'StreetDirPrefix', 'StreetName', 'StreetSuffix', 'StreetDirSuffix', 'UnitNumber', 'Latitude', 'Longitude'];
 
 export function publicProjection(row) {
@@ -100,6 +109,7 @@ export function publicProjection(row) {
   const projected = { id: row.ListingKey, source: row.OriginatingSystemName, addressWithheld: row.InternetAddressDisplayYN === false };
   for (const field of [...PUBLIC_FIELDS, ...(projected.addressWithheld ? [] : ADDRESS_FIELDS)]) {
     const value = row[field];
+    if(['PostalCity','KEY_ManNYNeighborhood','KEY_Hamlet','KEY_Village','SubdivisionName'].includes(field)&&value!==null&&typeof value!=='string')continue;
     if (value === null || typeof value === 'string' || typeof value === 'boolean' || (typeof value === 'number' && Number.isFinite(value))) projected[field] = value;
     else if (Array.isArray(value) && value.every(item => typeof item === 'string')) projected[field] = value;
   }
