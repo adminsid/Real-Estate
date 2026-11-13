@@ -32,7 +32,7 @@
     "consumers":[
       {"queue":"prime-search-galleries","max_batch_size":1,"max_batch_timeout":0,"max_concurrency":1,"max_retries":5,"dead_letter_queue":"prime-search-media-dlq"},
       {"queue":"prime-search-covers","max_batch_size":1,"max_batch_timeout":0,"max_concurrency":1,"max_retries":5,"dead_letter_queue":"prime-search-media-dlq"},
-      {"queue":"prime-search-variants","max_batch_size":4,"max_batch_timeout":1,"max_concurrency":2,"max_retries":5,"dead_letter_queue":"prime-search-media-dlq"},
+      {"queue":"prime-search-variants","max_batch_size":1,"max_batch_timeout":0,"max_concurrency":4,"max_retries":5,"dead_letter_queue":"prime-search-media-dlq"},
       {"queue":"prime-search-media-dlq","max_batch_size":10,"max_batch_timeout":5,"max_concurrency":1,"max_retries":3}
     ]
   },

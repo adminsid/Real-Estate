@@ -1,7 +1,7 @@
 import {describe,it,expect,vi} from 'vitest'
 import {databaseFixture} from './production-fixture'
 import {requestEnrichment} from '../src/enrichment.mjs'
-import {runMediaJob} from '../src/media-jobs.mjs'
+import {runMediaJob,seedJobs} from '../src/media-jobs.mjs'
 import {publishJobs,claimJob,finishJob,insertJob} from '../src/job-store.mjs'
 import {searchStore} from '../src/store.mjs'
 
@@ -22,6 +22,27 @@ async function seeded(){
 }
 
 describe('Durable independent media jobs',()=>{
+ it('prioritizes demanded image preparation and keeps the broker warmup backlog bounded',async()=>{
+  const {sqlite,env,db}=await seeded(),sent:string[]=[]
+  try{
+   for(let i=0;i<12;i++)await insertJob(db,{kind:'variant',source:'onekey2',id:'BG'+i,revision:'file'+i,profile:'cardSmall',now:time-100000}).run()
+   await insertJob(db,{kind:'variant',source:'onekey2',id:'KEY1',revision:'urgent-file',profile:'cardSmall',now:time}).run()
+   const config={...env,VARIANT_JOBS:{send:async(body:{id:string})=>{sent.push(body.id)}}}
+   await publishJobs(config,{now:time})
+   expect(sent).toHaveLength(4);expect(sent[0]).toContain('urgent-file')
+   await publishJobs(config,{now:time+1});expect(sent).toHaveLength(4)
+  }finally{sqlite.close()}
+ })
+ it('cleans expired completed demand so admission does not permanently fill after 500 visitors',async()=>{
+  const {sqlite,env,db}=await seeded()
+  try{
+   for(let i=0;i<499;i++)sqlite.prepare('INSERT INTO listing_enrichment(source,listing_id,requested_at,completed_at) VALUES (?,?,?,?)').run('onekey2','DONE'+i,time-1000000,time-950000)
+   expect(sqlite.prepare('SELECT COUNT(*) AS n FROM listing_enrichment').get()?.n).toBe(500)
+   await seedJobs(env,time)
+   expect(sqlite.prepare('SELECT COUNT(*) AS n FROM listing_enrichment').get()?.n).toBe(1)
+   expect((await requestEnrichment(db,'onekey2','KEY1',time)).state).toBe('queued')
+  }finally{sqlite.close()}
+ })
  it('publishes promptly, keeps a durable outbox on send failure, and coalesces duplicate deliveries',async()=>{
   const {sqlite,env,id,db}=await seeded(),send=vi.fn(async()=>{throw Error('queue unavailable')})
   try{
@@ -40,7 +61,7 @@ describe('Durable independent media jobs',()=>{
   try{
    const result=await runMediaJob(env,id,{now:()=>time,fetcher:async(url:string)=>{
     calls.push(url);expect(sqlite.prepare('SELECT lease_until FROM feed_state').get()?.lease_until).toBe(0)
-    return url.startsWith('https://api.')?Response.json({value:[row()]}):new Response(new Uint8Array([255,216,255,0]))
+    return url.startsWith('https://api.')?Response.json({value:[row()],...(new URL(url).searchParams.get('$top')==='1'?{'@odata.nextLink':url+'&$skip=1'}:{})}):new Response(new Uint8Array([255,216,255,0]))
    }})
    expect(result.status).toBe('ready');expect(calls).toHaveLength(2);expect(bucket.put).toHaveBeenCalledTimes(1)
    expect(sqlite.prepare('SELECT watermark FROM feed_state').get()?.watermark).toBeNull()

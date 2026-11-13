@@ -23,18 +23,29 @@ export async function publishJobs(env, {now = Date.now(), limit = 24} = {}) {
   // admitted gallery, and galleries must not prevent covers/variants publishing.
   const jobs=[];
   for(const [kind,share] of [['gallery',0.5],['cover',0.25],['variant',0.25]]){
+    const room=Math.max(1,Math.floor(limit*share));
+    let urgent=[];
+    if(kind==='variant'){
+      urgent=(await db.prepare(`SELECT j.id,j.kind FROM listing_enrichment q JOIN ingestion_jobs j
+        ON j.source=q.source AND j.listing_id=q.listing_id WHERE j.kind='variant'
+        AND q.requested_at>? AND (q.requested_at>q.completed_at OR q.completed_at>?)
+        AND j.state IN ('pending','retry_wait','claimed') AND j.not_before<=? AND j.claim_until<=? AND j.published_until<=?
+        ORDER BY q.requested_at,j.requested_at,j.id LIMIT ?`).bind(now-86400000,now-900000,now,now,now,Math.max(1,room-1)).all()).results;
+    }
     const result=await db.prepare(`SELECT id,kind FROM ingestion_jobs WHERE kind=?
       AND state IN ('pending','retry_wait','claimed') AND not_before<=? AND claim_until<=?
-      AND published_until<=? ORDER BY requested_at,id LIMIT ?`).bind(kind,now,now,now,Math.max(1,Math.floor(limit*share))).all();
-    jobs.push(...result.results);
+      AND published_until<=? ORDER BY requested_at,id LIMIT ?`).bind(kind,now,now,now,room+urgent.length).all();
+    const seen=new Set(urgent.map(job=>job.id));
+    jobs.push(...[...urgent,...result.results.filter(job=>!seen.has(job.id))].slice(0,room));
   }
   let sent = 0;
   for (const job of jobs) {
     const queue = job.kind === 'gallery' ? env.GALLERY_JOBS : job.kind === 'cover' ? env.COVER_JOBS : env.VARIANT_JOBS;
     if (!queue) continue;
     const locked = await db.prepare(`UPDATE ingestion_jobs SET published_until=? WHERE id=?
-      AND published_until<=? AND claim_until<=? AND state IN ('pending','retry_wait','claimed')`)
-      .bind(now + 120000, job.id, now, now).run();
+      AND published_until<=? AND claim_until<=? AND state IN ('pending','retry_wait','claimed')
+      AND (kind!='variant' OR (SELECT COUNT(*) FROM ingestion_jobs j WHERE j.kind='variant' AND j.state IN ('pending','retry_wait','claimed') AND j.published_until>? AND j.claim_until<=?)<4)`)
+      .bind(now + 120000, job.id, now, now,now,now).run();
     if (!locked.meta.changes) continue;
     try {
       await queue.send({id: job.id}); sent++;

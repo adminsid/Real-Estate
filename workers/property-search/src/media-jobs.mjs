@@ -30,6 +30,7 @@ async function recoverRetainedOriginals(env,job,now){
 export async function seedJobs(env, now = Date.now()) {
   const db = env.LIVE_DB;
   if (await ingestionMode(db) !== 'independent') return;
+  await db.prepare('DELETE FROM listing_enrichment WHERE requested_at<? OR (completed_at>=requested_at AND completed_at<=?)').bind(now-86400000,now-900000).run();
   // Seed only covers that are missing or whose manifest has not been verified.
   // The indexed has_photos flag avoids scanning a million-photo backlog per pass.
   const covers = await db.prepare(`SELECT l.source,l.id,c.core_version FROM listings l JOIN listing_components c
@@ -99,11 +100,12 @@ export async function runMediaJob(env, id, {now = () => Date.now(), fetcher} = {
     if (!/^[A-Za-z0-9_-]+$/.test(current.provider_id || '')) throw Error('Source listing identifier unavailable');
     const sourceFetch = fetcher || sourceFetcher(env, job.kind, job);
     const client = createClient({token:env.MLS_GRID_ACCESS_TOKEN, source:'onekey2', endpoint:'https://api.mlsgrid.com/v2',
-      fetcher:sourceFetch, beforeRequest:async () => {}, pageSize:1, maxResponseBytes:8*1024*1024});
+      fetcher:sourceFetch, beforeRequest:async () => {}, pageSize:100, maxResponseBytes:8*1024*1024});
     await updateDemand(db, job, now() + HOUR, false, now(), now() + 180000);
     await db.prepare("UPDATE listing_media SET state='failed',failure='previous_outcome_uncertain' WHERE source=? AND listing_id=? AND state='downloading' AND attempted_at<=?").bind(job.source,job.listing_id,now()-HOUR).run();
     const page = await client.page(client.properties([current.provider_id]));
-    if (page.next || page.rows.length > 1 || page.rows.some(row => row.OriginatingSystemName !== job.source || row.ListingKey !== job.listing_id || row.ListingId !== current.provider_id)) throw Error('Invalid on-demand listing response');
+    if(page.next)throw Error('Hydration continuation unexpected');
+    if (page.rows.length > 1 || page.rows.some(row => row.OriginatingSystemName !== job.source || row.ListingKey !== job.listing_id || row.ListingId !== current.provider_id)) throw Error('Hydration identity mismatch');
     if (!page.rows.length) {
       await finishJob(db, job, {state:'retry_wait', retryAt:now() + HOUR, failure:'source_record_absent', now:now()});
       return {status:'source_record_absent'};
@@ -129,7 +131,7 @@ export async function runMediaJob(env, id, {now = () => Date.now(), fetcher} = {
   } catch (error) {
     const deferred=error.sourceFailure&&/budget unavailable|backoff active|coordinator is paused|claim expired/.test(error.message);
     const retryAt = deferred?Math.max(now()+60000,error.retryAt||0):Math.max(now() + HOUR, error.retryAt || 0);
-    const failure = /budget/.test(error.message)?'source_budget':/429/.test(error.message)?'source_throttled':job.kind==='variant'?'transform_unavailable':'source_or_storage_unavailable';
+    const failure = /budget/.test(error.message)?'source_budget':/429/.test(error.message)?'source_throttled':error.message==='Hydration continuation unexpected'?'hydration_continuation':error.message==='Hydration identity mismatch'?'hydration_identity':job.kind==='variant'?'transform_unavailable':'source_or_storage_unavailable';
     await finishJob(db, job, {state:!deferred&&job.attempts>=7?'dead_letter':'retry_wait', retryAt, failure, failedAttempt:!deferred, now:now()});
     return {status:failure};
   } finally {
