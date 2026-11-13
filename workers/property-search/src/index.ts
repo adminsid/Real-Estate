@@ -18,7 +18,7 @@ export default {
       await geocodeIndependently(env)
     }
   },
-  async queue(batch:MessageBatch<unknown>,env:Env):Promise<void>{
-    await consumeMediaJobs(batch,env)
+  async queue(batch:MessageBatch<unknown>,env:Env,ctx:ExecutionContext):Promise<void>{
+    await consumeMediaJobs(batch,env,{schedule:work=>ctx.waitUntil(work)})
   },
 } satisfies ExportedHandler<Env>

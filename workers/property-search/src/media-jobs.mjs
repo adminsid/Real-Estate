@@ -7,14 +7,17 @@ import { prepareVariant } from './image-variants.mjs';
 
 const HOUR = 3600000;
 
-async function recoverRetainedOriginals(env,job,now){
+async function recoverRetainedOriginals(env,job,now,checked=new Set()){
   const db=env.LIVE_DB;
   const pending=await db.prepare(`SELECT media_key,file FROM listing_media m WHERE source=? AND listing_id=? AND state!='ready'
     AND EXISTS(SELECT 1 FROM listing_components c WHERE c.source=m.source AND c.listing_id=m.listing_id AND c.manifest_version=c.core_version)
     ORDER BY position,media_key LIMIT ?`).bind(job.source,job.listing_id,job.kind==='cover'?1:200).all();
-  for(const media of pending.results){
+  const unchecked=pending.results.filter(media=>!checked.has(media.file));
+  for(let offset=0;offset<unchecked.length;offset+=4){
+   const outcomes=await Promise.allSettled(unchecked.slice(offset,offset+4).map(async media=>{
+    checked.add(media.file);
     const object=await env.LIVE_MEDIA.head(media.file),type=object?.httpMetadata?.contentType;
-    if(!object||object.size>15*1024*1024||!['image/jpeg','image/png','image/webp'].includes(type))continue;
+    if(!object||object.size>15*1024*1024||!['image/jpeg','image/png','image/webp'].includes(type))return;
     await db.batch([
       db.prepare(`UPDATE listing_media SET state='ready',type=?,failure=NULL WHERE source=? AND listing_id=? AND media_key=? AND file=?
         AND EXISTS(SELECT 1 FROM listing_components c WHERE c.source=listing_media.source AND c.listing_id=listing_media.listing_id AND c.manifest_version=c.core_version)
@@ -24,6 +27,8 @@ async function recoverRetainedOriginals(env,job,now){
         WHERE source=? AND id=? AND EXISTS(SELECT 1 FROM listing_components c WHERE c.source=listings.source AND c.listing_id=listings.id AND c.manifest_version=c.core_version)`)
         .bind(job.source,job.listing_id),
     ]);
+   }));
+   const failed=outcomes.find(result=>result.status==='rejected');if(failed)throw failed.reason;
   }
 }
 
@@ -66,7 +71,7 @@ async function variantsForReady(db, job, now) {
   if (selected.length) await db.batch(selected.flatMap(row => profiles.map(profile => insertJob(db, {kind:'variant', source:job.source, id:job.listing_id, revision:row.file, profile, now}))));
 }
 
-export async function runMediaJob(env, id, {now = () => Date.now(), fetcher} = {}) {
+export async function runMediaJob(env, id, {now = () => Date.now(), fetcher,schedule=work=>work} = {}) {
   const db = env.LIVE_DB, job = await claimJob(db, id, now());
   if (!job) return {status:'duplicate_or_deferred'};
   let result;
@@ -84,7 +89,8 @@ export async function runMediaJob(env, id, {now = () => Date.now(), fetcher} = {
       } else await finishJob(db, job, {state:prepared === 'unavailable' ? 'superseded' : 'ready', now:now()});
       return {status:prepared};
     }
-    await recoverRetainedOriginals(env,job,now());
+    const checkedOriginals=new Set();
+    await recoverRetainedOriginals(env,job,now(),checkedOriginals);
     const pending = await db.prepare("SELECT COUNT(*) AS n,MAX(attempted_at) AS last FROM listing_media WHERE source=? AND listing_id=? AND state!='ready'").bind(job.source, job.listing_id).first();
     // Keep the conservative parent URL-regeneration protection until MLS GRID
     // clarifies never-downloaded siblings. A click cannot override the clock.
@@ -111,7 +117,7 @@ export async function runMediaJob(env, id, {now = () => Date.now(), fetcher} = {
       return {status:'source_record_absent'};
     }
     await replica(db).apply(page.rows, null, null, now(), false, {job});
-    await recoverRetainedOriginals(env,job,now());
+    await recoverRetainedOriginals(env,job,now(),checkedOriginals);
     // A new core version or tombstone can supersede this hydration while it was
     // in flight. Downloads also recheck the exact permitted manifest below.
     result = await downloadPhotos(page.rows, env, async () => {}, {
@@ -119,7 +125,9 @@ export async function runMediaJob(env, id, {now = () => Date.now(), fetcher} = {
       onReady:async photo=>{
         const profiles=job.kind==='cover'?['cardSmall','cardLarge']:['cardSmall','display'];
         await db.batch(profiles.map(profile=>insertJob(db,{kind:'variant',source:photo.source,id:photo.id,revision:photo.file,profile,now:now()})));
-        await publishJobs(env,{now:now(),limit:8});
+        // Queue publication is tracked by the queue invocation, but need not hold
+        // the next original transfer. Durable outbox rows survive interrupted sends.
+        await schedule(publishJobs(env,{now:now(),limit:8}));
       },
     });
     await variantsForReady(db, job, now());
@@ -148,7 +156,7 @@ async function updateDemand(db, job, retryAt, complete, now, processing = 0) {
     .bind(retryAt, processing, complete?1:0, now, job.source, job.listing_id,job.requested_at,job.id,job.claim_token,now,job.revision).run();
 }
 
-export async function consumeMediaJobs(batch, env) {
+export async function consumeMediaJobs(batch, env,{schedule=work=>work}={}) {
   for (const message of batch.messages) {
     if (!message.body || typeof message.body.id !== 'string' || message.body.id.length > 512) { message.ack(); continue; }
     if(batch.queue==='prime-search-media-dlq'){
@@ -158,7 +166,7 @@ export async function consumeMediaJobs(batch, env) {
       }catch{message.retry({delaySeconds:60});}
       continue;
     }
-    try { await runMediaJob(env, message.body.id); message.ack(); }
+    try { await runMediaJob(env, message.body.id,{schedule}); message.ack(); }
     catch { message.retry({delaySeconds:60}); }
   }
 }

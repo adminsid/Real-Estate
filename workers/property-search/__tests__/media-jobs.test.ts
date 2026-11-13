@@ -9,9 +9,9 @@ const time=Date.parse('2026-11-13T12:00:00Z')
 const row=(extra:Record<string,unknown>={})=>({OriginatingSystemName:'onekey2',ListingKey:'KEY1',ListingId:'MLS1',MlgCanView:true,MlgCanUse:['IDX'],
  StateOrProvince:'NY',StandardStatus:'Active',PropertyType:'Residential',CountyOrParish:'Queens',ModificationTimestamp:'2026-11-13T11:00:00.123456Z',
  Media:[{MediaKey:'P1',Permission:['Public'],Order:0,MediaURL:'https://media.mlsgrid.com/p1'}],...extra})
-async function seeded(){
+async function seeded(extra:Record<string,unknown>={}){
  const fixture=databaseFixture(),lease=await fixture.repo.acquire(time)
- await fixture.repo.apply([row()],null,lease,time,false);await fixture.repo.release(lease)
+ await fixture.repo.apply([row(extra)],null,lease,time,false);await fixture.repo.release(lease)
  fixture.sqlite.exec("UPDATE source_control SET mode='independent';UPDATE listing_media SET attempted_at=0")
  const files=new Map<string,{body:Uint8Array,size:number,httpMetadata:{contentType:string}}>()
  const bucket={head:vi.fn(async(key:string)=>files.get(key)||null),get:vi.fn(async(key:string)=>files.get(key)||null),put:vi.fn(async(key:string,body:Uint8Array,options:{httpMetadata:{contentType:string}})=>{files.set(key,{body,size:body.length,httpMetadata:options.httpMetadata})})}
@@ -22,6 +22,22 @@ async function seeded(){
 }
 
 describe('Durable independent media jobs',()=>{
+ it('continues original transfers while derivative queue publication is stalled',async()=>{
+  const media=[1,2].map(i=>({MediaKey:'P'+i,Permission:['Public'],Order:i,MediaURL:'https://media.mlsgrid.com/p'+i}))
+  const {sqlite,env,id}=await seeded({Media:media}),tracked:Promise<unknown>[]=[]
+  let release!:()=>void,second!:()=>void,publishing!:()=>void,timer:ReturnType<typeof setTimeout>|undefined
+  const gate=new Promise<void>(resolve=>{release=resolve}),secondPhoto=new Promise<void>(resolve=>{second=resolve}),publication=new Promise<void>(resolve=>{publishing=resolve})
+  const run=runMediaJob({...env,VARIANT_JOBS:{send:async()=>{publishing();await gate}}},id,{now:()=>time,
+   schedule:(work:Promise<unknown>)=>{tracked.push(work)},fetcher:async(url:string)=>{
+    if(url.startsWith('https://api.'))return Response.json({value:[row({Media:media})]})
+    if(url.endsWith('p2'))second()
+    return new Response(new Uint8Array([255,216,255,0]))
+   }})
+  try{
+   const progressed=await Promise.race([Promise.all([secondPhoto,publication]).then(()=>true),new Promise<boolean>(resolve=>{timer=setTimeout(()=>resolve(false),1000)})])
+   expect(progressed).toBe(true)
+  }finally{clearTimeout(timer);release();await run;await Promise.all(tracked);sqlite.close()}
+ })
  it('prioritizes demanded image preparation and keeps the broker warmup backlog bounded',async()=>{
   const {sqlite,env,db}=await seeded(),sent:string[]=[]
   try{
