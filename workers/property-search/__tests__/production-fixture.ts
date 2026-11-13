@@ -11,6 +11,7 @@ export function databaseFixture() {
  sqlite.exec(readFileSync(new URL('../production-migrations/0007_inventory_reconciliation.sql',import.meta.url),'utf8'))
  sqlite.exec(readFileSync(new URL('../production-migrations/0008_listing_enrichment.sql',import.meta.url),'utf8'))
  sqlite.exec(readFileSync(new URL('../production-migrations/0009_enrichment_progress.sql',import.meta.url),'utf8'))
+ sqlite.exec(readFileSync(new URL('../production-migrations/0010_independent_ingestion.sql',import.meta.url),'utf8'))
  function prepare(sql:string) {
   let values: (string|number|null)[]=[]
   return {

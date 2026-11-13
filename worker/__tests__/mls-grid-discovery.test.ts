@@ -62,6 +62,7 @@ describe('Consumer discovery filters and map inventory',()=>{
   }))
   it('uses the same richer search contract on the indexed live D1 replica',async()=>{
     const sqlite=new DatabaseSync(':memory:');sqlite.exec(readFileSync(new URL('../../workers/property-search/production-migrations/0001_replica.sql',import.meta.url),'utf8'));sqlite.exec(readFileSync(new URL('../../workers/property-search/production-migrations/0002_locations.sql',import.meta.url),'utf8'))
+    sqlite.exec(readFileSync(new URL('../../workers/property-search/production-migrations/0010_independent_ingestion.sql',import.meta.url),'utf8'))
     const records=[row(1,{PropertySubType:'Stock Cooperative',LaundryFeatures:['In Unit'],Latitude:40.75,Longitude:-73.9}),row(2)]
     for(const record of records){const listing=publicProjection(record);sqlite.prepare('INSERT INTO listings(source,id,status,city,state,price,beds,property_type,search_text,public_json,borough,missing_price,missing_date,latitude,longitude) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)').run('onekey2',record.ListingKey,'Active','Astoria','NY',record.ListPrice,2,'Residential','astoria',JSON.stringify(listing),'Queens',0,1,record.Latitude??null,record.Longitude??null)}
     const db={prepare(sql:string){let values:(string|number)[]=[];return {bind(...next:(string|number)[]){values=next;return this},async first(){return sqlite.prepare(sql).get(...values)||null},async all(){return {results:sqlite.prepare(sql).all(...values)}}}}}

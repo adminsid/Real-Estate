@@ -34,7 +34,8 @@ async function boundedJSON(response){
  try{while(true){const {done,value}=await reader.read();if(done)break;size+=value.byteLength;if(size>128*1024)throw Error('Geocoder response too large');chunks.push(value);}}finally{await reader.cancel();}
  const bytes=new Uint8Array(size);let offset=0;for(const chunk of chunks){bytes.set(chunk,offset);offset+=chunk.length;}return JSON.parse(new TextDecoder().decode(bytes));
 }
-export async function geocodeListings(env,lease,{fetcher=fetch,now=()=>Date.now(),maxRequests=3}={}){
+export async function geocodeListings(env,lease,{fetcher=fetch,now=()=>Date.now(),maxRequests=3,independent=false}={}){
+ const leaseGuard=independent?"EXISTS(SELECT 1 FROM source_control WHERE source='onekey2' AND mode='independent' AND location_token=? AND location_until>?)":"EXISTS(SELECT 1 FROM feed_state WHERE source='onekey2' AND lease_id=? AND lease_until>?)";
  const db=env.LIVE_DB,day=new Date(now()).toISOString().slice(0,10),result={attempted:0,matched:0,reused:0,unmatched:0,unavailable:0,failures:{}};
  const rows=(await db.prepare('SELECT source,id,public_json,address_key FROM listings WHERE latitude IS NULL AND address_key IS NOT NULL AND geocode_after<=? ORDER BY geocode_after,CASE WHEN borough IS NOT NULL THEN 0 ELSE 1 END,id LIMIT ?').bind(now(),maxRequests).all()).results;
  for(const row of rows){
@@ -53,4 +54,17 @@ export async function geocodeListings(env,lease,{fetcher=fetch,now=()=>Date.now(
   }catch(error){result.unavailable++;const reason=/^Geocoder HTTP [0-9]{3}$/.test(error.message)?error.message.replace('Geocoder ',''):['TimeoutError','AbortError'].includes(error.name)?'timeout':error.name==='SyntaxError'?'payload':String(error.message).toLowerCase().includes('redirect')?'redirect':'connection';result.failures[reason]=(result.failures[reason]||0)+1;/* Preserve results without guessing a location; retry is bounded to another day. */}
  }
  return result;
+}
+
+export async function geocodeIndependently(env,now=Date.now()){
+ if(env.LOCATION_REFRESH_ENABLED!=='true')return;
+ const lease=crypto.randomUUID(),db=env.LIVE_DB;
+ const claimed=await db.prepare("UPDATE source_control SET location_token=?,location_until=? WHERE source='onekey2' AND mode='independent' AND location_until<=?").bind(lease,now+30000,now).run();
+ if(!claimed.meta.changes)return;
+ try{
+  const result=await geocodeListings(env,lease,{independent:true});
+  await db.prepare("UPDATE source_control SET location_result=? WHERE source='onekey2' AND location_token=?").bind(JSON.stringify(result),lease).run();
+ }finally{
+  await db.prepare("UPDATE source_control SET location_token=NULL,location_until=0 WHERE source='onekey2' AND location_token=?").bind(lease).run();
+ }
 }

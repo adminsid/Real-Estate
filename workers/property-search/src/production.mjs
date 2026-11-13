@@ -3,6 +3,7 @@ import { copyrightNotice,idxNotice } from './display.mjs';
 import { searchStore } from './store.mjs';
 import { feedReady } from './sync.mjs';
 import { requestEnrichment,enrichmentStatus } from './enrichment.mjs';
+import { publishJobs } from './job-store.mjs';
 import { DEFAULT_BRAND,brandCSS } from '../../../scripts/mls-grid/brand.mjs';
 import { publicOrigin,renderPage,escapeHTML } from '../../../scripts/mls-grid/pages.mjs';
 const assets=new Set(['/location-model.mjs','/vendor/maplibre-4.7.1.js','/vendor/maplibre-worker-4.7.1.js','/vendor/maplibre-4.7.1.css','/vendor/MAPLIBRE-LICENSE.txt','/bottom-dock.mjs','/bottom-dock.css','/app.mjs','/listing-enrichment.mjs','/consumer.mjs','/search-filters.mjs','/discovery.mjs','/search-map.mjs','/nyc-boroughs.json','/discovery.css','/search-icon.svg','/brand.mjs','/brand-editor.mjs','/embed.mjs','/embed-loader.js','/style.css','/mls-grid.png','/onekey.png']);
@@ -14,7 +15,7 @@ export function productionHeaders(response,{privateReview=false,noindex=false}={
   if(privateReview || noindex || response.status>=400)headers.set('X-Robots-Tag','noindex, nofollow');
   return new Response(response.body,{status:response.status,headers});
 }
-export async function handleProduction(request,env,{privateReview=false,now=Date.now()}={}) {
+export async function handleProduction(request,env,{privateReview=false,now=Date.now(),schedule=work=>work}={}) {
   const wrap=response=>{const result=productionHeaders(response,{privateReview});if((response.status===200||response.status===304)&&/^\/media\/[a-f0-9]{64}$/.test(new URL(request.url).pathname))result.headers.set('Cache-Control','private, no-cache');if(response.ok&&assets.has(new URL(request.url).pathname)&&new URL(request.url).pathname.startsWith('/vendor/'))result.headers.set('Cache-Control','private, max-age=31536000, immutable');return result;};
   try {
     const url=new URL(request.url),origin=publicOrigin(env.PUBLIC_ORIGIN);
@@ -45,7 +46,8 @@ export async function handleProduction(request,env,{privateReview=false,now=Date
       if(env.PHOTO_IMPORT_MODE!=='on-demand')return wrap(Response.json({error:'Listing refresh is unavailable.'},{status:503}));
       if(!await store.listing(enrich[1],enrich[2]))return wrap(Response.json({error:'This listing is no longer available.'},{status:404}));
       const enrichment=await requestEnrichment(env.SEARCH_DB,enrich[1],enrich[2],now);
-      response=Response.json({enrichment},{status:['queued','waiting'].includes(enrichment.state)?202:200});
+      if(env.GALLERY_JOBS)await schedule(publishJobs(env,{now,limit:8}));
+      response=Response.json({enrichment},{status:enrichment.state==='capacity_deferred'?429:['queued','waiting'].includes(enrichment.state)?202:200});
     }
     else if(url.pathname==='/api/brand')response=Response.json({brand,demo:false,readOnly:true});
     else if(url.pathname==='/theme.css')response=new Response(brandCSS(brand),{headers:{'Content-Type':'text/css; charset=utf-8'}});
@@ -74,6 +76,7 @@ export async function handleProduction(request,env,{privateReview=false,now=Date
         const record=await store.mediaFile(media[1]);if(!record)return wrap(new Response('Photo unavailable',{status:404}));
         const variant=url.searchParams.get('variant');if(variant&&!Object.hasOwn(IMAGE_VARIANTS,variant))throw Error('Invalid image size');
         const image=await imageObject(env,store,record,variant,{now});
+        if(env.VARIANT_JOBS)await schedule(publishJobs(env,{now,limit:8}));
         if(!image||!await store.mediaFile(media[1]))return wrap(new Response('Photo unavailable',{status:404}));
         const etag='"'+record.file+'-'+image.representation+'"';
         if(request.headers.get('If-None-Match')===etag)response=new Response(null,{status:304,headers:{ETag:etag}});

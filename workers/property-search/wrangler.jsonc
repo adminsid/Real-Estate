@@ -3,7 +3,7 @@
   "name": "prime-property-search-staging",
   "main": "src/index.ts",
   "account_id": "4db3065ea9180585a8de09c7fcff6d83",
-  "compatibility_date": "2026-10-09",
+  "compatibility_date": "2026-11-13",
   "compatibility_flags": [
     "nodejs_compat"
   ],
@@ -21,6 +21,21 @@
     "run_worker_first": true
   },
   "images": {"binding":"IMAGES"},
+  "durable_objects":{"bindings":[{"name":"SOURCE_GATEWAY","class_name":"SourceGateway"}]},
+  "migrations":[{"tag":"source-gateway-v1","new_sqlite_classes":["SourceGateway"]}],
+  "queues":{
+    "producers":[
+      {"binding":"GALLERY_JOBS","queue":"prime-search-galleries"},
+      {"binding":"COVER_JOBS","queue":"prime-search-covers"},
+      {"binding":"VARIANT_JOBS","queue":"prime-search-variants"}
+    ],
+    "consumers":[
+      {"queue":"prime-search-galleries","max_batch_size":1,"max_batch_timeout":0,"max_concurrency":1,"max_retries":5,"dead_letter_queue":"prime-search-media-dlq"},
+      {"queue":"prime-search-covers","max_batch_size":1,"max_batch_timeout":0,"max_concurrency":1,"max_retries":5,"dead_letter_queue":"prime-search-media-dlq"},
+      {"queue":"prime-search-variants","max_batch_size":4,"max_batch_timeout":1,"max_concurrency":2,"max_retries":5,"dead_letter_queue":"prime-search-media-dlq"},
+      {"queue":"prime-search-media-dlq","max_batch_size":10,"max_batch_timeout":5,"max_concurrency":1,"max_retries":3}
+    ]
+  },
   "observability": {
     "enabled": true,
     "head_sampling_rate": 1
@@ -31,7 +46,8 @@
     ]
   },
   "vars": {
-    "IMAGE_TRANSFORM_LIMIT": "1000",
+    "IMAGE_TRANSFORM_LIMIT": "100000",
+    "PREPARED_MEDIA_ONLY": "false",
     "MEDIA_BATCH_SIZE": "96",
     "MEDIA_CONCURRENCY": "3",
     "FEED_BATCH_PAGES": "6",

@@ -14,7 +14,7 @@ export function followListing(listing,{onUpdate,onStatus,onUnavailable,fetcher=f
    if(!response.ok)throw Error('Listing update unavailable');
    const data=await response.json();if(stopped)return;
    onUpdate?.(data.listing);onStatus?.(data.enrichment);
-   if(!data.enrichment||data.enrichment.state==='available'||data.enrichment.state==='waiting'){stop();return;}
+   if(!data.enrichment||['available','waiting','failed','unavailable','capacity_deferred'].includes(data.enrichment.state)){stop();return;}
    if(++attempts>=36){onStatus?.({state:'paused'});stop();return;}
    timer=setTimeout(poll,5000);
   }catch{if(!stopped)onStatus?.({state:'paused'});stop();}
@@ -34,6 +34,9 @@ export function enrichmentMessage(status) {
  const count=Number.isInteger(status.knownPhotos)?`${status.readyPhotos} of ${status.knownPhotos} photos ready. `:'';
  if(status.state==='queued')return count+'More photos requested. They will appear here as they arrive.';
  if(status.state==='loading')return count+'More photos are arriving now.';
+ if(status.state==='preparing')return 'Preparing photos for fast viewing.';
+ if(status.state==='failed')return 'Photo updates need attention. Available photos and listing details are still here.';
+ if(status.state==='capacity_deferred')return 'Photo updates are busy. Please try again shortly.';
  if(status.state==='waiting')return count+'More photos are waiting for the next permitted source refresh.';
  if(status.state==='paused')return 'Updates paused. Refresh this page to try again. Your saved listing details are still available.';
  return status.readyPhotos<status.knownPhotos?count+'More photos are not available yet.':count;

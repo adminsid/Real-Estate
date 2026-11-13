@@ -2,6 +2,8 @@ import { monitorSnapshot, monitorPage } from './feed-monitor.mjs';
 import { handleProduction } from './production.mjs';
 import { replica } from './replica.mjs';
 import { syncLive } from './sync.mjs';
+import { ingestionMode } from './job-store.mjs';
+import { sourceFetcher } from './source-dispatch.mjs';
 import { escapeHTML } from '../../../scripts/mls-grid/pages.mjs';
 import { authorized } from './access.mjs';
 import { checkFeed, feedPage, checkMemberFeed, memberFeedPage } from './feed-check.mjs';
@@ -35,7 +37,7 @@ function secure(response) {
   return new Response(response.body,{status:response.status,headers});
 }
 
-export async function handleRequest(request, env, {authorize = authorized, feedFetcher = fetch} = {}) {
+export async function handleRequest(request, env, {authorize = authorized, feedFetcher = fetch,schedule=work=>work} = {}) {
   try {
     const url = new URL(request.url), feedOperations = ['/admin','/ops/mls-grid','/ops/mls-members','/ops/mls-sync','/ops/mls-sync/status','/ops/mls-sync.mjs','/ops/mls-sync.css'].includes(url.pathname);
     if (feedOperations && !env.FEED_OPERATOR_EMAIL) return secure(json(403,{error:'Feed operator is not configured.'}));
@@ -62,6 +64,12 @@ export async function handleRequest(request, env, {authorize = authorized, feedF
       const memberCheck=url.pathname==='/ops/mls-members',check=memberCheck?checkMemberFeed:checkFeed,page=memberCheck?memberFeedPage:feedPage;
       let result=null;
       if(request.method==='POST' && env.LIVE_SYNC_ENABLED==='true') {
+        const mode=await ingestionMode(env.LIVE_DB);
+        if(mode==='draining')return secure(json(409,{error:'The importer is switching ownership. Try again shortly.'}));
+        if(mode==='independent'){
+          result=await check(env,sourceFetcher(env,'diagnostic'));
+          return secure(new Response(page(env,result),{headers:{'Content-Type':'text/html; charset=utf-8'}}));
+        }
         const repo=replica(env.LIVE_DB),lease=await repo.acquire();
         if(!lease)return secure(json(409,{error:'A feed sync is already running or paused. Try again later.'}));
         try {
@@ -71,7 +79,7 @@ export async function handleRequest(request, env, {authorize = authorized, feedF
       } else if(request.method==='POST')result=await check(env,feedFetcher);
       return secure(new Response(request.method === 'HEAD' ? null : page(env,result),{headers:{'Content-Type':'text/html; charset=utf-8'}}));
     }
-    if(env.DATASET==='live')return handleProduction(request,{...env,SEARCH_DB:env.LIVE_DB,SEARCH_MEDIA:env.LIVE_MEDIA},{privateReview:true});
+    if(env.DATASET==='live')return handleProduction(request,{...env,SEARCH_DB:env.LIVE_DB,SEARCH_MEDIA:env.LIVE_MEDIA},{privateReview:true,schedule});
     const store = searchStore(env.SEARCH_DB), brand = {...DEFAULT_BRAND,name:'Property search',descriptor:'Staging',tagline:'Synthetic inventory · private testing'};
     if (request.method === 'POST' && url.pathname === '/api/inquiries') {
       if (request.headers.get('Origin') !== origin || request.headers.get('Content-Type')?.split(';')[0] !== 'application/json') return secure(json(403,{error:'Request origin or content type rejected'}));

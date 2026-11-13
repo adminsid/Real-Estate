@@ -3,9 +3,14 @@ import { createClient } from '../../../scripts/mls-grid/client.mjs';
 import { replica } from './replica.mjs';
 import { downloadPhotos } from './live-media.mjs';
 import { processEnrichment } from './enrichment.mjs';
+import { ingestionMode } from './job-store.mjs';
+import { syncFacts } from './facts-sync.mjs';
 
 export async function syncLive(env,{fetcher=fetch,pause,now=()=>Date.now(),maxPages=Math.min(6,Math.max(1,Number.parseInt(env.FEED_BATCH_PAGES,10)||1)),maxPhotos=Math.min(96,Math.max(1,Number.parseInt(env.MEDIA_BATCH_SIZE,10)||12))}={}) {
   if(env.LIVE_SYNC_ENABLED!=='true' || !env.MLS_GRID_ACCESS_TOKEN || !env.LIVE_DB || !env.LIVE_MEDIA)return {status:'disabled'};
+  const mode=await ingestionMode(env.LIVE_DB);
+  if(mode==='draining')return {status:'draining'};
+  if(mode==='independent')return syncFacts(env,{now,maxPages,fetcher:fetcher===fetch?undefined:fetcher});
   const repo=replica(env.LIVE_DB),lease=await repo.acquire(now());if(!lease)return {status:'busy_or_backoff'};
   const wait=pause || (ms=>new Promise(resolve=>setTimeout(resolve,ms)));
   let requestTurn=Promise.resolve();
@@ -103,6 +108,7 @@ export async function syncLive(env,{fetcher=fetch,pause,now=()=>Date.now(),maxPa
 }
 export async function feedReady(db,now=Date.now()) {
   const state=await db.prepare('SELECT initial_complete,last_complete,failure FROM feed_state WHERE source=?').bind('onekey2').first();
+  const control=await db.prepare("SELECT mode,source_failure FROM source_control WHERE source='onekey2'").first();
   const time=Date.parse(state?.last_complete);
-  return Boolean(state?.initial_complete && Number.isFinite(time) && time<=now+60000 && now-time<=12*3600000 && state.failure!=='credentials');
+  return Boolean(state?.initial_complete && Number.isFinite(time) && time<=now+60000 && now-time<=12*3600000 && state.failure!=='credentials' && control?.source_failure!=='credentials');
 }

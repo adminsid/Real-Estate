@@ -10,7 +10,7 @@ export function createRequestPacer(pause = ms => new Promise(resolve => setTimeo
   };
 }
 
-export function createClient({ token, source, endpoint = 'https://api-demo.mlsgrid.com/v2', fetcher = fetch, pause, beforeRequest = createRequestPacer(pause), pageSize = 20, maxResponseBytes = 32 * 1024 * 1024 }) {
+export function createClient({ token, source, endpoint = 'https://api-demo.mlsgrid.com/v2', fetcher = fetch, pause, beforeRequest = createRequestPacer(pause), pageSize = 20, maxResponseBytes = 32 * 1024 * 1024, projection = 'full' }) {
   if (!token || !/^[a-z0-9_-]+$/.test(source || '') || !ENDPOINTS.has(endpoint) || !Number.isInteger(pageSize) || pageSize<1 || pageSize>1000 || !Number.isInteger(maxResponseBytes) || maxResponseBytes<1 || maxResponseBytes>32*1024*1024) {
     throw new Error('Provide a token, valid source, and approved MLS Grid endpoint');
   }
@@ -23,7 +23,7 @@ export function createClient({ token, source, endpoint = 'https://api-demo.mlsgr
     } else if(viewOnly) filter += ' and MlgCanView eq true';
     if(viewOnly && marketOnly) filter += ` and StandardStatus in (${MARKETING_STATUSES.map(status=>`'${status}'`).join(',')})`;
     url.searchParams.set('$filter', filter);
-    url.searchParams.set('$expand', 'Media,Rooms,UnitTypes');
+    if(projection==='full')url.searchParams.set('$expand', 'Media,Rooms,UnitTypes');
     // Small media-expanded pages can be downloaded before their signed URLs expire.
     url.searchParams.set('$top', String(pageSize));
     return url.href;
@@ -53,7 +53,7 @@ export function createClient({ token, source, endpoint = 'https://api-demo.mlsgr
           headers: { Authorization: `Bearer ${token}`, Accept: 'application/json', 'Accept-Encoding': 'gzip,deflate' },
           redirect: 'manual', signal: AbortSignal.timeout(30_000),
         });
-      } catch { throw new Error('MLS Grid connection failed; checkpoint retained'); }
+      } catch(error) { if(error.sourceFailure)throw error;throw new Error('MLS Grid connection failed; checkpoint retained'); }
       if (!response.ok) {
         const error=new Error(`MLS Grid returned HTTP ${response.status}; checkpoint retained`);
         if(response.status===400&&response.body){
@@ -90,6 +90,7 @@ export function createClient({ token, source, endpoint = 'https://api-demo.mlsgr
         if (!row || row.OriginatingSystemName !== source || typeof row.ListingKey !== 'string' || !row.ListingKey || typeof row.MlgCanView !== 'boolean' || typeof row.ModificationTimestamp !== 'string' || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/.test(row.ModificationTimestamp) || !Number.isFinite(Date.parse(row.ModificationTimestamp))) {
           throw new Error('Invalid MLS Grid record; checkpoint retained');
         }
+        if(projection==='full'&&['Media','Rooms','UnitTypes'].some(resource=>row[resource]!==undefined&&!Array.isArray(row[resource])))throw new Error('Invalid MLS Grid expanded resource; checkpoint retained');
       }
       const next = data['@odata.nextLink'] ? validateLink(data['@odata.nextLink']) : null;
       if (next === url) throw new Error('MLS Grid returned a repeated pagination URL');

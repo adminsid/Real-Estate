@@ -61,5 +61,5 @@ export function searchQuery(params = {}, now = new Date(), indexed = false) {
 
 export function mediaQuery(listings, indexed = false) {
   const wanted = [...new Map(listings.map(listing => [JSON.stringify([listing.source,listing.id]),[listing.source,listing.id]])).values()];
-  return { sql: `SELECT m.source,m.listing_id,m.file,m.caption FROM json_each(?) wanted JOIN listing_media m ON m.source=json_extract(wanted.value,'$[0]') AND m.listing_id=json_extract(wanted.value,'$[1]') ${indexed ? "WHERE m.state='ready'" : ''} ORDER BY m.position,m.media_key`, values: [JSON.stringify(wanted)] };
+  return { sql: `SELECT m.source,m.listing_id,m.file,m.caption${indexed?",EXISTS(SELECT 1 FROM ingestion_jobs j WHERE j.kind='variant' AND j.source=m.source AND j.listing_id=m.listing_id AND j.revision=m.file AND j.profile='cardSmall' AND j.state='ready') AS preview_ready":''} FROM json_each(?) wanted JOIN listing_media m ON m.source=json_extract(wanted.value,'$[0]') AND m.listing_id=json_extract(wanted.value,'$[1]') ${indexed ? "WHERE m.state='ready' AND EXISTS(SELECT 1 FROM listing_components c WHERE c.source=m.source AND c.listing_id=m.listing_id AND c.manifest_version=c.core_version)" : ''} ORDER BY m.position,m.media_key`, values: [JSON.stringify(wanted)] };
 }

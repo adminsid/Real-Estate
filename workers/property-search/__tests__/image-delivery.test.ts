@@ -5,6 +5,19 @@ import { handleProduction } from '../src/production.mjs'
 import { syncLive } from '../src/sync.mjs'
 const now=Date.parse('2026-10-13T15:00:00Z')
 describe('Capped responsive photo delivery',()=>{
+ it('serves a prepared smaller image without transforming or substituting a large original',async()=>{
+  const {sqlite,db}=databaseFixture(),input=vi.fn(),cancel=vi.fn(async()=>{})
+  try{
+   const prepared={body:new Uint8Array([1,2]),size:2}
+   const get=vi.fn(async(key:string)=>key.endsWith('-cardSmall.webp')?prepared:key==='original'?{body:{cancel},size:4*1024*1024}:null)
+   const env={SEARCH_DB:db,SEARCH_MEDIA:{get},IMAGES:{input},PREPARED_MEDIA_ONLY:'true',IMAGE_TRANSFORM_LIMIT:'100000'}
+   expect((await imageObject(env,{}, {file:'original',type:'image/jpeg'},'display',{now})).representation).toBe('cardSmall-v1')
+   expect(input).not.toHaveBeenCalled()
+   get.mockImplementation(async(key:string)=>key==='original'?{body:{cancel},size:4*1024*1024}:null)
+   expect(await imageObject(env,{}, {file:'original',type:'image/jpeg'},'cardLarge',{now})).toBeNull()
+   expect(cancel).toHaveBeenCalled();expect(input).not.toHaveBeenCalled()
+  }finally{sqlite.close()}
+ })
  it('stores and reuses a derivative while preserving the original',async()=>{
   const {sqlite,db}=databaseFixture(),objects=new Map<string,Uint8Array>(),store={mediaFile:vi.fn(async()=>({file:'original'}))}
   const get=vi.fn(async(key:string)=>key==='original'?{body:new ReadableStream({start(c){c.enqueue(new Uint8Array([1,2,3]));c.close()}}),size:3}:objects.has(key)?{body:objects.get(key),size:objects.get(key)?.length}:null)
