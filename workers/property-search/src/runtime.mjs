@@ -56,7 +56,7 @@ export async function handleRequest(request, env, {authorize = authorized, feedF
       if(['/ops/mls-sync','/ops/mls-sync/status'].includes(url.pathname)) {
         if(!env.LIVE_DB)return secure(json(503,{error:'Live replica is not configured.'}));
         const result=request.method==='POST'?await syncLive(env,{fetcher:feedFetcher}):null;
-        const snapshot=await monitorSnapshot(env.LIVE_DB);
+        const snapshot=await monitorSnapshot(env.LIVE_DB,Date.now(),{imageTransformLimit:Math.max(0,Number.parseInt(env.IMAGE_TRANSFORM_LIMIT,10)||0)});
         if(url.pathname.endsWith('/status'))return secure(json(200,result?{result,snapshot}:snapshot));
         const html=monitorPage(snapshot,{syncEnabled:env.LIVE_SYNC_ENABLED==='true',result});
         return secure(new Response(request.method==='HEAD'?null:html,{headers:{'Content-Type':'text/html; charset=utf-8'}}));

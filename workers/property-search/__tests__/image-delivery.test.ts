@@ -1,10 +1,33 @@
 import { describe,it,expect,vi } from 'vitest'
 import { databaseFixture } from './production-fixture'
-import { imageObject } from '../src/image-variants.mjs'
+import { imageObject,prepareVariant } from '../src/image-variants.mjs'
 import { handleProduction } from '../src/production.mjs'
 import { syncLive } from '../src/sync.mjs'
 const now=Date.parse('2026-10-13T15:00:00Z')
 describe('Capped responsive photo delivery',()=>{
+ it('never transforms, queues, or reserves budget with a zero limit, including the next month',async()=>{
+  const {sqlite,db}=databaseFixture(),input=vi.fn(),put=vi.fn()
+  const original={body:new Uint8Array([1,2,3]),size:3}
+  const get=vi.fn(async(key:string)=>key==='original'?original:null),head=vi.fn()
+  const env={SEARCH_DB:db,SEARCH_MEDIA:{get,head,put},IMAGES:{input},IMAGE_TRANSFORM_LIMIT:'0'}
+  try{
+   for(const date of [now,Date.parse('2027-01-01T00:00:00Z')]){
+    expect((await imageObject(env,{}, {file:'original',type:'image/jpeg'},'cardSmall',{now:date})).representation).toBe('original')
+    expect(await prepareVariant(env,'original','cardSmall',{now:date})).toBe('paused')
+   }
+   expect(input).not.toHaveBeenCalled();expect(put).not.toHaveBeenCalled();expect(head).not.toHaveBeenCalled()
+   expect(sqlite.prepare('SELECT COUNT(*) AS n FROM image_transform_budget').get()?.n).toBe(0)
+   expect(sqlite.prepare('SELECT COUNT(*) AS n FROM ingestion_jobs').get()?.n).toBe(0)
+  }finally{sqlite.close()}
+ })
+ it('continues serving stored resized images when transformations are disabled',async()=>{
+  const {sqlite,db}=databaseFixture(),input=vi.fn()
+  try{
+   const cached={body:new Uint8Array([1]),size:1},get=vi.fn(async(key:string)=>key.endsWith('-cardSmall.webp')?cached:null)
+   const result=await imageObject({SEARCH_DB:db,SEARCH_MEDIA:{get},IMAGES:{input},IMAGE_TRANSFORM_LIMIT:'0'}, {},{file:'original'},'display',{now})
+   expect(result.representation).toBe('cardSmall-v1');expect(input).not.toHaveBeenCalled()
+  }finally{sqlite.close()}
+ })
  it('serves a prepared smaller image without transforming or substituting a large original',async()=>{
   const {sqlite,db}=databaseFixture(),input=vi.fn(),cancel=vi.fn(async()=>{})
   try{

@@ -15,13 +15,30 @@ async function seeded(extra:Record<string,unknown>={}){
  fixture.sqlite.exec("UPDATE source_control SET mode='independent';UPDATE listing_media SET attempted_at=0")
  const files=new Map<string,{body:Uint8Array,size:number,httpMetadata:{contentType:string}}>()
  const bucket={head:vi.fn(async(key:string)=>files.get(key)||null),get:vi.fn(async(key:string)=>files.get(key)||null),put:vi.fn(async(key:string,body:Uint8Array,options:{httpMetadata:{contentType:string}})=>{files.set(key,{body,size:body.length,httpMetadata:options.httpMetadata})})}
- const env={LIVE_DB:fixture.db,LIVE_MEDIA:bucket,MLS_GRID_ACCESS_TOKEN:'test'}
+ const env={LIVE_DB:fixture.db,LIVE_MEDIA:bucket,MLS_GRID_ACCESS_TOKEN:'test',IMAGE_TRANSFORM_LIMIT:'1000'}
  await requestEnrichment(fixture.db,'onekey2','KEY1',time)
  const id=fixture.sqlite.prepare("SELECT id FROM ingestion_jobs WHERE kind='gallery'").get()?.id as string
  return {...fixture,env,files,bucket,id}
 }
 
 describe('Durable independent media jobs',()=>{
+ it('pauses derivative work without stopping original photo imports or restarting next month',async()=>{
+  const {sqlite,db,env,id}=await seeded(),send=vi.fn(),input=vi.fn()
+  try{
+   await insertJob(db,{kind:'variant',source:'onekey2',id:'KEY1',revision:'file',profile:'cardSmall',now:time}).run()
+   const variant=sqlite.prepare("SELECT id FROM ingestion_jobs WHERE kind='variant'").get()?.id as string
+   const paused={...env,IMAGE_TRANSFORM_LIMIT:'0',VARIANT_JOBS:{send},IMAGES:{input}}
+   expect((await runMediaJob(paused,variant,{now:()=>time})).status).toBe('paused')
+   expect((await runMediaJob(paused,variant,{now:()=>time+32*86400000})).status).toBe('paused')
+   expect(sqlite.prepare("SELECT state,failure FROM ingestion_jobs WHERE kind='variant'").get()).toEqual({state:'paused',failure:'owner_paused_transformations'})
+   expect(await publishJobs(paused,{now:time})).toBe(0)
+   const result=await runMediaJob(paused,id,{now:()=>time,fetcher:async(url:string)=>url.startsWith('https://api.')?Response.json({value:[row()]}):new Response(new Uint8Array([255,216,255,0]))})
+   expect(result.status).toBe('ready');expect(input).not.toHaveBeenCalled();expect(send).not.toHaveBeenCalled()
+   expect(sqlite.prepare("SELECT COUNT(*) AS n FROM ingestion_jobs WHERE kind='variant'").get()?.n).toBe(1)
+   await seedJobs(paused,time)
+   expect(sqlite.prepare('SELECT variant_seed_after FROM source_control').get()?.variant_seed_after).toBe('')
+  }finally{sqlite.close()}
+ })
  it('continues original transfers while derivative queue publication is stalled',async()=>{
   const media=[1,2].map(i=>({MediaKey:'P'+i,Permission:['Public'],Order:i,MediaURL:'https://media.mlsgrid.com/p'+i}))
   const {sqlite,env,id}=await seeded({Media:media}),tracked:Promise<unknown>[]=[]

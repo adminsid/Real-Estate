@@ -2,6 +2,8 @@
 
 Accepted for private-preview canary, November 13, 2026. Supersedes the shared lease and cron-only gallery scheduling in ADRs 016–017. Public release remains gated.
 
+**November 15 owner override:** image transformations and inventory-wide derivative warmup are paused for testing costs. Both search configurations use a zero transformation limit and no Images binding or variant queue connection. Existing derivatives/originals remain available under the current permission gates. Do not resume paid preparation without a new explicit owner-approved testing budget. The original preparation decision below is historical; see [shutdown evidence](../verification/image-transformation-shutdown.md).
+
 The primary traversal remains sequential. It requests unexpanded Property pages of 100 rows, retains the reviewed scalar field inventory, and atomically commits facts, tombstones, component versions, work records and the exact cursor. Calendar-minute due checks avoid completion-time jitter skipping a poll. Primary leases never include photo transfers or geocoding.
 
 Core and complete manifest versions are independent. An unrequested expansion cannot erase retained photos. A newer core version hides an unvalidated old manifest until a complete, current hydration validates it; tied versions can fill missing projections. Stale jobs cannot defeat newer facts, permissions or tombstones. The read path checks current manifest eligibility before images, derivatives and conditional responses.

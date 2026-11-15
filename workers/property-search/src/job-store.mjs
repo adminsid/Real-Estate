@@ -1,4 +1,5 @@
 export const jobId = (kind, source, id, revision, profile = '') => JSON.stringify([kind, source, id, revision, profile]);
+import { imagePreparationEnabled } from './image-policy.mjs';
 
 // Used inside replica.batch: facts/checkpoint and their durable work commit together.
 export function insertJob(db, {kind, source, id, revision, profile = '', now}, guard = '1=1', values = []) {
@@ -23,6 +24,7 @@ export async function publishJobs(env, {now = Date.now(), limit = 24} = {}) {
   // admitted gallery, and galleries must not prevent covers/variants publishing.
   const jobs=[];
   for(const [kind,share] of [['gallery',0.5],['cover',0.25],['variant',0.25]]){
+    if(kind==='variant'&&!imagePreparationEnabled(env))continue;
     const room=Math.max(1,Math.floor(limit*share));
     let urgent=[];
     if(kind==='variant'){

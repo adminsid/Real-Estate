@@ -1,6 +1,7 @@
 export const IMAGE_VARIANTS={thumb:{width:160,quality:84},cardSmall:{width:480,quality:86},card:{width:720,quality:86},cardLarge:{width:1080,quality:88},display:{width:1600,quality:92},displayLarge:{width:2560,quality:92}};
 import { searchStore } from './store.mjs';
 import { insertJob } from './job-store.mjs';
+import { imagePreparationEnabled } from './image-policy.mjs';
 async function boundedBytes(response){
  if(!response.ok||!response.body)throw Error('Image optimization unavailable');
  const reader=response.body.getReader(),chunks=[];let size=0;
@@ -10,6 +11,16 @@ async function boundedBytes(response){
 export async function imageObject(env,store,record,variant,{now=Date.now()}={}){
  const bucket=env.SEARCH_MEDIA,key=variant?'optimized/v1/'+record.file+'-'+variant+'.webp':record.file;
  if(variant){const cached=await bucket.get(key);if(cached)return {object:cached,type:'image/webp',representation:variant+'-v1'};}
+ if(variant&&!imagePreparationEnabled(env)){
+  for(const profile of ['cardSmall','cardLarge','display']){
+   if(profile===variant)continue;
+   const cached=await bucket.get('optimized/v1/'+record.file+'-'+profile+'.webp');
+   if(cached)return {object:cached,type:'image/webp',representation:profile+'-v1'};
+  }
+  const original=await bucket.get(record.file);if(!original)return null;
+  if(env.PREPARED_MEDIA_ONLY==='true'&&original.size>150*1024){await original.body?.cancel?.();return null;}
+  return {object:original,type:record.type,representation:'original'};
+ }
  if(variant&&env.PREPARED_MEDIA_ONLY==='true'){
   // The read path never invokes Images or substitutes an unbounded original.
   // Fixed profile jobs are deduplicated and published by the durable outbox.
@@ -48,13 +59,13 @@ export async function imageObject(env,store,record,variant,{now=Date.now()}={}){
 
 export async function prepareVariant(env,file,profile,{now=Date.now()}={}){
  if(!Object.hasOwn(IMAGE_VARIANTS,profile))throw Error('Invalid image size');
+ if(!imagePreparationEnabled(env)||!env.IMAGES)return 'paused';
  const store=searchStore(env.SEARCH_DB,{production:true}),record=await store.mediaFile(file);
  if(!record)return 'unavailable';
  const key='optimized/v1/'+file+'-'+profile+'.webp';
  if(await env.SEARCH_MEDIA.head(key))return 'ready';
  const original=await env.SEARCH_MEDIA.get(file);if(!original)return 'unavailable';
  const limit=Math.min(100000,Math.max(0,Number.parseInt(env.IMAGE_TRANSFORM_LIMIT,10)||0)),month=new Date(now).toISOString().slice(0,7);
- if(!limit||!env.IMAGES){await original.body?.cancel?.();return 'budget';}
  const reserved=await env.SEARCH_DB.prepare('INSERT INTO image_transform_budget VALUES (?,1) ON CONFLICT(month) DO UPDATE SET attempts=attempts+1 WHERE attempts<?').bind(month,limit).run();
  if(!reserved.meta.changes){await original.body?.cancel?.();return 'budget';}
  const spec=IMAGE_VARIANTS[profile];

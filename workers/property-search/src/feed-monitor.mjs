@@ -1,6 +1,6 @@
 import { escapeHTML } from '../../../scripts/mls-grid/pages.mjs';
 const labels={initial:'Importing current inventory',catchup:'Checking changes and removals',reconcile:'Removing listings absent from the fresh inventory',delta:'Keeping listings up to date'};
-export async function monitorSnapshot(db,now=Date.now()){
+export async function monitorSnapshot(db,now=Date.now(),{imageTransformLimit=0}={}){
  const state=await db.prepare(`SELECT phase,initial_complete,last_complete,last_attempt,failure,retry_after,lease_until,last_result,last_result_at FROM feed_state WHERE source='onekey2'`).first();
  if(!state)throw Error('Feed state is not initialized');
  const cached=await db.prepare('SELECT captured_at,counts_json FROM feed_monitor_counts WHERE id=1').first();
@@ -25,10 +25,10 @@ export async function monitorSnapshot(db,now=Date.now()){
  const jobs=await db.prepare(`SELECT kind,state,COUNT(*) AS total,MIN(requested_at) AS oldest,
   SUM(failure='source_has_no_public_photo') AS noSourcePhotos,SUM(failure='transform_budget') AS budgetPaused
   FROM ingestion_jobs GROUP BY kind,state`).all();
- const ingestion={...control,jobs:jobs.results,transformLimit:100000};
+ const ingestion={...control,jobs:jobs.results,transformLimit:imageTransformLimit,transformationsPaused:imageTransformLimit===0};
  state.failure=control?.source_failure||state.failure;
  let lastRun=null;try{lastRun=state.last_result?JSON.parse(state.last_result):null;}catch{/* Keep current counts available if the summary is malformed. */}
- return {ingestion,demand,countsAt:new Date(capturedAt).toISOString(),observedAt:new Date(now).toISOString(),phase:labels[state.phase]||'Import not started',initialComplete:Boolean(state.initial_complete),running:state.lease_until>now,retryAt:state.retry_after>now?new Date(state.retry_after).toISOString():null,lastAttempt:state.last_attempt,lastComplete:state.last_complete,health:state.failure||'No recorded failure',lastRun,lastRunAt:state.last_result_at,inventory,photos:Object.fromEntries(media.results.map(row=>[row.state,row.total])),sourceRecords:versions.total,locationRefresh:refresh?{processed:refresh.processed,complete:Boolean(refresh.complete),lastAttempt:refresh.last_attempt,failure:refresh.failure}:null,budget:{...budget,hourlyRequestLimit:6000,hourlyByteLimit:3000000000,dailyRequestLimit:35000,dailyByteLimit:50000000000,geocoderRequests:geocoding?.requests||0,geocoderLimit:1000,imageTransformAttempts:transformations?.attempts||0,imageTransformLimit:control?.mode==='independent'?100000:1000}};
+ return {ingestion,demand,countsAt:new Date(capturedAt).toISOString(),observedAt:new Date(now).toISOString(),phase:labels[state.phase]||'Import not started',initialComplete:Boolean(state.initial_complete),running:state.lease_until>now,retryAt:state.retry_after>now?new Date(state.retry_after).toISOString():null,lastAttempt:state.last_attempt,lastComplete:state.last_complete,health:state.failure||'No recorded failure',lastRun,lastRunAt:state.last_result_at,inventory,photos:Object.fromEntries(media.results.map(row=>[row.state,row.total])),sourceRecords:versions.total,locationRefresh:refresh?{processed:refresh.processed,complete:Boolean(refresh.complete),lastAttempt:refresh.last_attempt,failure:refresh.failure}:null,budget:{...budget,hourlyRequestLimit:6000,hourlyByteLimit:3000000000,dailyRequestLimit:35000,dailyByteLimit:50000000000,geocoderRequests:geocoding?.requests||0,geocoderLimit:1000,imageTransformAttempts:transformations?.attempts||0,imageTransformLimit}};
 }
 export function monitorPage(snapshot,{syncEnabled=false,result=null}={}){
  const safe=escapeHTML;

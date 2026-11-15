@@ -2,6 +2,8 @@
 
 This runbook applies only to `prime-property-search-staging`, its live search replica and private media bucket. Never use the Workspace database or synthetic staging database. Public search publication is a separate decision.
 
+**Current cost policy, November 15:** the owner stopped image transformations. Leave `prime-search-variants` delivery paused, its consumer/producer bindings removed, and both transformation limits at zero. Do not restart image warmup as part of a deployment or calendar-month reset. The retained D1 work and R2 images do not require transformations to remain available.
+
 ## Deploy
 
 1. Pass repository tests, typecheck, build, both search typechecks, production search build and preview Wrangler dry run. Review migration 0010 and fault tests. Record the current deployment and a sanitized feed snapshot. Verify public search is still gated.

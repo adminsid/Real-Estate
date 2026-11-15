@@ -21,8 +21,7 @@
     "run_worker_first": true
   },
   "queues":{"producers":[
-    {"binding":"GALLERY_JOBS","queue":"prime-search-galleries"},
-    {"binding":"VARIANT_JOBS","queue":"prime-search-variants"}
+    {"binding":"GALLERY_JOBS","queue":"prime-search-galleries"}
   ]},
   "observability": {
     "enabled": true,

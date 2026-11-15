@@ -4,6 +4,7 @@ import { downloadPhotos } from './live-media.mjs';
 import { sourceFetcher } from './source-dispatch.mjs';
 import { claimJob, finishJob, insertJob, publishJobs, ingestionMode } from './job-store.mjs';
 import { prepareVariant } from './image-variants.mjs';
+import { imagePreparationEnabled } from './image-policy.mjs';
 
 const HOUR = 3600000;
 
@@ -45,7 +46,7 @@ export async function seedJobs(env, now = Date.now()) {
   if (covers.results.length) await db.batch(covers.results.map(row => insertJob(db, {kind:'cover', source:row.source, id:row.id, revision:row.core_version, now})));
   // Warm just one current cover per listing. Gallery derivatives are demand work.
   const seed=await db.prepare("SELECT variant_seed_after,variant_seed_complete FROM source_control WHERE source='onekey2'").first();
-  if(!seed.variant_seed_complete){
+  if(imagePreparationEnabled(env)&&!seed.variant_seed_complete){
     const originals = await db.prepare(`SELECT l.source,l.id AS listing_id,(SELECT file FROM listing_media m
       WHERE m.source=l.source AND m.listing_id=l.id AND m.state='ready' ORDER BY position,media_key LIMIT 1) AS file
       FROM listings l JOIN listing_components c ON c.source=l.source AND c.listing_id=l.id AND c.manifest_version=c.core_version
@@ -64,7 +65,9 @@ export async function seedJobs(env, now = Date.now()) {
   await db.prepare("UPDATE ingestion_jobs SET state='dead_letter',failure='attempt_limit',claim_token=NULL,claim_until=0 WHERE attempts>=8 AND state IN ('pending','retry_wait','claimed') AND claim_until<=?").bind(now).run();
 }
 
-async function variantsForReady(db, job, now) {
+async function variantsForReady(env, job, now) {
+  if(!imagePreparationEnabled(env))return;
+  const db=env.LIVE_DB;
   const media = await db.prepare("SELECT file FROM listing_media WHERE source=? AND listing_id=? AND state='ready' ORDER BY position,media_key LIMIT 200").bind(job.source, job.listing_id).all();
   const selected = job.kind === 'cover' ? media.results.slice(0,1) : media.results;
   const profiles = job.kind === 'cover' ? ['cardSmall','cardLarge'] : ['cardSmall','display'];
@@ -72,7 +75,15 @@ async function variantsForReady(db, job, now) {
 }
 
 export async function runMediaJob(env, id, {now = () => Date.now(), fetcher,schedule=work=>work} = {}) {
-  const db = env.LIVE_DB, job = await claimJob(db, id, now());
+  const db = env.LIVE_DB;
+  if(!imagePreparationEnabled(env)){
+    const candidate=await db.prepare('SELECT kind FROM ingestion_jobs WHERE id=?').bind(id).first();
+    if(candidate?.kind==='variant'){
+      await db.prepare("UPDATE ingestion_jobs SET state='paused',failure='owner_paused_transformations',claim_token=NULL,claim_until=0,published_until=0 WHERE id=? AND state IN ('pending','retry_wait','claimed')").bind(id).run();
+      return {status:'paused'};
+    }
+  }
+  const job = await claimJob(db, id, now());
   if (!job) return {status:'duplicate_or_deferred'};
   let result;
   try {
@@ -83,7 +94,8 @@ export async function runMediaJob(env, id, {now = () => Date.now(), fetcher,sche
     }
     if (job.kind === 'variant') {
       const prepared = await prepareVariant({...env, SEARCH_DB:db, SEARCH_MEDIA:env.LIVE_MEDIA}, job.revision, job.profile, {now:now()});
-      if (prepared === 'budget') {
+      if(prepared==='paused')await finishJob(db,job,{state:'paused',failure:'owner_paused_transformations',now:now()});
+      else if (prepared === 'budget') {
         const date = new Date(now());
         await finishJob(db, job, {state:'retry_wait', retryAt:Date.UTC(date.getUTCFullYear(), date.getUTCMonth()+1, 1), failure:'transform_budget', now:now()});
       } else await finishJob(db, job, {state:prepared === 'unavailable' ? 'superseded' : 'ready', now:now()});
@@ -100,7 +112,7 @@ export async function runMediaJob(env, id, {now = () => Date.now(), fetcher,sche
     }
     const cover = await db.prepare("SELECT COUNT(*) AS n FROM listing_media WHERE source=? AND listing_id=? AND state='ready'").bind(job.source, job.listing_id).first();
     if (current.manifest_version === current.core_version && (job.kind === 'cover' && cover.n || job.kind === 'gallery' && !pending.n)) {
-      await variantsForReady(db, job, now()); await finishJob(db, job, {now:now()});
+      await variantsForReady(env, job, now()); await finishJob(db, job, {now:now()});
       return {status:'already_ready'};
     }
     if (!/^[A-Za-z0-9_-]+$/.test(current.provider_id || '')) throw Error('Source listing identifier unavailable');
@@ -123,6 +135,7 @@ export async function runMediaJob(env, id, {now = () => Date.now(), fetcher,sche
     result = await downloadPhotos(page.rows, env, async () => {}, {
       fetcher:sourceFetch, maxDownloads:96, concurrency:1, now, deadline:now()+120000, coversOnly:job.kind==='cover', job,
       onReady:async photo=>{
+        if(!imagePreparationEnabled(env))return;
         const profiles=job.kind==='cover'?['cardSmall','cardLarge']:['cardSmall','display'];
         await db.batch(profiles.map(profile=>insertJob(db,{kind:'variant',source:photo.source,id:photo.id,revision:photo.file,profile,now:now()})));
         // Queue publication is tracked by the queue invocation, but need not hold
@@ -130,7 +143,7 @@ export async function runMediaJob(env, id, {now = () => Date.now(), fetcher,sche
         await schedule(publishJobs(env,{now:now(),limit:8}));
       },
     });
-    await variantsForReady(db, job, now());
+    await variantsForReady(env, job, now());
     const remaining = await db.prepare("SELECT COUNT(*) AS n FROM listing_media WHERE source=? AND listing_id=? AND state!='ready'").bind(job.source, job.listing_id).first();
     const total = await db.prepare('SELECT COUNT(*) AS n FROM listing_media WHERE source=? AND listing_id=?').bind(job.source,job.listing_id).first();
     const complete = !total.n || (job.kind === 'cover' ? Boolean((await db.prepare('SELECT has_photos FROM listings WHERE source=? AND id=?').bind(job.source, job.listing_id).first())?.has_photos) : !remaining.n);
