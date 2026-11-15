@@ -11,6 +11,7 @@ import { searchStore } from './store.mjs';
 import { validateInquiry } from '../../../scripts/mls-grid/consumer.mjs';
 import { DEFAULT_BRAND, brandCSS } from '../../../scripts/mls-grid/brand.mjs';
 import { publicOrigin, renderPage, embedDemo } from '../../../scripts/mls-grid/pages.mjs';
+import { mediaProcessing } from './media-processing.mjs';
 
 const assets = new Set(['/location-model.mjs','/vendor/maplibre-4.7.1.js','/vendor/maplibre-worker-4.7.1.js','/vendor/maplibre-4.7.1.css','/vendor/MAPLIBRE-LICENSE.txt','/bottom-dock.mjs','/bottom-dock.css','/app.mjs','/listing-enrichment.mjs','/consumer.mjs','/search-filters.mjs','/discovery.mjs','/search-map.mjs','/nyc-boroughs.json','/discovery.css','/search-icon.svg','/brand.mjs','/brand-editor.mjs','/embed.mjs','/embed-loader.js','/style.css']);
 const json = (status, body) => Response.json(body,{status});
@@ -33,13 +34,13 @@ function secure(response) {
   headers.set('X-Robots-Tag','noindex, nofollow');
   headers.set('X-Content-Type-Options','nosniff');
   headers.set('Referrer-Policy','same-origin');
-  headers.set('Content-Security-Policy',"default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob: https://tiles.openfreemap.org; connect-src 'self' https://tiles.openfreemap.org; worker-src 'self'; frame-src 'self'; object-src 'none'; frame-ancestors 'self'; base-uri 'none'; form-action 'self'");
+  headers.set('Content-Security-Policy',"default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob: https://tiles.openfreemap.org; media-src 'self'; connect-src 'self' https://tiles.openfreemap.org; worker-src 'self'; frame-src 'self'; object-src 'none'; frame-ancestors 'self'; base-uri 'none'; form-action 'self'");
   return new Response(response.body,{status:response.status,headers});
 }
 
 export async function handleRequest(request, env, {authorize = authorized, feedFetcher = fetch,schedule=work=>work} = {}) {
   try {
-    const url = new URL(request.url), feedOperations = ['/admin','/ops/mls-grid','/ops/mls-members','/ops/mls-sync','/ops/mls-sync/status','/ops/mls-sync.mjs','/ops/mls-sync.css'].includes(url.pathname);
+    const url = new URL(request.url), mediaOperations = url.pathname === '/ops/media-processing' || url.pathname.startsWith('/ops/media-processing/'), feedOperations = mediaOperations || ['/admin','/ops/mls-grid','/ops/mls-members','/ops/mls-sync','/ops/mls-sync/status','/ops/mls-sync.mjs','/ops/mls-sync.css'].includes(url.pathname);
     if (feedOperations && !env.FEED_OPERATOR_EMAIL) return secure(json(403,{error:'Feed operator is not configured.'}));
     if (!await authorize(request,env,undefined,Date.now(),feedOperations ? env.FEED_OPERATOR_EMAIL : null)) return secure(json(403,{error:'Private staging. Sign in through Cloudflare Access.'}));
     const origin = publicOrigin(env.PUBLIC_ORIGIN);
@@ -48,6 +49,7 @@ export async function handleRequest(request, env, {authorize = authorized, feedF
     if (feedOperations) {
       if (!['GET','HEAD','POST'].includes(request.method)) return secure(json(405,{error:'Method not allowed'}));
       if (request.method === 'POST' && request.headers.get('Origin') !== origin) return secure(json(403,{error:'Request origin rejected'}));
+      if (mediaOperations) return secure(await mediaProcessing(request, env));
       if(url.pathname==='/admin')return secure(new Response(null,{status:302,headers:{Location:'/ops/mls-sync'}}));
       if(['/ops/mls-sync.mjs','/ops/mls-sync.css'].includes(url.pathname)){
         if(!['GET','HEAD'].includes(request.method))return secure(json(405,{error:'Method not allowed'}));
