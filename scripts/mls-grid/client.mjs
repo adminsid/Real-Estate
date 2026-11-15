@@ -110,6 +110,7 @@ export function publicProjection(row) {
   // RESO's listing-level total is independent of downloaded media. A complete,
   // permission-filtered manifest takes precedence at read time when available.
   if (Number.isSafeInteger(row.PhotosCount) && row.PhotosCount >= 0) projected.PhotosCount = row.PhotosCount;
+  if (typeof row.OriginalEntryTimestamp === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,30})?Z$/.test(row.OriginalEntryTimestamp) && Number.isFinite(Date.parse(row.OriginalEntryTimestamp))) projected.OriginalEntryTimestamp = row.OriginalEntryTimestamp;
   for (const field of [...PUBLIC_FIELDS, ...(projected.addressWithheld ? [] : ADDRESS_FIELDS)]) {
     const value = row[field];
     if(['PostalCity','KEY_ManNYNeighborhood','KEY_Hamlet','KEY_Village','SubdivisionName'].includes(field)&&value!==null&&typeof value!=='string')continue;

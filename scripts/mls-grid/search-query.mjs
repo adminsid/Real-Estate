@@ -51,6 +51,9 @@ export function searchQuery(params = {}, now = new Date(), indexed = false) {
   if (!Number.isSafeInteger(requestedOffset) || requestedOffset < 0) throw new Error('Invalid offset');
   const sorts = { priceAsc: 'price IS NULL,price ASC', priceDesc: 'price IS NULL,price DESC', newest: "json_extract(public_json,'$.OnMarketDate') IS NULL,json_extract(public_json,'$.OnMarketDate') DESC" };
   if(indexed) { sorts.priceAsc='missing_price,price ASC'; sorts.priceDesc='missing_price,price DESC'; sorts.newest='missing_date,on_market_date DESC'; }
+  // A new arrival must not disappear behind a full page of same-day listings.
+  // Price/status edits use ModificationTimestamp and must not move old entries up.
+  sorts.newest+=",COALESCE(julianday(json_extract(public_json,'$.OriginalEntryTimestamp')),0) DESC,id DESC";
   const preferred=featureList(params.preferred);
   sorts.best=preferred.length ? `(${preferred.map(key=>`CASE WHEN ${featureSQL(key)} THEN 1 ELSE 0 END`).join('+')}) DESC,${sorts.newest}` : sorts.newest;
   const sort = params.sort || 'priceAsc';

@@ -248,6 +248,9 @@ main{max-width:1500px;padding:20px 28px 40px}
 .card-actions button{padding:8px 10px;font-size:var(--support-size);background:#fff}
 .photo-tag{font-size:12px;padding:4px 8px;bottom:12px;left:12px;background:#192b35e8;color:#fff;border-radius:5px}
 .showcase-photo .photo-tag{top:12px;right:12px;bottom:auto;left:auto}
+.search-updates{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:10px 12px;margin-bottom:12px;background:var(--surface,#f4f7f5);border:1px solid var(--border,#d9e2df);border-radius:8px}
+.search-updates[hidden]{display:none}
+#search-dock .search-updates{margin:0;border-radius:0;border-width:0 0 1px}
 .save-home{top:12px;right:12px;box-shadow:0 2px 8px #0001;border:1px solid #ffffffcc;background:#fffffff2;color:var(--ink)}
 .photo-step{opacity:0;pointer-events:none;transition:opacity .15s}
 .card-media:hover .photo-step,.card-media:focus-within .photo-step{opacity:1;pointer-events:auto}

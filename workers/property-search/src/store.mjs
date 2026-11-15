@@ -1,5 +1,6 @@
 import { searchQuery, mediaQuery } from '../../../scripts/mls-grid/search-query.mjs';
 import { discoveryQueries, discoveryResult } from '../../../scripts/mls-grid/discovery-data.mjs';
+import { searchCheckpoints } from './search-checkpoints.mjs';
 
 const safeListing = listing => {
   if (listing.addressWithheld) {
@@ -63,12 +64,12 @@ export function searchStore(db, {production = false} = {}) {
     },
     async search(params = {}, now = new Date()) {
       const { where, values, limit, requestedOffset, sort, sortExpression, mediaCondition, belowCondition, recentCondition } = searchQuery(params, now,production);
+      // Capture before reading results. Tagging old results with a later commit
+      // would conceal that change from open-page update detection indefinitely.
+      const checkpoints=production?await searchCheckpoints(db):await rows('SELECT source,complete,updated_at FROM checkpoints');
       const stats = await first(`SELECT COUNT(*) AS total, SUM(CASE WHEN ${mediaCondition} THEN 1 ELSE 0 END) AS withPhotos, SUM(CASE WHEN ${belowCondition} THEN 1 ELSE 0 END) AS belowOriginal, SUM(CASE WHEN ${recentCondition} THEN 1 ELSE 0 END) AS recentlyListed FROM listings WHERE ${where}`, values);
       const total = production ? Math.min(stats.total,2500) : stats.total, offset = Math.min(Math.floor(requestedOffset / limit) * limit, Math.max(0, Math.ceil(total / limit) - 1) * limit);
-      const [records, checkpoints] = await Promise.all([
-        rows(`SELECT * FROM listings WHERE ${where} ORDER BY ${sortExpression},id,source LIMIT ? OFFSET ?`, [...values,Math.min(limit,total-offset),offset]),
-        rows(production ? 'SELECT source,initial_complete AS complete,last_complete AS updated_at FROM feed_state' : 'SELECT source,complete,updated_at FROM checkpoints'),
-      ]);
+      const records=await rows(`SELECT * FROM listings WHERE ${where} ORDER BY ${sortExpression},id,source LIMIT ? OFFSET ?`, [...values,Math.min(limit,total-offset),offset]);
       const listings = await attach(records,{cards:true});
       const candidates = listings.filter(listing => listing.media.length), showcase = [];
       while(candidates.length && showcase.length < 2) {

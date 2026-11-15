@@ -5,8 +5,9 @@ import { feedReady } from './sync.mjs';
 import { requestEnrichment,enrichmentStatus } from './enrichment.mjs';
 import { publishJobs } from './job-store.mjs';
 import { DEFAULT_BRAND,brandCSS } from '../../../scripts/mls-grid/brand.mjs';
+import { searchCheckpoints } from './search-checkpoints.mjs';
 import { publicOrigin,renderPage,escapeHTML } from '../../../scripts/mls-grid/pages.mjs';
-const assets=new Set(['/location-model.mjs','/vendor/maplibre-4.7.1.js','/vendor/maplibre-worker-4.7.1.js','/vendor/maplibre-4.7.1.css','/vendor/MAPLIBRE-LICENSE.txt','/bottom-dock.mjs','/bottom-dock.css','/app.mjs','/listing-enrichment.mjs','/consumer.mjs','/search-filters.mjs','/discovery.mjs','/search-map.mjs','/nyc-boroughs.json','/discovery.css','/search-icon.svg','/brand.mjs','/brand-editor.mjs','/embed.mjs','/embed-loader.js','/style.css','/mls-grid.png','/onekey.png']);
+const assets=new Set(['/location-model.mjs','/vendor/maplibre-4.7.1.js','/vendor/maplibre-worker-4.7.1.js','/vendor/maplibre-4.7.1.css','/vendor/MAPLIBRE-LICENSE.txt','/bottom-dock.mjs','/bottom-dock.css','/app.mjs','/search-updates.mjs','/listing-enrichment.mjs','/consumer.mjs','/search-filters.mjs','/discovery.mjs','/search-map.mjs','/nyc-boroughs.json','/discovery.css','/search-icon.svg','/brand.mjs','/brand-editor.mjs','/embed.mjs','/embed-loader.js','/style.css','/mls-grid.png','/onekey.png']);
 export function productionHeaders(response,{privateReview=false,noindex=false}={}) {
   const headers=new Headers(response.headers);
   // Eligibility and freshness are checked on every read. No cached revoked listings or photos.
@@ -49,6 +50,7 @@ export async function handleProduction(request,env,{privateReview=false,now=Date
       if(env.GALLERY_JOBS)await schedule(publishJobs(env,{now,limit:8}));
       response=Response.json({enrichment},{status:enrichment.state==='capacity_deferred'?429:['queued','waiting'].includes(enrichment.state)?202:200});
     }
+    else if(url.pathname==='/api/search-updates')response=Response.json({checkpoints:await searchCheckpoints(env.SEARCH_DB)});
     else if(url.pathname==='/api/brand')response=Response.json({brand,demo:false,readOnly:true});
     else if(url.pathname==='/theme.css')response=new Response(brandCSS(brand),{headers:{'Content-Type':'text/css; charset=utf-8'}});
     else if(assets.has(url.pathname))response=await env.ASSETS.fetch(request);

@@ -1,4 +1,5 @@
 import { followListing,enrichmentMessage } from './listing-enrichment.mjs';
+import { watchSearchUpdates } from './search-updates.mjs';
 import { initializeBrand } from './brand-editor.mjs';
 import { initializeBottomDock } from './bottom-dock.mjs';
 import { initializeDiscovery } from './discovery.mjs';
@@ -60,6 +61,12 @@ $('.photo-stage').addEventListener('touchend',event=>{if(!touchStart||event.chan
 const form = $('#search');
 let discovery,bottomDock;
 let offset = 0, controller, requestVersion = 0, debounce, pageData;
+const updates = el('div','','search-updates');updates.hidden = true;
+updates.id='search-updates';
+const updateNotice = el('span','Listing updates are available.'), showLatest = action('Show latest matches',()=>{
+ $('#sort').value='newest';preferences.sort='newest';persist();updates.hidden=true;offset=0;focusIndex=0;search(true);
+},'secondary');
+updateNotice.setAttribute('role','status');updates.append(updateNotice,showLatest);$('#discovery-layout').before(updates);
 let focusIndex = Math.max(0,Math.min(95,Number.parseInt(new URLSearchParams(location.search).get('focus'),10)||0));
 const storageKey = 'prime-america-search-v1';
 let preferences = { density:'3', view:'grid', textSize:'standard', limit:'24', sort:'priceAsc', saved:[], searches:[] };
@@ -262,7 +269,7 @@ async function search(pageNavigation=false) {
  try {
   const response=await fetch('/api/search?'+apiParams,{signal});if(!response.ok)throw Error();const data=await response.json();
   if(signal.aborted||version!==requestVersion)return;offset=data.offset;params.set('offset',offset);params.set('density',$('#density').value);params.set('view',$('#view').value);history.replaceState(null,'','?'+params);$('#open-full-search').href=document.body.dataset.publicOrigin+'/?'+params;
-  pageData=data;renderResults();if(!data.total){$('#focus-navigation').hidden=true;$('#results').replaceChildren();}
+  pageData=data;updates.hidden=true;renderResults();if(!data.total){$('#focus-navigation').hidden=true;$('#results').replaceChildren();}
   if(!data.total){const empty=el('div','','empty-results');empty.append(el('h3',form.elements.savedOnly.value==='1'?'Your saved homes will appear here.':'A little more room to explore.'),el('p',form.elements.savedOnly.value==='1'?'Save a home with the heart button. Saved homes also need to match your other filters.':(production?'No properties':'No demo properties')+' match all these choices. Broaden an area, price range, or property type.'),action('Reset filters',()=>{resetSearchForm();scheduleSearch(0);}));if(form.elements.photosOnly.value==='1')empty.append(action('Include listings without imported photos',()=>{form.elements.photosOnly.value='';scheduleSearch(0);},'secondary'));$('#results').append(empty);}
   if(!data.total)$('#summary').textContent=production?'No matching properties':'No matching demo properties';
   renderShowcase(data);renderPages(data);updateSavedButtons();updateViewURL();
@@ -474,4 +481,15 @@ discovery=initializeDiscovery({form,search:()=>scheduleSearch(0),renderCard:card
 bottomDock=initializeBottomDock();
 const route=location.pathname.match(/^\/listing\/([^/]+)\/([^/]+)$/);
 if(route){$('#search-page').hidden=true;$('#listing-page').hidden=false;$('#back-results').href='/'+location.search;try{const response=await fetch(`/api/listing/${route[1]}/${route[2]}`);if(!response.ok)throw Error();const data=await response.json();renderListing(data.listing);if(production){stopListingRefresh=watchListing(data.listing);window.addEventListener('pagehide',()=>stopListingRefresh?.(),{once:true});}}catch{$('#listing-content').replaceChildren();$('#listing-content').append(el('div','This listing is unavailable. Return to the results to find another property.','error-panel'));}}
-else{const params=new URLSearchParams(location.search);for(const control of form.elements)if(control.name&&params.has(control.name))control.value=params.get(control.name);const restored=Number(params.get('offset')||0);offset=Number.isSafeInteger(restored)&&restored>=0?restored:0;search();}
+else{const params=new URLSearchParams(location.search);for(const control of form.elements)if(control.name&&params.has(control.name))control.value=params.get(control.name);const restored=Number(params.get('offset')||0);offset=Number.isSafeInteger(restored)&&restored>=0?restored:0;search();
+ if(production){
+  let stop;
+  const start=()=>{stop?.();stop = watchSearchUpdates({
+   getCurrent:()=>$('#results').getAttribute('aria-busy')==='true'?null:{key:location.search,version:pageData?.checkpoints?.[0]?.version},
+   onUpdate:()=>{updates.hidden=false;},
+   onChecked:checkpoint=>{$('#freshness').textContent='Last MLS feed check: '+stamp(checkpoint.updated_at);},
+  });};
+  start();window.addEventListener('pagehide',()=>stop?.());
+  window.addEventListener('pageshow',event=>{if(event.persisted)start();});
+ }
+}

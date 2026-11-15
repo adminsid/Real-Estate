@@ -13,6 +13,7 @@ export function initializeBottomDock() {
     destination.append(element);
   }
   const form = $('#search'), actions = $('.result-actions'), browse = $('.browse-layout');
+  const updates = $('#search-updates');
   const layout = $('.map-view-switch'), save = $('#save-search'), pagination = $('.pagination');
   const previous = $('#previous'), next = $('#next'), comparison = $('#comparison-tray');
   const mapControls = $('#map-controls'), mapAreas = $('#map-areas'), mapSearch = $('#map-search-area');
@@ -58,6 +59,7 @@ export function initializeBottomDock() {
     $('#skip-controls').hidden = selected !== 'bottom' || location.pathname.startsWith('/listing/');
     for (const anchor of document.querySelectorAll('#search-page a[href]')) { const url = new URL(anchor.href,location.href); if (url.pathname.startsWith('/listing/')) { url.searchParams.set('controls',selected); anchor.href = url.href; } }
     if (selected === 'bottom') {
+      if(updates){move(updates,dock);dock.prepend(updates);}
       move(form,$('#dock-search-body'));
       move(actions,$('#dock-view-body')); move(browse,$('#dock-view-body'));
       move(layout,$('#dock-layout')); move(save,$('#dock-actions'));

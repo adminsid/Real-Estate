@@ -19,6 +19,20 @@ async function seeded() {
  return {...fixture,lease}
 }
 describe('Production listing replica',()=>{
+ it('serves a read-only update token without photos, source requests, or cursor disclosure',async()=>{
+  const {sqlite,db}=await seeded(),env=configure(db)
+  try{
+   const response=await handleProduction(new Request(env.PUBLIC_ORIGIN+'/api/search-updates'),env,{now})
+   expect(response.status).toBe(200)
+   const data=await response.json()
+   expect(data.checkpoints).toHaveLength(1)
+   expect(data.checkpoints[0].version).toMatch(/^[a-f0-9]{64}$/)
+   expect(Object.keys(data.checkpoints[0]).sort()).toEqual(['complete','source','updated_at','version'])
+   expect(response.headers.get('Cache-Control')).toBe('private, no-store')
+   expect(env.SEARCH_MEDIA.get).not.toHaveBeenCalled()
+   expect((await handleProduction(new Request(env.PUBLIC_ORIGIN+'/api/search-updates',{method:'POST'}),env,{now})).status).toBe(405)
+  }finally{sqlite.close()}
+ })
  it('retains sub-millisecond removals and the exact provider watermark',async()=>{
   const {sqlite,repo,db,lease}=await seeded()
   try {

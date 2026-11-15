@@ -24,9 +24,22 @@ export async function publishJobs(env, {now = Date.now(), limit = 24} = {}) {
   // admitted gallery, and galleries must not prevent covers/variants publishing.
   const jobs=[];
   for(const [kind,share] of [['gallery',0.5],['cover',0.25],['variant',0.25]]){
+    if((kind==='cover'&&!env.COVER_JOBS)||(kind==='gallery'&&!env.GALLERY_JOBS))continue;
     if(kind==='variant'&&!imagePreparationEnabled(env))continue;
     const room=Math.max(1,Math.floor(limit*share));
     let urgent=[];
+    if(kind==='cover'&&room>1){
+      // Promote newly marketed inventory before an old cover warmup burst, while
+      // leaving one publication slot for the oldest eligible background job.
+      urgent=(await db.prepare(`SELECT j.id,j.kind FROM ingestion_jobs j INDEXED BY jobs_due JOIN listings l
+        ON l.source=j.source AND l.id=j.listing_id JOIN listing_components c
+        ON c.source=j.source AND c.listing_id=j.listing_id AND c.core_version=j.revision
+        WHERE j.kind='cover' AND l.on_market_date>=? AND l.on_market_date<=?
+        AND l.status IN ('Active','Coming Soon','Active Under Contract')
+        AND j.state IN ('pending','retry_wait','claimed') AND j.not_before<=? AND j.claim_until<=? AND j.published_until<=?
+        ORDER BY l.on_market_date DESC,j.requested_at DESC,j.id LIMIT ?`)
+        .bind(new Date(now-7*86400000).toISOString().slice(0,10),new Date(now+86400000).toISOString().slice(0,10),now,now,now,room-1).all()).results;
+    }
     if(kind==='variant'){
       urgent=(await db.prepare(`SELECT j.id,j.kind FROM listing_enrichment q JOIN ingestion_jobs j
         ON j.source=q.source AND j.listing_id=q.listing_id WHERE j.kind='variant'

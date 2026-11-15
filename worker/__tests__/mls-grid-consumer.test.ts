@@ -135,6 +135,12 @@ describe('Local preview HTTP flow', () => {
    expect(await embed.text()).toContain('data-embed-origins="'+restartedOrigin+' https://broker.example"')
   }finally{if(reopened.listening)await new Promise<void>(resolve=>reopened.close(resolve))}
  })
+ it('serves the search update module imported by the consumer app',async()=>{
+  const response=await fetch(origin+'/search-updates.mjs');
+  expect(response.status).toBe(200);
+  expect(response.headers.get('content-type')).toContain('javascript');
+  expect(await response.text()).toContain('export function watchSearchUpdates');
+ })
  it('isolates the embedded view and keeps listing URLs and metadata on full pages',async()=>{
   const embedded=await fetch(origin+'/embed?type=Residential')
   expect(embedded.headers.get('content-security-policy')).toContain("frame-ancestors 'self'")
