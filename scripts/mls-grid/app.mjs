@@ -5,7 +5,7 @@ import { initializeDiscovery } from './discovery.mjs';
 import { connectEmbed } from './embed.mjs';
 connectEmbed();
 await initializeBrand();
-import { mortgagePayment, monthlyFee, consumerProfile, publicEmail, publicMapURL, nyDate, listingSignals, previewFields } from './consumer.mjs';
+import { mortgagePayment, monthlyFee, consumerProfile, publicEmail, publicMapURL, nyDate, listingSignals, previewFields, photoCountLabel } from './consumer.mjs';
 const production=document.body.dataset.environment==='production';
 const $ = selector => document.querySelector(selector);
 const el = (tag, text = '', className = '') => { const node = document.createElement(tag); node.textContent = text; if(className)node.className=className; return node; };
@@ -99,22 +99,22 @@ function card(l,i) {
  const profile=consumerProfile(l),node=el('article','',`listing-card card-${profile.key}`),href=listingHref(l),media=el('div','','card-media');let coverIndex=0;const cover=action('',()=>openGallery(l,cover,coverIndex),'card-photo');
  cover.setAttribute('aria-label',`Open photos for ${address(l)}`);cover.setAttribute('aria-haspopup','dialog');cover.disabled=!l.media.length;
  if(l.media.length) {
-  const photo=img(l.media[0],`Listing photo for ${address(l)}`,i<3),count=el('span',`1 / ${l.photoCount??l.media.length} photos`,'photo-tag');
+  const photo=img(l.media[0],`Listing photo for ${address(l)}`,i<3),count=el('span',photoCountLabel(l),'photo-tag');
   cover.append(photo,count);
   if(l.media.length>1) {
-   let index=0,version=0;
+   let index=0,version=0;const notice=el('span','','sr-only');notice.setAttribute('role','status');media.append(notice);
    const previous=action('‹',()=>changePhoto(index-1),'photo-step previous'),next=action('›',()=>changePhoto(index+1),'photo-step next');
    previous.setAttribute('aria-label',`Previous photo for ${address(l)}`);next.setAttribute('aria-label',`Next photo for ${address(l)}`);previous.disabled=true;
    count.setAttribute('aria-live','polite');count.setAttribute('aria-atomic','true');
    async function changePhoto(target) {
-    if(target<0||target>=l.media.length)return;const current=++version,selected=l.media[target],decoded=new Image();decoded.src=selected.url+'?variant=cardSmall';photo.classList.add('loading');
-    try {await decoded.decode();if(current!==version||!node.isConnected)return;index=target;coverIndex=index;if(!cover.contains(photo)){cover.querySelector('.photo-fallback')?.remove();cover.prepend(photo);}photo.srcset=['cardSmall 480w','cardLarge 1080w'].map(spec=>{const [key,width]=spec.split(' ');return selected.url+'?variant='+key+' '+width;}).join(',');photo.src=decoded.src;photo.alt=selected.caption||`Listing photo ${index+1} for ${address(l)}`;count.textContent=`${index+1} / ${l.media.length} photos`;previous.disabled=index===0;next.disabled=index===l.media.length-1;}
-    catch {if(current===version)count.textContent='Photo unavailable — try again';}
+    if(target<0||target>=l.media.length)return;const current=++version,selected=l.media[target],decoded=new Image();decoded.src=selected.url+'?variant=cardSmall';photo.classList.add('loading');notice.textContent='';
+    try {await decoded.decode();if(current!==version||!node.isConnected)return;index=target;coverIndex=index;if(!cover.contains(photo)){cover.querySelector('.photo-fallback')?.remove();cover.prepend(photo);}photo.srcset=['cardSmall 480w','cardLarge 1080w'].map(spec=>{const [key,width]=spec.split(' ');return selected.url+'?variant='+key+' '+width;}).join(',');photo.src=decoded.src;photo.alt=selected.caption||`Listing photo ${index+1} for ${address(l)}`;count.textContent=photoCountLabel(l);previous.disabled=index===0;next.disabled=index===l.media.length-1;}
+    catch {if(current===version)notice.textContent='Photo unavailable — try again';}
     finally {if(current===version)photo.classList.remove('loading');}
    }
    media.append(previous,next);
   }
- } else {cover.append(el('div','Photo not available','photo-fallback'));}
+ } else {cover.append(el('div','Photo not available','photo-fallback'));if(Number.isSafeInteger(l.photoCount)&&l.photoCount>=0)cover.append(el('span',photoCountLabel(l),'photo-tag'));}
  const save=action('',()=>{
   const key=savedKey(l),already=preferences.saved.includes(key);
   if(!already&&preferences.saved.length>=100){$('#preference-status').textContent='You have saved 100 homes. Unsave one to make room.';return;}
@@ -159,7 +159,7 @@ function renderShowcase(data) {
  const cards=data.showcase.map(l=>{
   const node=el('article','','showcase-card'),photo=link('',listingHref(l),'showcase-photo');
   photo.setAttribute('aria-label',`Explore ${address(l)}`);
-  photo.append(img(l.media[l.featuredPhoto],`Listing photo for ${address(l)}`,true),el('span',priceText(l),'showcase-price'));
+  photo.append(img(l.media[l.featuredPhoto],`Listing photo for ${address(l)}`,true),el('span',priceText(l),'showcase-price'),el('span',photoCountLabel(l),'photo-tag'));
   const body=el('div','','showcase-body');body.append(link(address(l),listingHref(l)),compactAttribution(l));node.append(photo,body);return node;
  });
  if(!cards.length) {const empty=el('div','','showcase-empty');empty.append(el('strong',data.total?'Your next place starts here.':'Let’s open up the possibilities.'),el('p',data.total?'No photos have been imported for these matches yet. Your results below still match your choices.':'Try another borough or widen your filters to explore more properties.'));cards.push(empty);}

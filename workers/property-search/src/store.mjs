@@ -7,7 +7,7 @@ const safeListing = listing => {
   }
   return listing;
 };
-const CARD_FIELDS=new Set(['id','source','addressWithheld','obtainedAt','ModificationTimestamp','ListingId','StandardStatus','ListPrice','OriginalListPrice',
+const CARD_FIELDS=new Set(['id','source','addressWithheld','obtainedAt','ModificationTimestamp','ListingId','StandardStatus','ListPrice','OriginalListPrice','PhotosCount',
  'PropertyType','PropertySubType','OwnershipType','BedroomsTotal','BathroomsFull','BathroomsHalf','BathroomsTotalInteger','LivingArea','LivingAreaUnits',
  'BuildingAreaTotal','BuildingAreaUnits','LotSizeAcres','LotSizeSquareFeet','City','PostalCity','KEY_ManNYNeighborhood','KEY_Hamlet','KEY_Village','SubdivisionName',
  'StateOrProvince','CountyOrParish','PostalCode','UnparsedAddress','StreetNumber','StreetNumberNumeric','StreetDirPrefix','StreetName','StreetSuffix','StreetDirSuffix','UnitNumber',
@@ -22,15 +22,31 @@ export function searchStore(db, {production = false} = {}) {
     const listings = records.map(row => {let listing=safeListing(JSON.parse(row.public_json));if(production&&cards)listing=Object.fromEntries(Object.entries(listing).filter(([key])=>CARD_FIELDS.has(key)));if(production&&!listing.addressWithheld&&typeof row.latitude==='number'&&typeof row.longitude==='number')listing.mapLocation={latitude:row.latitude,longitude:row.longitude,source:row.map_source};return listing;});
     if (!listings.length) return [];
     const query = mediaQuery(listings,production);
-    if(production&&cards)query.sql=`SELECT * FROM (SELECT scoped.*,COUNT(*) OVER(PARTITION BY source,listing_id) AS ready_count,ROW_NUMBER() OVER(PARTITION BY source,listing_id) AS ordinal FROM (${query.sql}) scoped) WHERE ordinal=1`;
-    const photos = await rows(query.sql, query.values);
+    if(production&&cards)query.sql=`SELECT * FROM (SELECT scoped.*,ROW_NUMBER() OVER(PARTITION BY source,listing_id) AS ordinal FROM (${query.sql}) scoped) WHERE ordinal=1`;
+    // A current manifest includes all public photos, even pending/failed downloads.
+    // Aggregate only this page's listing IDs using the existing parent index.
+    const [photos, counts] = await Promise.all([
+      rows(query.sql, query.values),
+      production ? rows(`SELECT c.source,c.listing_id,COUNT(m.media_key) AS photo_count
+        FROM json_each(?) wanted JOIN listing_components c
+        ON c.source=json_extract(wanted.value,'$[0]') AND c.listing_id=json_extract(wanted.value,'$[1]')
+        LEFT JOIN listing_media m ON m.source=c.source AND m.listing_id=c.listing_id
+        WHERE c.manifest_version=c.core_version GROUP BY c.source,c.listing_id`, [JSON.stringify(listings.map(listing=>[listing.source,listing.id]))]) : Promise.resolve([]),
+    ]);
+    const totals = new Map(counts.map(row=>[`${row.source}:${row.listing_id}`,row.photo_count]));
     const byListing = new Map();
     for (const photo of photos) {
       const key = `${photo.source}:${photo.listing_id}`;
       if (!byListing.has(key)) byListing.set(key, []);
       byListing.get(key).push(photo);
     }
-    return listings.map(listing => {const media=byListing.get(`${listing.source}:${listing.id}`)||[];return { ...listing,...(production&&cards?{photoCount:media[0]?.ready_count||0,summary:true}:{}),media:media.map(photo=>({url:`/media/${photo.file}`,caption:listing.addressWithheld?'':photo.caption,...(production?{previewReady:Boolean(photo.preview_ready)}:{})}))};});
+    return listings.map(listing => {
+      const key=`${listing.source}:${listing.id}`,media=byListing.get(key)||[];
+      const reported=Number.isSafeInteger(listing.PhotosCount)&&listing.PhotosCount>=0?listing.PhotosCount:null;
+      const photoCount=totals.has(key)?totals.get(key):production?reported:reported??media.length;
+      const publicListing={...listing};delete publicListing.PhotosCount;
+      return {...publicListing,photoCount,...(production&&cards?{summary:true}:{}),media:media.map(photo=>({url:`/media/${photo.file}`,caption:listing.addressWithheld?'':photo.caption,...(production?{previewReady:Boolean(photo.preview_ready)}:{})}))};
+    });
   }
   return {
     async discovery(params={},now=new Date()) {

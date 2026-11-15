@@ -107,6 +107,9 @@ const ADDRESS_FIELDS = ['UnparsedAddress', 'StreetNumber', 'StreetNumberNumeric'
 export function publicProjection(row) {
   if (row.MlgCanView !== true || row.InternetEntireListingDisplayYN === false || !Array.isArray(row.MlgCanUse) || !row.MlgCanUse.some(use => typeof use === 'string' && use.toLowerCase() === 'idx')) return null;
   const projected = { id: row.ListingKey, source: row.OriginatingSystemName, addressWithheld: row.InternetAddressDisplayYN === false };
+  // RESO's listing-level total is independent of downloaded media. A complete,
+  // permission-filtered manifest takes precedence at read time when available.
+  if (Number.isSafeInteger(row.PhotosCount) && row.PhotosCount >= 0) projected.PhotosCount = row.PhotosCount;
   for (const field of [...PUBLIC_FIELDS, ...(projected.addressWithheld ? [] : ADDRESS_FIELDS)]) {
     const value = row[field];
     if(['PostalCity','KEY_ManNYNeighborhood','KEY_Hamlet','KEY_Village','SubdivisionName'].includes(field)&&value!==null&&typeof value!=='string')continue;

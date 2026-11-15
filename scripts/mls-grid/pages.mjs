@@ -1,4 +1,5 @@
 import { validateBrand } from './brand.mjs';
+import { photoCountLabel } from './consumer.mjs';
 
 export const escapeHTML = value => String(value ?? '').replace(/[&<>"']/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character]);
 export function publicOrigin(value) {
@@ -39,7 +40,7 @@ export function renderPage(template, { brand: input, origin, listing, unavailabl
       .replace('<section id="listing-page" hidden>', '<section id="listing-page">')
       .replace('<div id="listing-content"></div>', `<div id="listing-content">${listing ? listingSummary(listing) : '<div class="error-panel"><h1>This listing is unavailable.</h1><p>Return to the results to find another property.</p></div>'}</div>`);
   } else if (results) {
-    const cards = results.listings.map((item,index) => `<article class="listing-card"><a class="card-photo" href="${safe(origin + listingPath(item))}"${embedded ? ' target="_blank" rel="noopener"' : ''}>${picture(item,index===0)}</a><div class="card-body"><p class="card-price">${currency(item.ListPrice)}</p><a class="card-address" href="${safe(origin + listingPath(item))}"${embedded ? ' target="_blank" rel="noopener"' : ''}>${safe(listingAddress(item))}</a><p>${safe(item.PropertyType)} · ${safe(item.StandardStatus)}</p>${attribution(item)}</div></article>`).join('');
+    const cards = results.listings.map((item,index) => `<article class="listing-card"><a class="card-photo" href="${safe(origin + listingPath(item))}"${embedded ? ' target="_blank" rel="noopener"' : ''}>${picture(item,index===0)}${item.media?.length||Number.isSafeInteger(item.photoCount??item.PhotosCount)?`<span class="photo-tag">${safe(photoCountLabel(item))}</span>`:''}</a><div class="card-body"><p class="card-price">${currency(item.ListPrice)}</p><a class="card-address" href="${safe(origin + listingPath(item))}"${embedded ? ' target="_blank" rel="noopener"' : ''}>${safe(listingAddress(item))}</a><p>${safe(item.PropertyType)} · ${safe(item.StandardStatus)}</p>${attribution(item)}</div></article>`).join('');
     template = template.replace('data-view="grid"></section>', `data-view="grid">${cards}<noscript>Turn on JavaScript to update filters and browse all result pages.</noscript></section>`);
   }
   return template;
