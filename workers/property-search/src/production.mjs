@@ -1,3 +1,4 @@
+import { receiveInquiry } from './consumer-inquiries.mjs';
 import { experienceRoute } from '../../../scripts/mls-grid/confidence.mjs';
 import { imageObject, IMAGE_VARIANTS } from './image-variants.mjs';
 import { copyrightNotice,idxNotice } from './display.mjs';
@@ -8,7 +9,7 @@ import { publishJobs } from './job-store.mjs';
 import { DEFAULT_BRAND,brandCSS } from '../../../scripts/mls-grid/brand.mjs';
 import { searchCheckpoints } from './search-checkpoints.mjs';
 import { publicOrigin,renderPage,escapeHTML } from '../../../scripts/mls-grid/pages.mjs';
-const assets=new Set(['/search-intent.mjs','/search-start.mjs','/confidence.mjs','/confidence-ui.mjs','/guidance.mjs','/confidence.css','/location-model.mjs','/vendor/maplibre-4.7.1.js','/vendor/maplibre-worker-4.7.1.js','/vendor/maplibre-4.7.1.css','/vendor/MAPLIBRE-LICENSE.txt','/bottom-dock.mjs','/bottom-dock.css','/app.mjs','/search-updates.mjs','/listing-enrichment.mjs','/consumer.mjs','/search-filters.mjs','/discovery.mjs','/search-map.mjs','/nyc-boroughs.json','/discovery.css','/search-icon.svg','/brand.mjs','/brand-editor.mjs','/embed.mjs','/embed-loader.js','/style.css','/mls-grid.png','/onekey.png']);
+const assets=new Set(['/listing-navigation.mjs','/interaction.css','/property-location.mjs','/search-intent.mjs','/search-start.mjs','/confidence.mjs','/confidence-ui.mjs','/guidance.mjs','/confidence.css','/location-model.mjs','/vendor/maplibre-4.7.1.js','/vendor/maplibre-worker-4.7.1.js','/vendor/maplibre-4.7.1.css','/vendor/MAPLIBRE-LICENSE.txt','/bottom-dock.mjs','/bottom-dock.css','/app.mjs','/search-updates.mjs','/listing-enrichment.mjs','/consumer.mjs','/search-filters.mjs','/discovery.mjs','/search-map.mjs','/nyc-boroughs.json','/discovery.css','/search-icon.svg','/brand.mjs','/brand-editor.mjs','/embed.mjs','/embed-loader.js','/style.css','/mls-grid.png','/onekey.png']);
 export function productionHeaders(response,{privateReview=false,noindex=false}={}) {
   const headers=new Headers(response.headers);
   // Eligibility and freshness are checked on every read. No cached revoked listings or photos.
@@ -22,8 +23,10 @@ export async function handleProduction(request,env,{privateReview=false,now=Date
   try {
     const url=new URL(request.url),origin=publicOrigin(env.PUBLIC_ORIGIN);
     if(url.origin!==origin)return wrap(Response.json({error:'Unrecognized origin'},{status:403}));
+    const intake=url.pathname==='/api/inquiries';
     const enrich=url.pathname.match(/^\/api\/listing\/([A-Za-z0-9_-]+)\/([A-Za-z0-9_-]+)\/enrich$/);
-    if(!['GET','HEAD'].includes(request.method)&&!(request.method==='POST'&&enrich))return wrap(Response.json({error:'Method not allowed.'},{status:405}));
+    if(!['GET','HEAD'].includes(request.method)&&!(request.method==='POST'&&(enrich||intake)))return wrap(Response.json({error:'Method not allowed.'},{status:405}));
+    if(intake&&request.method==='POST'&&(request.headers.get('Origin')!==origin||request.headers.get('Content-Type')?.split(';')[0]!=='application/json'))return wrap(Response.json({error:'Request origin or content type rejected.'},{status:403}));
     if(enrich&&(request.method!=='POST'||request.headers.get('Origin')!==origin||request.headers.get('Content-Type')?.split(';')[0]!=='application/json'))return wrap(Response.json({error:'Request origin or method rejected.'},{status:403}));
     const releasing=env.PUBLIC_RELEASE_ENABLED==='true' && env.APPROVED_IDX_ORIGIN===origin && env.DISPLAY_REVIEW_COMPLETE==='true';
     if(!privateReview && releasing && !assets.has(url.pathname) && !['/theme.css','/api/brand','/robots.txt','/copyright'].includes(url.pathname)) {
@@ -44,7 +47,8 @@ export async function handleProduction(request,env,{privateReview=false,now=Date
     }
     const store=searchStore(env.SEARCH_DB,{production:true}),brand={...DEFAULT_BRAND,name:'Prime America Real Estate',descriptor:'NYC property search',tagline:'Clearing obstacles from your path to home.'};
     let response;
-    if(enrich){
+    if(intake){if(request.method!=='POST')response=Response.json({error:'Method not allowed.'},{status:405});else response=await receiveInquiry(request,env.SEARCH_DB,store,now);}
+    else if(enrich){
       if(env.PHOTO_IMPORT_MODE!=='on-demand')return wrap(Response.json({error:'Listing refresh is unavailable.'},{status:503}));
       if(!await store.listing(enrich[1],enrich[2]))return wrap(Response.json({error:'This listing is no longer available.'},{status:404}));
       const enrichment=await requestEnrichment(env.SEARCH_DB,enrich[1],enrich[2],now);

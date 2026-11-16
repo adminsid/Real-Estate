@@ -85,7 +85,7 @@ export function initializeDiscovery({form,search,renderCard}) {
     if(highlights.length){const facts=node('p',highlights.map(key=>FEATURE_FILTERS[key].label).join(' · '),'preferred-facts');card.querySelector('.card-location').after(facts);}
     const compare=action('Compare',()=>{if(comparison.has(key))comparison.delete(key);else if(comparison.size<4)comparison.set(key,listing);else{$('#preference-status').textContent='Compare up to 4 properties. Remove one to add another.';return;}updateComparison();});compare.dataset.compareKey=key;compare.setAttribute('aria-label',`Compare ${listing.UnparsedAddress||'MLS '+listing.ListingId}`);card.querySelector('.card-actions').append(compare);
     if(comparison.has(key)){compare.setAttribute('aria-pressed','true');compare.textContent='Selected for comparison';}else compare.setAttribute('aria-pressed','false');
-    card.addEventListener('focusin',()=>map.highlight(key));card.addEventListener('pointerenter',()=>map.highlight(key));
+    const indicate=()=>{for(const other of document.querySelectorAll('[data-map-active]'))other.removeAttribute('data-map-active');card.dataset.mapActive='true';map.highlight(key,locationCoordinates(listing),listing.UnparsedAddress||'MLS '+listing.ListingId);};card.addEventListener('focusin',indicate);card.addEventListener('pointerenter',indicate);
   }
   $('#compare-clear').addEventListener('click',()=>{comparison.clear();updateComparison();});
   $('#compare-close').addEventListener('click',()=>$('#comparison').close());$('#comparison').addEventListener('close',()=>comparisonTrigger?.focus());

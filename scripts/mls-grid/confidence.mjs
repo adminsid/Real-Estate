@@ -11,7 +11,7 @@ export function cleanJourney(input) {
   if(!validSavedKey(key)||!item||typeof item!=='object')continue;
   const entry={reason:typeof item.reason==='string'?item.reason.slice(0,400):'',questions:typeof item.questions==='string'?item.questions.slice(0,800):'',checks:{}};
   for(const check of Object.keys(CHECKLIST))if(item.checks?.[check]===true)entry.checks[check]=true;
-  if(item.viewing&&typeof item.viewing==='object'&&/^\d{4}-\d{2}-\d{2}$/.test(item.viewing.date)&&/^\d{2}:\d{2}$/.test(item.viewing.time)&&['preference','email-draft'].includes(item.viewing.state))entry.viewing={date:item.viewing.date,time:item.viewing.time,state:item.viewing.state};
+  if(item.viewing&&typeof item.viewing==='object'&&/^\d{4}-\d{2}-\d{2}$/.test(item.viewing.date)&&/^\d{2}:\d{2}$/.test(item.viewing.time)&&['preference','email-draft','received'].includes(item.viewing.state))entry.viewing={date:item.viewing.date,time:item.viewing.time,state:item.viewing.state};
   result.entries[key]=entry;
  }
  return result;

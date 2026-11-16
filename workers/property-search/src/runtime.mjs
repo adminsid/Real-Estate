@@ -1,3 +1,4 @@
+import { inquiryInbox } from './consumer-inquiries.mjs';
 import { experienceRoute } from '../../../scripts/mls-grid/confidence.mjs';
 import { monitorSnapshot, monitorPage } from './feed-monitor.mjs';
 import { handleProduction } from './production.mjs';
@@ -14,7 +15,7 @@ import { DEFAULT_BRAND, brandCSS } from '../../../scripts/mls-grid/brand.mjs';
 import { publicOrigin, renderPage, embedDemo } from '../../../scripts/mls-grid/pages.mjs';
 import { mediaProcessing } from './media-processing.mjs';
 
-const assets = new Set(['/search-intent.mjs','/search-start.mjs','/confidence.mjs','/confidence-ui.mjs','/guidance.mjs','/confidence.css','/location-model.mjs','/vendor/maplibre-4.7.1.js','/vendor/maplibre-worker-4.7.1.js','/vendor/maplibre-4.7.1.css','/vendor/MAPLIBRE-LICENSE.txt','/bottom-dock.mjs','/bottom-dock.css','/search-updates.mjs','/app.mjs','/listing-enrichment.mjs','/consumer.mjs','/search-filters.mjs','/discovery.mjs','/search-map.mjs','/nyc-boroughs.json','/discovery.css','/search-icon.svg','/brand.mjs','/brand-editor.mjs','/embed.mjs','/embed-loader.js','/style.css']);
+const assets = new Set(['/listing-navigation.mjs','/interaction.css','/property-location.mjs','/search-intent.mjs','/search-start.mjs','/confidence.mjs','/confidence-ui.mjs','/guidance.mjs','/confidence.css','/location-model.mjs','/vendor/maplibre-4.7.1.js','/vendor/maplibre-worker-4.7.1.js','/vendor/maplibre-4.7.1.css','/vendor/MAPLIBRE-LICENSE.txt','/bottom-dock.mjs','/bottom-dock.css','/search-updates.mjs','/app.mjs','/listing-enrichment.mjs','/consumer.mjs','/search-filters.mjs','/discovery.mjs','/search-map.mjs','/nyc-boroughs.json','/discovery.css','/search-icon.svg','/brand.mjs','/brand-editor.mjs','/embed.mjs','/embed-loader.js','/style.css']);
 const json = (status, body) => Response.json(body,{status});
 async function bodyJSON(request) {
   if (!request.body) throw Error('Empty body');
@@ -41,7 +42,7 @@ function secure(response) {
 
 export async function handleRequest(request, env, {authorize = authorized, feedFetcher = fetch,schedule=work=>work} = {}) {
   try {
-    const url = new URL(request.url), mediaOperations = url.pathname === '/ops/media-processing' || url.pathname.startsWith('/ops/media-processing/'), feedOperations = mediaOperations || ['/admin','/ops/mls-grid','/ops/mls-members','/ops/mls-sync','/ops/mls-sync/status','/ops/mls-sync.mjs','/ops/mls-sync.css'].includes(url.pathname);
+    const url = new URL(request.url), mediaOperations = url.pathname === '/ops/media-processing' || url.pathname.startsWith('/ops/media-processing/'), feedOperations = mediaOperations || ['/ops/inquiries','/ops/inquiries.mjs','/admin','/ops/mls-grid','/ops/mls-members','/ops/mls-sync','/ops/mls-sync/status','/ops/mls-sync.mjs','/ops/mls-sync.css'].includes(url.pathname);
     if (feedOperations && !env.FEED_OPERATOR_EMAIL) return secure(json(403,{error:'Feed operator is not configured.'}));
     if (!await authorize(request,env,undefined,Date.now(),feedOperations ? env.FEED_OPERATOR_EMAIL : null)) return secure(json(403,{error:'Private staging. Sign in through Cloudflare Access.'}));
     const origin = publicOrigin(env.PUBLIC_ORIGIN);
@@ -50,9 +51,10 @@ export async function handleRequest(request, env, {authorize = authorized, feedF
     if (feedOperations) {
       if (!['GET','HEAD','POST'].includes(request.method)) return secure(json(405,{error:'Method not allowed'}));
       if (request.method === 'POST' && request.headers.get('Origin') !== origin) return secure(json(403,{error:'Request origin rejected'}));
+      if(url.pathname==='/ops/inquiries'){if(!env.LIVE_DB)return secure(json(503,{error:'The live inbox is not configured.'}));const response=secure(await inquiryInbox(request,env.LIVE_DB,env.FEED_OPERATOR_EMAIL));return request.method==='HEAD'?new Response(null,{status:response.status,headers:response.headers}):response;}
       if (mediaOperations) return secure(await mediaProcessing(request, env));
       if(url.pathname==='/admin')return secure(new Response(null,{status:302,headers:{Location:'/ops/mls-sync'}}));
-      if(['/ops/mls-sync.mjs','/ops/mls-sync.css'].includes(url.pathname)){
+      if(['/ops/inquiries.mjs','/ops/mls-sync.mjs','/ops/mls-sync.css'].includes(url.pathname)){
         if(!['GET','HEAD'].includes(request.method))return secure(json(405,{error:'Method not allowed'}));
         return secure(await env.ASSETS.fetch(request));
       }

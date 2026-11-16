@@ -1,3 +1,6 @@
+import { rememberResultContext,attachListingNavigation } from './listing-navigation.mjs';
+import { mountPropertyMap } from './property-location.mjs';
+import { locationCoordinates } from './search-filters.mjs';
 import { rememberSearch } from './search-intent.mjs';
 import { BOROUGH_COUNTIES } from './search-filters.mjs';
 import { reportedArea } from './location-model.mjs';
@@ -12,7 +15,7 @@ import { initializeDiscovery } from './discovery.mjs';
 import { connectEmbed } from './embed.mjs';
 connectEmbed();
 await initializeBrand();
-import { mortgagePayment, monthlyFee, consumerProfile, publicEmail, publicMapURL, nyDate, listingSignals, previewFields, photoCountLabel } from './consumer.mjs';
+import { mortgagePayment, monthlyFee, consumerProfile, nyDate, listingSignals, previewFields, photoCountLabel } from './consumer.mjs';
 const production=document.body.dataset.environment==='production';
 const $ = selector => document.querySelector(selector);
 const el = (tag, text = '', className = '') => { const node = document.createElement(tag); node.textContent = text; if(className)node.className=className; return node; };
@@ -88,7 +91,7 @@ function persist(message='Viewing preferences saved in this browser.') {
  catch { $('#preference-status').textContent='Browser storage is unavailable. These choices will last for this page only.';return false; }
  return true;
 }
-function listingHref(l) { return `${document.body.dataset.publicOrigin}/listing/${encodeURIComponent(l.source)}/${encodeURIComponent(l.id)}${location.pathname==='/'||location.pathname==='/embed'?location.search:''}`; }
+function listingHref(l) {const params=new URLSearchParams(location.pathname==='/'||location.pathname==='/embed'?location.search:'');if(page==='results')params.set('from','results');return `${document.body.dataset.publicOrigin}/listing/${encodeURIComponent(l.source)}/${encodeURIComponent(l.id)}${params.size?'?'+params:''}`;}
 function savedKey(l) { return `${l.source}:${l.id}`; }
 function updateSavedButtons() {
  $('#saved-count').textContent=preferences.saved.length;
@@ -177,6 +180,7 @@ function syncExperience() {
   Land:{key:'land',title:'Land for sale',budget:'Price'}
  };
  const experience=experiences[type]||{key:'home',title:'Properties',budget:'Price'};
+ $('#results-query').placeholder=({rental:'Studio in Queens under $3,000',commercial:type.includes('Lease')?'Commercial lease in Queens under $8,000':'Commercial in Queens under $2 million',land:'Land in Queens under $500,000',investment:'Investment property in Queens under $2 million'})[experience.key]||'2 bedrooms in Queens under $800,000';
  document.body.dataset.experience=experience.key;$('#search-title').textContent=experience.title+(form.elements.borough.value==='NYS'?' in New York State':' in NYC');$('#matches-heading').textContent=experience.title;
  $('#minimum-price-label').textContent='Minimum '+experience.budget.toLowerCase();$('#maximum-price-label').textContent='Maximum '+experience.budget.toLowerCase();
  const bedrooms=!['Commercial Sale','Commercial Lease','Land'].includes(type);$('#bedroom-filter').hidden=!bedrooms;form.elements.beds.disabled=!bedrooms;if(!bedrooms)form.elements.beds.value='';
@@ -221,7 +225,7 @@ function queryParams() {
 }
 function updateViewURL() {
  const params=queryParams();history.replaceState(null,'','?'+params);$('#open-full-search').href=document.body.dataset.publicOrigin+'/?'+params;
- for(const a of document.querySelectorAll('#results a,#showcase a')){const url=new URL(a.href);a.href=url.origin+url.pathname+location.search;}
+ for(const a of document.querySelectorAll('#results a,#showcase a')){const url=new URL(a.href);const query=new URLSearchParams(location.search);query.set('from','results');a.href=url.origin+url.pathname+'?'+query;}
 }
 function renderResults(moveFocus=false) {
  if(!pageData?.total)return;
@@ -291,7 +295,7 @@ async function search(pageNavigation=false) {
   const response=await fetch('/api/search?'+apiParams,{signal});if(!response.ok)throw Error();const data=await response.json();
   if(signal.aborted||version!==requestVersion)return;offset=data.offset;params.set('offset',offset);params.set('density',$('#density').value);params.set('view',$('#view').value);history.replaceState(null,'','?'+params);$('#open-full-search').href=document.body.dataset.publicOrigin+'/?'+params;
   if(recordRecentOnSuccess&&form.elements.savedOnly.value!=='1'){const recent=new URLSearchParams(params);for(const key of ['density','view','textSize','layout','controls','focus','savedOnly'])recent.delete(key);recent.set('offset','0');recent.sort();try{rememberSearch(localStorage,{label:[$('#matches-heading').textContent,form.elements.q.value||form.elements.borough.value,form.elements.beds.value?form.elements.beds.value+' bedrooms':'',form.elements.maxPrice.value?'up to '+money(Number(form.elements.maxPrice.value)):''].filter(Boolean).join(' · ').slice(0,220),href:'/?'+recent});}catch{/* Optional local history. */}recordRecentOnSuccess=false;}
-  pageData=data;updates.hidden=true;renderResults();if(!data.total){$('#focus-navigation').hidden=true;$('#results').replaceChildren();}
+  rememberResultContext(data,location.search);pageData=data;updates.hidden=true;renderResults();if(!data.total){$('#focus-navigation').hidden=true;$('#results').replaceChildren();}
   if(!data.total){const empty=el('div','','empty-results');empty.append(el('h3',form.elements.savedOnly.value==='1'?'Your saved homes will appear here.':'A little more room to explore.'),el('p',form.elements.savedOnly.value==='1'?'Save a home with the heart button. Saved homes also need to match your other filters.':(production?'No properties':'No demo properties')+' match all these choices. Broaden an area, price range, or property type.'),action('Reset filters',()=>{resetSearchForm();scheduleSearch(0);}));for(const [key,title]of [['beds','Remove the bedroom requirement'],['maxPrice','Remove the maximum price'],['areas','Remove the reported-area filter']])if(form.elements[key].value)empty.append(action(title,()=>{form.elements[key].value='';scheduleSearch(0);},'secondary'));if(form.elements.photosOnly.value==='1')empty.append(action('Include listings without imported photos',()=>{form.elements.photosOnly.value='';scheduleSearch(0);},'secondary'));$('#results').append(empty);}
   if(!data.total)$('#summary').textContent=production?'No matching properties':'No matching demo properties';
   renderShowcase(data);renderPages(data);updateSavedButtons();updateViewURL();
@@ -311,7 +315,7 @@ $('#previous').addEventListener('click',()=>{offset=Math.max(0,offset-Number($('
 $('#next').addEventListener('click',()=>{offset+=Number($('#page-size').value);focusIndex=0;search(true);});
 $('#mix-photos').addEventListener('click',search);
 for(const b of document.querySelectorAll('[data-location]'))b.addEventListener('click',()=>{form.elements.borough.value=b.dataset.location;scheduleSearch(0);});
-for(const b of document.querySelectorAll('[data-type]'))b.addEventListener('click',()=>{form.elements.type.value=b.dataset.type;scheduleSearch(0);});
+for(const b of document.querySelectorAll('[data-type]'))b.addEventListener('click',()=>{form.elements.type.value=b.dataset.type;form.dispatchEvent(new Event('change',{bubbles:true}));scheduleSearch(0);});
 for(const b of document.querySelectorAll('[data-filter]'))b.addEventListener('click',()=>{const control=form.elements[b.dataset.filter];control.value=control.value==='1'?'':'1';scheduleSearch(0);});
 // Native disclosures retain keyboard behavior; dismiss only menus outside the interaction.
 document.addEventListener('pointerdown',event=>{for(const menu of document.querySelectorAll('[data-popover][open]'))if(!menu.contains(event.target))menu.open=false;});
@@ -330,10 +334,10 @@ function populateSavedSearches() {
 }
 $('#save-search').addEventListener('click',()=>{
  const params=queryParams();for(const key of ['offset','density','view','limit','sort','textSize','focus'])params.delete(key);params.sort();const query=params.toString();
- if(preferences.searches.some(item=>item.query===query)){persist('This search is already saved in this browser.');return;}
- if(preferences.searches.length>=10){$('#preference-status').textContent='You have 10 saved searches. Remove one to save another.';return;}
+ if(preferences.searches.some(item=>item.query===query)){persist('This search is already saved in this browser.');$('#saved-search-dialog').showModal();return;}
+ if(preferences.searches.length>=10){$('#preference-status').textContent='You have 10 saved searches. Remove one to save another.';$('#saved-search-dialog').showModal();return;}
  const label=[form.elements.q.value||form.elements.borough.value,form.elements.type.selectedOptions[0].textContent,form.elements.maxPrice.value?'up to '+money(Number(form.elements.maxPrice.value)):'',form.elements.photosOnly.value?'with photos':'',form.elements.belowOriginal.value?'below original price':'',form.elements.recent.value?'last 7 days':''].filter(Boolean).join(' · ').slice(0,160);
- preferences.searches.push({query,label});populateSavedSearches();$('.view-preferences').open=true;$('#saved-search-panel').open=true;persist('Search saved in this browser. Reopen it whenever you like.');
+ preferences.searches.push({query,label});populateSavedSearches();$('#saved-search-panel').open=true;persist('Search saved in this browser. Reopen it whenever you like.');$('#saved-search-dialog').showModal();
 });
 $('#saved-searches').addEventListener('change',()=>{
  const value=$('#saved-searches').value;$('#remove-search').disabled=value==='';if(value==='')return;
@@ -349,14 +353,14 @@ for(const [id,key]of [['density','density'],['view','view'],['text-size','textSi
 }
 applyView();populateSavedSearches();updateSavedButtons();
 
-let activeListing,stopListingRefresh,contactKind='tour',contactTrigger,contactSaved=false,contactVersion=0;
+let activeListing,stopListingRefresh,contactKind='tour',contactTrigger,contactSaved=false,contactVersion=0,contactCommand;
 function openContact(kind,trigger) {
- contactVersion++;contactSaved=false;contactKind=kind;contactTrigger=trigger;
+ contactVersion++;contactSaved=false;contactCommand=crypto.randomUUID();contactKind=kind;contactTrigger=trigger;
  $('#contact-form').reset();
  $('#contact-title').textContent=kind==='tour'?'Request a showing':'Ask a question';$('#contact-property').textContent=address(activeListing);
- $('#contact-recipient').textContent=`Listed by ${activeListing.ListAgentFullName || 'agent name not provided'} · ${activeListing.ListOfficeName || 'brokerage not provided'}. ${production?'Draft recipient: '+(publicEmail(activeListing)||'No public email supplied')+'. This is the published listing email; confirm who will respond and whom they represent.':'This preview does not deliver requests to this contact.'}`;$('#contact-recipient').className='contact-route';
+ $('#contact-recipient').textContent=production?'Send to Prime America Real Estate. Our team will respond and coordinate with the listing brokerage. Sending a request does not hire an agent or confirm a showing.':'Demo only. Requests are saved locally and are not delivered to Prime America.';$('#contact-recipient').className='contact-route';
  const preferred=confidence?.preferredTime(savedKey(activeListing));for(const name of ['date','time'])$('#contact-form').elements[name].value=preferred?.[name]||'';
- $('#message-title').textContent=kind==='tour'?'Anything you would like to ask? (optional)':'Your question';$('#contact-submit').textContent=production?'Open email draft':kind==='tour'?'Save demo showing request':'Save demo question';
+ $('#message-title').textContent=kind==='tour'?'Anything you would like to ask? (optional)':'Your question';$('#contact-submit').textContent=production?'Send to Prime America':kind==='tour'?'Save demo showing request':'Save demo question';
  $('#tour-fields').hidden=$('#tour-help').hidden=kind!=='tour';for(const name of ['date','time'])$('#contact-form').elements[name].required=kind==='tour';$('#contact-form').elements.message.required=kind==='message';
  $('#contact-status').textContent='';$('#contact-status').className='';$('#contact-submit').disabled=false;$('#contact-form').inert=false;$('#contact-form').setAttribute('aria-busy','false');
  $('#contact-form').elements.date.min=nyDate();$('#contact-form').elements.date.max=nyDate(new Date(Date.now()+89*86400000));$('#contact').showModal();
@@ -365,21 +369,13 @@ $('#contact-close').addEventListener('click',()=>$('#contact').close());$('#cont
 for(let h=9;h<=18;h++)for(const m of ['00','30']){const option=el('option',`${h>12?h-12:h}:${m} ${h>=12?'PM':'AM'} ET`);option.value=`${String(h).padStart(2,'0')}:${m}`;$('#contact-form').elements.time.append(option);}
 $('#contact-form').addEventListener('submit',async e=>{
  e.preventDefault();const version=contactVersion,data={...Object.fromEntries(new FormData(e.target)),kind:contactKind,source:activeListing.source,id:activeListing.id};
- if(production) {
-  const email=publicEmail(activeListing);
-  if(!email){$('#contact-status').textContent='No public email was supplied. Use the listing brokerage phone shown on the property page.';return;}
-  const subject=`${contactKind==='tour'?'Showing request':'Question'} · MLS #${activeListing.ListingId || activeListing.id}`;
-  const body=[`Hello,`,`I am interested in ${address(activeListing)}.`,contactKind==='tour'?`Preferred showing: ${data.date} at ${data.time} New York time (ET). Please confirm availability.`:'',data.message,data.representation?`Existing representation: ${{yes:'I already work with an agent',no:'I do not currently have an agent',unsure:'I am not sure'}[data.representation]}. Please explain your role.`:'',`Name: ${data.name}`,`Email: ${data.email}`,data.phone?`Phone: ${data.phone}`:'',`Listing: ${document.body.dataset.publicOrigin}/listing/${activeListing.source}/${activeListing.id}`].filter(Boolean).join('\n\n');
-  location.href=`mailto:${email}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
-  if(contactKind==='tour')confidence?.viewingDraft(activeListing,data.date,data.time);
-  $('#contact-status').textContent='Email draft opened. Send it in your email app to contact the listing brokerage. No appointment has been confirmed.';return;
- }
- $('#contact-submit').disabled=true;$('#contact-form').inert=true;$('#contact-form').setAttribute('aria-busy','true');$('#contact-status').textContent='Saving your demo request…';
- try{const response=await fetch('/api/inquiries',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)}),result=await response.json();if(version!==contactVersion)return;if(!response.ok)throw Error(result.error);contactSaved=true;$('#contact-status').className='success';$('#contact-status').textContent=result.message;}
+ data.command=contactCommand;
+ $('#contact-submit').disabled=true;$('#contact-form').inert=true;$('#contact-form').setAttribute('aria-busy','true');$('#contact-status').textContent=production?'Sending your request…':'Saving your demo request…';
+ try{const response=await fetch('/api/inquiries',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)}),result=await response.json();if(version!==contactVersion)return;if(!response.ok)throw Error(result.error);contactSaved=true;if(production&&contactKind==='tour')confidence?.viewingReceived(activeListing,data.date,data.time);$('#contact-status').className='success';$('#contact-status').textContent=result.message;}
  catch(error){if(version===contactVersion){$('#contact-status').className='error';$('#contact-status').textContent=error.message||"Your request wasn't saved. Try again.";}}
  finally{if(version===contactVersion){$('#contact-form').inert=false;$('#contact-form').setAttribute('aria-busy','false');$('#contact-submit').disabled=contactSaved;if($('#contact').open)$('#contact-status').focus();}}
 });
-$('#contact-form').addEventListener('input',()=>{if(contactSaved){contactSaved=false;$('#contact-submit').disabled=false;$('#contact-status').textContent='Your previous demo request was saved. You can save these changes as a new request.';}});
+$('#contact-form').addEventListener('input',()=>{if(contactSaved){contactSaved=false;contactCommand=crypto.randomUUID();$('#contact-submit').disabled=false;$('#contact-status').textContent='Your previous request was saved. You can submit these changes as a new request.';}});
 
 function calculator(l,profile) {
  const node=section('Explore your monthly costs','costs'),box=el('div','','calculator');node.append(box);box.append(el('p','Estimate based on your inputs. The 6.5% starting rate is an illustration, not a current rate quote.','muted'));const inputs=el('form');inputs.addEventListener('submit',e=>e.preventDefault());
@@ -405,22 +401,20 @@ function allDetails(l) {
  input.addEventListener('input',filter);filter();return node;
 }
 function contactCard(l) {
- const node=el('aside','','contact-card');node.id='listing-contact';node.setAttribute('aria-label','Listing contact and next steps');
- const person=el('div','','contact-person'),initials=(l.ListAgentFullName||'').trim().split(/\s+/).filter(Boolean).map(part=>part[0]).slice(0,2).join('');
+ const node=el('aside','','contact-card');node.id='listing-contact';node.setAttribute('aria-label','Listing source and Prime America support');
+ const sourceContact=el('section','','source-contact'),person=el('div','','contact-person'),initials=(l.ListAgentFullName||'').trim().split(/\s+/).filter(Boolean).map(part=>part[0]).slice(0,2).join('');
  const avatar=el('span',initials||'—','contact-avatar');avatar.setAttribute('aria-hidden','true');
  const identity=el('div');identity.append(el('p','Listing agent','contact-label'),el('h2',l.ListAgentFullName||'Listing brokerage'));
- person.append(avatar,identity);node.append(person,el('p',l.ListOfficeName||'Brokerage not supplied','contact-company'));
+ person.append(avatar,identity);sourceContact.append(person,el('p',l.ListOfficeName||'Brokerage not supplied','contact-company'));
  const source=el('div','','attribution');source.append(el('p',`MLS #${l.ListingId||'Not provided'} · ${sourceName(l.source)}`),el('p',`Status: ${l.StandardStatus||'Not provided'}`));
- if(l.AttributionContact)source.append(el('p',`Listing contact: ${l.AttributionContact}`));node.append(source);
+ if(l.AttributionContact)source.append(el('p',`Listing contact: ${l.AttributionContact}`));sourceContact.append(source);node.append(sourceContact);
+ const prime=el('section','','prime-action-card'),wordmark=el('div','PRIME AMERICA','prime-wordmark');wordmark.append(el('span','REAL ESTATE'));prime.append(wordmark,el('h3','Let’s take the next step.'),el('p','Ask a question or request a visit. The Prime America team receives your request and coordinates with the listing brokerage.'));
  const actions=el('div','','contact-actions');
- if((!production || publicEmail(l)) && ['Active','Coming Soon','Active Under Contract'].includes(l.StandardStatus)){const button=action('Request a showing',()=>openContact('tour',button));actions.append(button);}
- const question=action(production?'Email listing contact':'Message listing agent',()=>openContact('message',question),'secondary');if(!production || publicEmail(l))actions.append(question);node.append(actions);
- const direct=el('div','','contact-direct'),email=publicEmail(l);
- if(email)direct.append(link('Email',`mailto:${email}?subject=${encodeURIComponent('Question about MLS #'+l.ListingId)}&body=${encodeURIComponent('Hello,\nI would like to know more about '+address(l)+'.\n\n')}`));
- if(l.ListOfficePhone){const phone=String(l.ListOfficePhone).replace(/[^0-9+]/g,'');if(/^[+]?\d{7,15}$/.test(phone))direct.append(link('Call brokerage',`tel:${phone}`));}
- if(direct.childNodes.length)node.append(direct);
- if(!production)node.append(el('p','Demo requests stay here and are not delivered.','local-notice'));else if(!direct.childNodes.length)node.append(el('p','A public email or phone was not provided by the listing source.','local-notice'));
- node.append(guidancePanel(l));return node;
+ if(['Active','Coming Soon','Active Under Contract'].includes(l.StandardStatus)){const button=action('Request a showing',()=>openContact('tour',button));actions.append(button);}
+ const question=action('Ask Prime America',()=>openContact('message',question),'secondary');actions.append(question);prime.append(actions);
+ const direct=el('div','','contact-direct');direct.append(link('Email Prime America','mailto:info@primeamericany.com'),link('Call 347-725-3142','tel:+13477253142'));prime.append(direct,el('p','Already have an agent? Tell us so we can coordinate. A request does not establish representation. Preferred times need confirmation.','prime-contact-privacy'));
+ if(!production)prime.append(el('p','Demo requests stay here and are not delivered.','local-notice'));
+ node.append(prime,guidancePanel(l));return node;
 }
 
 function listingDescription(l) {
@@ -440,14 +434,19 @@ function listingReadingControls(root) {
  size.append(new Option('Standard','standard'),new Option('Larger','large'));size.value=$('#text-size').value;labelSize.append(size);
  const help=el('p','Key facts stay visible. Open the sections you want to explore.','sr-only');help.id='listing-reading-help';mode.setAttribute('aria-describedby',help.id);controls.append(labelMode,labelSize,help);toolbar.append(el('summary','Display options'),controls);root.append(toolbar);
  function apply(){const expanded=mode.value==='expanded';$('#listing-page').dataset.textSize=size.value;for(const details of root.querySelectorAll('.reading-section,.field-group'))details.open=expanded;const rest=root.querySelector('.description-rest'),toggle=root.querySelector('.description-toggle');if(rest){rest.hidden=!expanded;toggle.setAttribute('aria-expanded',String(expanded));toggle.textContent=expanded?'Show shorter description':'Read full description';}help.textContent=expanded?'Every section is open. You can still close individual sections.':'Key facts stay visible. Open the sections you want to explore.';}
- mode.addEventListener('change',()=>{preferences.detailsMode=mode.value;persist();apply();});size.addEventListener('change',()=>{preferences.textSize=size.value;$('#text-size').value=size.value;persist();$('#listing-page').dataset.textSize=size.value;const url=new URL(location.href);url.searchParams.set('textSize',size.value);history.replaceState(null,'',url);$('#back-results').href='/'+url.search;});
+ mode.addEventListener('change',()=>{preferences.detailsMode=mode.value;persist();apply();});size.addEventListener('change',()=>{preferences.textSize=size.value;$('#text-size').value=size.value;persist();$('#listing-page').dataset.textSize=size.value;const url=new URL(location.href);url.searchParams.set('textSize',size.value);history.replaceState(null,'',url);const back=$('#back-results');if(back.textContent.includes('Explore'))back.href='/?browse=1';});
  return apply;
 }
+let releasePropertyMap;
 function listingLocation(l) {
- const mapURL=publicMapURL(l);if(!mapURL)return null;
- const node=section('Location','location'),mapLink=link('Open Google Maps ↗',mapURL,'button secondary');
- mapLink.target='_blank';mapLink.rel='noopener noreferrer';
- node.append(el('p',address(l)),el('p',locationText(l),'muted'),mapLink,el('p','Location supplied by the listing source. Confirm the property location before visiting.','muted'));return node;
+ const coords=locationCoordinates(l),node=section('Location & nearby places','location');node.classList.add('location-section');
+ node.append(el('p',locationText(l),'muted'));if(!l.addressWithheld)node.append(el('p',address(l)));
+ if(!coords){node.append(el('p','A verified map location is not available yet. Ask our team to confirm the property’s position before visiting.','map-status-help'));return node;}
+ const map=el('div','','listing-map');map.dataset.propertyMap='';map.setAttribute('aria-label','Property location map');const status=el('p','Loading the property location…','map-status-help');status.dataset.mapStatus='';status.setAttribute('role','status');
+ const links=el('div','','location-links'),directions=link('Plan a route ↗',`https://www.google.com/maps/dir/?api=1&destination=${coords[1]},${coords[0]}`,'button secondary');directions.target='_blank';directions.rel='noopener noreferrer';links.append(directions);
+ const transitDirections=link('Check transit directions ↗',`https://www.google.com/maps/dir/?api=1&destination=${coords[1]},${coords[0]}&travelmode=transit`,'button secondary');transitDirections.target='_blank';transitDirections.rel='noopener noreferrer';links.append(transitDirections);
+ const nearby=el('div','','nearby-grid');for(const [title,key]of [['Transit on the map','nearbyTransit'],['Everyday places on the map','nearbyAmenities']]){const area=el('div'),list=el('ul');list.dataset[key]='';list.append(el('li','Nearby map details appear after the map loads.'));area.append(el('h3',title),list);nearby.append(area);}
+ node.append(map,status,links,nearby,el('p','OpenStreetMap data via OpenFreeMap. Names and coverage may be incomplete or outdated. Distances are approximate straight lines, not walking routes or travel times. Address-derived property locations are approximate. Confirm station access, service, businesses and routes before relying on them.','map-status-help'));return node;
 }
 function listingPhotos(l) {
  if(l.media.length){
@@ -475,6 +474,7 @@ function watchListing(l) {
  });
 }
 function renderListing(l) {
+ releasePropertyMap?.();
  activeListing=l;const profile=consumerProfile(l),target=$('#listing-content'),root=el('div');root.id='listing-content';
  document.body.dataset.experience=profile.key==='rental'?'rental':profile.key.startsWith('commercial')?'commercial':profile.key==='investment'?'investment':profile.key==='land'?'land':'home';root.className=`profile-${profile.key}`;
  const heading=el('div','','listing-heading'),left=el('div'),right=el('div');
@@ -483,8 +483,7 @@ function renderListing(l) {
  if(l.PropertyType?.includes('Lease'))right.append(el('p',provided(l.LeaseAmountFrequency)?`Price period: ${valueText(l.LeaseAmountFrequency)}`:'Quoted price · period not supplied','price-note'));
  heading.append(left,right);root.append(heading);
  const sharing=el('div','','listing-sharing'),shareStatus=el('span','','share-status'),publicLink=document.body.dataset.publicOrigin+location.pathname;shareStatus.setAttribute('role','status');
- const separate=link('Open separately ↗',location.href,'button secondary');separate.target='_blank';separate.rel='noopener';
- sharing.append(saveButton(l,true),action('Share listing',async()=>{try{await navigator.clipboard.writeText(publicLink);shareStatus.textContent='Link copied.';}catch{shareStatus.replaceChildren(el('span','Copy this link: '));const field=el('input');field.value=publicLink;field.readOnly=true;field.setAttribute('aria-label','Listing share link');shareStatus.append(field);field.focus();field.select();}},'secondary'),link('Contact','#listing-contact','button secondary'),separate,shareStatus);root.append(sharing);
+ sharing.append(saveButton(l,true),action('Share listing',async()=>{try{await navigator.clipboard.writeText(publicLink);shareStatus.textContent='Link copied.';}catch{shareStatus.replaceChildren(el('span','Copy this link: '));const field=el('input');field.value=publicLink;field.readOnly=true;field.setAttribute('aria-label','Listing share link');shareStatus.append(field);field.focus();field.select();}},'secondary'),link('Contact','#listing-contact','button secondary'),shareStatus);root.append(sharing);
  root.append(listingPhotos(l));if(production){const progress=el('p','','muted');progress.id='listing-photo-progress';progress.setAttribute('role','status');root.append(progress,action('Check for more photos',()=>{stopListingRefresh?.();stopListingRefresh=watchListing(l);},'secondary'));}
  const applyReading=listingReadingControls(root),layout=el('div','','property-layout'),main=el('div','','property-main'),strip=el('div','','fact-strip');
  const summaries=profile.key==='land'?[['LotSizeAcres','acres'],['LotSizeSquareFeet','lot sq ft'],['Zoning','zoning'],['WaterSource','water source']]:profile.key.startsWith('commercial')?[['BuildingAreaTotal',`area (${l.BuildingAreaUnits||'units not supplied'})`],['BusinessType','use'],['ParkingTotal','parking spaces'],['Zoning','zoning']]:profile.key==='investment'?[['NumberOfUnitsTotal','reported units'],['BedroomsTotal','bedrooms'],['YearBuilt','year built'],['LotSizeSquareFeet','lot sq ft']]:[['BedroomsTotal','bedrooms'],['BathroomsFull','full bathrooms'],areaFact(l),['YearBuilt','year built']];
@@ -498,12 +497,12 @@ function renderListing(l) {
  panel.append(el('p',cautions[profile.key]+' Unreported details require confirmation.','muted'));fit.append(panel);main.append(readingSection(fit));
  if(l.PropertyType==='Residential'||l.PropertyType==='Residential Income')main.append(readingSection(calculator(l,profile)));
  else{const costs=section(profile.key==='rental'?'Rent & move-in costs':profile.key==='commercial-lease'?'Lease costs':profile.key==='commercial-sale'?'Ownership costs':'Land purchase costs','costs');costs.append(grid(l,profile.key==='rental'?['ListPrice','LeaseAmountFrequency','SecurityDeposit','RentIncludes','TenantPays']:profile.key==='commercial-lease'?['ListPrice','LeaseAmountFrequency','LeaseTerm','TenantPays','RentIncludes','SecurityDeposit']:['ListPrice','TaxAnnualAmount','AssociationFee','AssociationFeeFrequency']),el('p','Confirm charges and payment periods. Missing costs are not assumed to be zero.','muted'));main.append(readingSection(costs));}
- if(locationSection)main.append(readingSection(locationSection));main.append(readingSection(allDetails(l)));layout.append(main,contactCard(l));root.append(layout);target.replaceWith(root);applyReading();updateSavedButtons();
+ if(locationSection)main.append(locationSection);main.append(readingSection(allDetails(l)));layout.append(main,contactCard(l));root.append(layout);target.replaceWith(root);attachListingNavigation(root,l);applyReading();updateSavedButtons();const propertyMap=root.querySelector('[data-property-map]');if(propertyMap)releasePropertyMap=mountPropertyMap(propertyMap,l);
  $('#freshness').textContent=`Last imported: ${stamp(l.obtainedAt)} · Source updated: ${stamp(l.ModificationTimestamp)}`;
 }
 
 discovery=initializeDiscovery({form,search:()=>scheduleSearch(0),renderCard:card});
-confidence=initializeConfidence({getSaved:()=>preferences.saved,toggleSaved,renderCard:card,address,publicEmail,openContact:(listing,kind,trigger)=>{activeListing=listing;openContact(kind,trigger);}});
+confidence=initializeConfidence({getSaved:()=>preferences.saved,toggleSaved,renderCard:card,address,openContact:(listing,kind,trigger)=>{activeListing=listing;openContact(kind,trigger);}});
 initializeStart();bottomDock=initializeBottomDock();
 window.addEventListener('storage',event=>{if(event.key!==storageKey)return;try{const stored=JSON.parse(event.newValue||'{}');if(Array.isArray(stored.saved))preferences.saved=stored.saved.filter(key=>typeof key==='string'&&/^[a-zA-Z0-9_-]+:[a-zA-Z0-9_-]+$/.test(key)&&key.length<=160).slice(0,100);else preferences.saved=[];updateSavedButtons();}catch{/* Retain this tab's valid choices. */}});
 for(const a of document.querySelectorAll('.site-header nav a'))if(new URL(a.href).pathname===location.pathname&&location.pathname!=='/')a.classList.add('nav-current');

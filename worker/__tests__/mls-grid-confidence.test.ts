@@ -55,7 +55,7 @@ describe('Search experience server-rendered pages',()=>{
  })
  it('renders rights and transparency content without JavaScript and uses distinct canonical pages',()=>{
   const guide=page('guide');expect(guide).toContain('https://homes.example/guide');expect(guide).toContain('What is an agency disclosure?');expect(guide).toContain('property-condition-disclosure-statement-eff-7125')
-  const trust=page('trust');expect(trust).toContain('https://homes.example/how-it-works');expect(trust).toContain('cannot verify delivery');expect(trust).toContain('does not substitute a paid buyer-agent placement')
+  const trust=page('trust');expect(trust).toContain('https://homes.example/how-it-works');expect(trust).toContain('it does not mean the listing agent was contacted or a showing was confirmed');expect(trust).toContain('rather than sold as paid buyer-agent placements')
  })
  it('keeps browser-owned workspace empty on the server and noindex',()=>{
   const html=page('journey');expect(html).toContain('id="journey-page">');expect(html).toContain('noindex,nofollow');expect(html).toContain('id="journey-properties" class="journey-properties" aria-label="Your saved properties"></div>')

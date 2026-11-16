@@ -368,7 +368,7 @@ describe('Public release gate and consumer routes',()=>{
    const page=await handleProduction(new Request(env.PUBLIC_ORIGIN+'/listing/onekey2/KEY-1'),env,{now}),html=await page.text()
    expect(page.status).toBe(200);expect(html).toContain('data-environment="production"');expect(html).toContain('href="https://search.primeamericany.com/listing/onekey2/KEY-1"');expect(html).toContain('index,follow')
    expect((await handleProduction(new Request(env.PUBLIC_ORIGIN+'/sitemap.xml?page=0'),env,{now})).status).toBe(200)
-   expect((await handleProduction(new Request(env.PUBLIC_ORIGIN+'/api/inquiries',{method:'POST'}),env,{now})).status).toBe(405)
+   expect((await handleProduction(new Request(env.PUBLIC_ORIGIN+'/api/inquiries',{method:'POST'}),env,{now})).status).toBe(403)
    const head=await handleProduction(new Request(env.PUBLIC_ORIGIN+'/api/search',{method:'HEAD'}),env,{now});expect(await head.text()).toBe('')
    sqlite.exec('DELETE FROM listings')
    expect((await handleProduction(new Request(env.PUBLIC_ORIGIN+'/listing/onekey2/KEY-1'),env,{now})).status).toBe(404)

@@ -7,8 +7,8 @@ template=template.replace('Demo listings from OneKey MLS, distributed by MLS GRI
 template=template.replace(/<p class="muted">This preview is not approved.*?<\/p>/s,'<p class="muted">For current availability and details, contact the listing brokerage shown with each property. Showing times are requests until the listing brokerage confirms.</p>');
 template=template.replace('<p id="freshness"></p>','<p id="freshness"></p><p>Some IDX listings have been excluded from this website. Search defaults to NYC and can include New York State listings supplied by our licensed OneKey feed. Coverage depends on the feed and import progress.</p><p>Automated scraping and redistribution of listing data are prohibited.</p>');
 template=template.replace('<option value="Closed">Closed</option>','').replace('All imported sources','All listing sources');
-template=template.replace('Demo only. This saves a request to this computer. It does not contact an agent or reserve a time.','This opens your email app. Send the draft to contact the listing brokerage. A requested time is not a confirmed appointment.');
-template=template.replace('Save demo request','Open email draft');
+template=template.replace('Demo only. This saves a request to this computer. It does not contact an agent or reserve a time.','Your request is sent to Prime America Real Estate for follow-up and coordination with the listing brokerage. A requested time is not a confirmed appointment.');
+template=template.replace('Save demo request','Send to Prime America');
 template=template.replace('<h2>Listing information</h2>','<h2>Listing information</h2><div class="listing-sources"><img src="/onekey.png" alt="OneKey MLS"><img src="/mls-grid.png" alt="MLS GRID"></div>');
 template=template.replace('<span>Property search · NYC</span>','<span class="provider-identity">Search provided by Prime America Real Estate, Inc.<br><a href="tel:+13477253142">347-725-3142 · Search support</a></span><a href="mailto:info@primeamericany.com">Report a listing error</a><a href="/copyright">Copyright / DMCA notices</a>');
 template=template.replace('<button id="brand-open"','<button hidden id="brand-open"');

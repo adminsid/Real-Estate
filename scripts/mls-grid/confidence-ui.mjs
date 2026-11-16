@@ -13,7 +13,7 @@ export function guidancePanel(listing) {
  for(const item of relevantGuidance(listing)) {const details=node('details','','context-topic');details.append(node('summary',item.title),node('p',item.summary),anchor('Read the explanation','/guide#'+item.id));box.append(details);}
  box.append(anchor('All rights and process guides','/guide'));return box;
 }
-export function initializeConfidence({getSaved,toggleSaved,renderCard,address,publicEmail,openContact}) {
+export function initializeConfidence({getSaved,toggleSaved,renderCard,address,openContact}) {
  let storage;try{storage=localStorage;}catch{storage={getItem:()=>null,setItem:()=>{throw Error();},removeItem:()=>{throw Error();}};}
  const journey=createJourney(storage),status=$('#journey-status');
  function announce(text){status.textContent=text;}
@@ -34,9 +34,9 @@ export function initializeConfidence({getSaved,toggleSaved,renderCard,address,pu
   for(const [id,title] of Object.entries(CHECKLIST)) {const label=node('label'),check=node('input');check.type='checkbox';check.checked=entry.checks?.[id]===true;check.addEventListener('change',()=>{const current=journey.get().entries[key]||{};announce(journey.update(key,{checks:{...current.checks,[id]:check.checked}})?'Your reminder was updated.':'Browser storage is unavailable. This reminder lasts for this page only.');});label.append(check,node('span',title));checklist.append(label);}details.append(checklist);
   const viewing=node('div','','viewing-plan');viewing.append(node('h4','My preferred viewing time'));
   const fields=node('div','','two-columns'),dateLabel=node('label','Date'),date=node('input'),timeLabel=node('label','Time (New York)'),time=node('input');date.type='date';time.type='time';date.value=entry.viewing?.date||'';time.value=entry.viewing?.time||'';dateLabel.append(date);timeLabel.append(time);fields.append(dateLabel,timeLabel);
-  const state=node('p',entry.viewing?entry.viewing.state==='email-draft'?'Email draft opened. Delivery and appointment are unconfirmed.':'Preference saved. No request has been sent.':'Choose a preference; ask the contact to confirm it.','muted');state.setAttribute('role','status');
+  const state=node('p',entry.viewing?entry.viewing.state==='received'?'Request received by Prime America. Your showing time still needs confirmation.':entry.viewing.state==='email-draft'?'Email draft opened. Delivery and appointment are unconfirmed.':'Preference saved. No request has been sent.':'Choose a preference; ask the contact to confirm it.','muted');state.setAttribute('role','status');
   viewing.append(fields,action('Save preferred time',()=>{if(!date.value||!time.value||!date.checkValidity()||!time.checkValidity()){state.textContent='Choose a valid date and time.';return;}state.textContent=journey.update(key,{viewing:{date:date.value,time:time.value,state:'preference'}})?'Preference saved in this browser. No request has been sent.':'Browser storage is unavailable. No request has been sent.';}),state);
-  if(publicEmail(listing)){const request=action('Prepare viewing request',()=>openContact(listing,'tour',request), '');viewing.append(request);}
+  if(['Active','Coming Soon','Active Under Contract'].includes(listing.StandardStatus)){const request=action('Prepare viewing request',()=>openContact(listing,'tour',request), '');viewing.append(request);}
   details.append(viewing);return details;
  }
  let loadingVersion=0;
@@ -64,6 +64,7 @@ export function initializeConfidence({getSaved,toggleSaved,renderCard,address,pu
  window.addEventListener('storage',event=>{if(event.key==='prime-america-search-v1')announce('Saved properties changed in another tab. Refresh to see the current list.');});
  function viewingDraft(listing,date,time){const key=listing.source+':'+listing.id;if(!getSaved().includes(key))return;journey.update(key,{viewing:{date,time,state:'email-draft'}});}
  function removed(key){journey.remove(key);}
- return {loadSaved,saveNotice,removed,entry:key=>journey.get().entries[key],restore:(key,entry)=>journey.update(key,entry),viewingDraft,preferredTime:key=>journey.get().entries[key]?.viewing};
+ function viewingReceived(listing,date,time){const key=listing.source+':'+listing.id;if(!getSaved().includes(key))return;journey.update(key,{viewing:{date,time,state:'received'}});}
+ return {viewingReceived,loadSaved,saveNotice,removed,entry:key=>journey.get().entries[key],restore:(key,entry)=>journey.update(key,entry),viewingDraft,preferredTime:key=>journey.get().entries[key]?.viewing};
 }
 export { initializeSearchStart as initializeStart } from './search-start.mjs';
