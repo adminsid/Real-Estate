@@ -1,6 +1,10 @@
+import { OPEN_HOUSE_SCHEMA,openHouseQuery,attachOpenHouses } from './open-houses.mjs';
+import { featuredQuery,featuredResult } from './featured-listings.mjs';
+import { suggestionQuery, publicSuggestions } from './suggestions.mjs';
 import { DatabaseSync } from 'node:sqlite';
 import { publicProjection } from './client.mjs';
 import { searchQuery, mediaQuery } from './search-query.mjs';
+import { discoveryQueries, discoveryResult } from './discovery-data.mjs';
 
 export function openStore(path) {
   const db = new DatabaseSync(path);
@@ -20,8 +24,16 @@ export function openStore(path) {
     CREATE TABLE IF NOT EXISTS demo_inquiries (
       id TEXT PRIMARY KEY, source TEXT NOT NULL, listing_id TEXT NOT NULL,
       created_at TEXT NOT NULL, request_json TEXT NOT NULL);`);
+  db.exec(OPEN_HOUSE_SCHEMA);
   return {
     close: () => db.close(),
+    featured(params={},now=new Date()){const query=featuredQuery(params,now);const rows=db.prepare(query.sql).all(...query.values);return featuredResult(rows.map(row=>this.listing(row.source,row.id)));},
+    suggestions(params={}) { const query=suggestionQuery(params);return query?publicSuggestions(db.prepare(query.sql).all(...query.values),query.text):[]; },
+    discovery(params={},now=new Date()) {
+      const queries=discoveryQueries(params,now);
+      const results=Object.values(queries).map(query=>db.prepare(query.sql).all(...query.values));
+      return discoveryResult(...results);
+    },
     checkpoint(source) { return db.prepare('SELECT * FROM checkpoints WHERE source=?').get(source); },
     apply(source, page, { checkpoint = true } = {}) {
       const old = this.checkpoint(source);
@@ -41,7 +53,7 @@ export function openStore(path) {
             continue;
           }
           record.obtainedAt = new Date().toISOString();
-          const searchable = [record.ListingId, record.UnparsedAddress, record.StreetNumber, record.StreetName, record.UnitNumber, record.City, record.CountyOrParish, record.PostalCode].filter(value => value != null).join(' ').toLowerCase();
+          const searchable = [record.ListingId, record.UnparsedAddress, record.StreetNumber, record.StreetName, record.UnitNumber, record.City, record.PostalCity, record.KEY_ManNYNeighborhood, record.CountyOrParish, record.PostalCode].filter(value => value != null).join(' ').toLowerCase();
           db.prepare(`INSERT OR REPLACE INTO listings VALUES (?,?,?,?,?,?,?,?,?,?)`).run(source, row.ListingKey, record.StandardStatus ?? null, record.City ?? null, record.StateOrProvince ?? null, record.ListPrice ?? null, record.BedroomsTotal ?? null, record.PropertyType ?? null, searchable, JSON.stringify(record));
           if (page.media?.has(row.ListingKey)) {
             db.prepare('DELETE FROM listing_media WHERE source=? AND listing_id=?').run(source, row.ListingKey);
@@ -66,7 +78,7 @@ export function openStore(path) {
       if (!row) return null;
       const listing = JSON.parse(row.public_json);
       if (listing.addressWithheld) { delete listing.PublicRemarks; delete listing.TaxLegalDescription; }
-      return { ...listing, media: this.mediaFor(source, id), obtainedAt: listing.obtainedAt ?? null };
+      const query=openHouseQuery([listing]);return attachOpenHouses([{...listing,media:this.mediaFor(source,id),obtainedAt:listing.obtainedAt??null}],db.prepare(query.sql).all(...query.values))[0];
     },
     saveInquiry(id, source, listingId, inquiry) {
       if (!this.listing(source, listingId)) throw new Error('Listing unavailable');
@@ -96,8 +108,9 @@ export function openStore(path) {
         if (listing.addressWithheld) { delete listing.PublicRemarks; delete listing.TaxLegalDescription; }
         return { ...listing, media: media.get(listing.source + ':' + listing.id) || [] };
       });
-      const showcase = projected.slice(records.length).map(listing => ({ ...listing, featuredPhoto: Math.floor(Math.random() * listing.media.length) }));
-      return { environment: 'demo', total, offset, limit, sort, insights: { withPhotos: insights.withPhotos || 0, belowOriginal: insights.belowOriginal || 0, recentlyListed: insights.recentlyListed || 0 }, showcase, listings: projected.slice(0,records.length), checkpoints: db.prepare('SELECT source,complete,updated_at FROM checkpoints').all() };
+      const eventsQuery=openHouseQuery(projected,now.getTime()),withEvents=attachOpenHouses(projected,db.prepare(eventsQuery.sql).all(...eventsQuery.values));
+      const showcase = withEvents.slice(records.length).map(listing => ({ ...listing, featuredPhoto: Math.floor(Math.random() * listing.media.length) }));
+      return { environment: 'demo', total, offset, limit, sort, insights: { withPhotos: insights.withPhotos || 0, belowOriginal: insights.belowOriginal || 0, recentlyListed: insights.recentlyListed || 0 }, showcase, listings: withEvents.slice(0,records.length), checkpoints: db.prepare('SELECT source,complete,updated_at FROM checkpoints').all() };
     },
   };
 }

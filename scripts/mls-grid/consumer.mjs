@@ -88,3 +88,7 @@ export function previewFields(listing) {
     : key === 'rental' ? ['PetsAllowed','LeaseTerm','RentIncludes'] : [];
   return fields.filter(field => listing[field] !== undefined && listing[field] !== null && listing[field] !== '' && (!Array.isArray(listing[field]) || listing[field].length));
 }
+export function photoCountLabel(listing) {
+  const count = listing.photoCount ?? listing.PhotosCount;
+  return Number.isSafeInteger(count) && count >= 0 ? `${count} ${count === 1 ? 'photo' : 'photos'}` : 'Photos';
+}

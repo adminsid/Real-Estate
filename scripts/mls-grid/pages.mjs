@@ -1,4 +1,6 @@
+import { guidanceHTML, trustHTML } from './guidance.mjs';
 import { validateBrand } from './brand.mjs';
+import { photoCountLabel } from './consumer.mjs';
 
 export const escapeHTML = value => String(value ?? '').replace(/[&<>"']/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character]);
 export function publicOrigin(value) {
@@ -11,7 +13,7 @@ export const listingAddress = listing => listing.addressWithheld ? 'Address with
 const currency = value => typeof value === 'number' && Number.isFinite(value) ? new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 0, maximumFractionDigits: 2 }).format(value) : 'Price not provided';
 const text = value => Array.isArray(value) ? value.join(', ') : typeof value === 'boolean' ? value ? 'Yes' : 'No' : String(value);
 const attribution = listing => `<div class="attribution"><p>Listed by ${escapeHTML(listing.ListOfficeName || 'brokerage not provided')}${listing.ListAgentFullName ? ` · ${escapeHTML(listing.ListAgentFullName)}` : ''}</p><p>MLS #${escapeHTML(listing.ListingId || 'Not provided')} · ${escapeHTML(listing.source === 'onekey2' ? 'OneKey MLS' : listing.source)} · Status: ${escapeHTML(listing.StandardStatus || 'Not provided')}</p><p>Listing contact: ${escapeHTML(listing.AttributionContact || listing.ListOfficePhone || 'Not provided in the import')}</p></div>`;
-const picture = (listing, priority = false) => listing.media?.[0] ? `<img src="${escapeHTML(listing.media[0].url)}?variant=card" alt="${escapeHTML(listingAddress(listing))}" loading="${priority?'eager':'lazy'}"${priority?' fetchpriority="high"':''} decoding="async">` : '<span class="photo-fallback">Photos have not been imported for this listing.</span>';
+const picture = (listing, priority = false) => listing.media?.[0] ? `<img src="${escapeHTML(listing.media[0].url)}?variant=cardSmall" srcset="${escapeHTML(listing.media[0].url)}?variant=cardSmall 480w, ${escapeHTML(listing.media[0].url)}?variant=cardLarge 1080w" sizes="(max-width:560px) 100vw, 50vw" alt="${escapeHTML(listingAddress(listing))}" loading="${priority?'eager':'lazy'}"${priority?' fetchpriority="high"':''} decoding="async">` : '<span class="photo-fallback">Photos have not been imported for this listing.</span>';
 
 function listingSummary(listing) {
   const internal = new Set(['id', 'source', 'media', 'obtainedAt', 'addressWithheld']);
@@ -19,8 +21,9 @@ function listingSummary(listing) {
   return `<article class="server-listing"><div class="listing-heading"><div><p class="eyebrow">${escapeHTML(listing.PropertyType)}</p><h1>${escapeHTML(listingAddress(listing))}</h1><p>${escapeHTML([listing.City, listing.StateOrProvince, listing.PostalCode].filter(Boolean).join(', '))}</p></div><div><p class="price">${currency(listing.ListPrice)}</p><p>${escapeHTML(listing.StandardStatus)}</p></div></div>${attribution(listing)}${listing.media?.[0] ? `<div class="hero one-photo">${picture(listing,true)}</div>` : ''}${listing.PublicRemarks ? `<section class="section"><h2>About this property</h2><p class="description">${escapeHTML(listing.PublicRemarks)}</p></section>` : ''}<section class="section"><h2>Listing information</h2><dl class="fact-grid">${facts.map(([field, value]) => `<div><dt>${escapeHTML(field.replace(/([a-z0-9])([A-Z])/g, '$1 $2'))}</dt><dd>${escapeHTML(text(value))}</dd></div>`).join('')}</dl></section><noscript><p>Turn on JavaScript for the photo gallery, estimates, and tour request form.</p></noscript></article>`;
 }
 
-export function renderPage(template, { brand: input, origin, listing, unavailable = false, embedded = false, results, embedOrigins = [] }) {
+export function renderPage(template, { brand: input, origin, listing, unavailable = false, embedded = false, results, embedOrigins = [], page = 'results' }) {
   const brand = validateBrand(input), safe = escapeHTML;
+  if (!['start','results','journey','guide','trust'].includes(page)) page='results';
   let title = `Find your next place · ${brand.name} ${brand.descriptor}`;
   let description = `${brand.tagline} Search NYC homes, rentals, investment properties, commercial spaces, and land.`;
   let canonical = origin + '/';
@@ -29,17 +32,30 @@ export function renderPage(template, { brand: input, origin, listing, unavailabl
     description = `${listing.PropertyType || 'Property'} · ${listing.StandardStatus || 'Status not provided'}. ${listingAddress(listing)}. ${currency(listing.ListPrice)}. Listed by ${listing.ListOfficeName || 'brokerage not provided'}. MLS #${listing.ListingId || 'Not provided'}.`;
     canonical = origin + listingPath(listing);
   } else if (unavailable) { title = `Listing unavailable · ${brand.name}`; description = 'This listing is no longer available. Search for another property.'; }
+  if(!listing&&!unavailable&&page!=='results') {
+    const content={start:['Find your next place','Explore New York properties at your pace.'],journey:['Your search','Saved properties and private planning on this browser.'],guide:['Understand your next step','Understand representation, disclosures and your rights.'],trust:['How this platform works','Understand inquiry routing, representation and your choices.']};
+    title=content[page][0]+' · '+brand.name;description=content[page][1];canonical=origin+({start:'/',journey:'/your-search',guide:'/guide',trust:'/how-it-works'})[page];
+  }
   const metadata = `<title>${safe(title)}</title><meta name="description" content="${safe(description)}">${unavailable ? '' : `<link rel="canonical" href="${safe(canonical)}">`}<meta property="og:type" content="website"><meta property="og:title" content="${safe(title)}"><meta property="og:description" content="${safe(description)}"><meta property="og:site_name" content="${safe(brand.name)}">${unavailable ? '' : `<meta property="og:url" content="${safe(canonical)}">`}${listing?.media?.[0] ? `<meta property="og:image" content="${safe(origin + listing.media[0].url)}?variant=display"><meta property="og:image:alt" content="Listing photo for ${safe(listingAddress(listing))}"><meta name="twitter:card" content="summary_large_image">` : '<meta name="twitter:card" content="summary">'}`;
   template = template.replace(/<title>.*?<\/title>/, metadata)
-    .replace('<body>', `<body data-embedded="${embedded}" data-public-origin="${safe(origin)}" data-embed-origins="${safe(embedOrigins.join(' '))}">`)
+    .replace('<body>', `<body ${page==='start'&&!listing?'data-intent="buy" ':''}data-page="${page}" data-embedded="${embedded}" data-public-origin="${safe(origin)}" data-embed-origins="${safe(embedOrigins.join(' '))}">`)
     .replaceAll('PRIME AMERICA<span>REAL ESTATE</span>', `${safe(brand.name)}<span>${safe(brand.descriptor)}</span>`)
     .replace('New York City. Your next chapter.</span>', `${safe(brand.tagline)}</span>`);
+  if(!listing&&!unavailable&&page!=='results') {
+    template=template.replace('<section id="search-page">','<section id="search-page" hidden>');
+    const id={start:'start-page',journey:'journey-page',guide:'guide-page',trust:'trust-page'}[page];
+    template=template.replace(new RegExp('(<section id="'+id+'"[^>]*?) hidden>'),'$1>');
+    if(page==='guide')template=template.replace('<section id="guide-page" class="confidence-page">','<section id="guide-page" class="confidence-page">'+guidanceHTML(safe));
+    if(page==='trust')template=template.replace('<section id="trust-page" class="confidence-page">','<section id="trust-page" class="confidence-page">'+trustHTML);
+    if(page==='journey')template=template.replace('<meta name="robots" content="index,follow">','<meta name="robots" content="noindex,nofollow">');
+  }
+  if(page!=='start'||listing||unavailable)template=template.replace('<a href="/?browse=1">Explore</a>','<a href="/">New search</a>');
   if (listing || unavailable) {
     template = template.replace('<section id="search-page">', '<section id="search-page" hidden>')
       .replace('<section id="listing-page" hidden>', '<section id="listing-page">')
       .replace('<div id="listing-content"></div>', `<div id="listing-content">${listing ? listingSummary(listing) : '<div class="error-panel"><h1>This listing is unavailable.</h1><p>Return to the results to find another property.</p></div>'}</div>`);
   } else if (results) {
-    const cards = results.listings.map((item,index) => `<article class="listing-card"><a class="card-photo" href="${safe(origin + listingPath(item))}"${embedded ? ' target="_blank" rel="noopener"' : ''}>${picture(item,index===0)}</a><div class="card-body"><p class="card-price">${currency(item.ListPrice)}</p><a class="card-address" href="${safe(origin + listingPath(item))}"${embedded ? ' target="_blank" rel="noopener"' : ''}>${safe(listingAddress(item))}</a><p>${safe(item.PropertyType)} · ${safe(item.StandardStatus)}</p>${attribution(item)}</div></article>`).join('');
+    const cards = results.listings.map((item,index) => `<article class="listing-card"><a class="card-photo" href="${safe(origin + listingPath(item))}"${embedded ? ' target="_blank" rel="noopener"' : ''}>${picture(item,index===0)}${item.media?.length||Number.isSafeInteger(item.photoCount??item.PhotosCount)?`<span class="photo-tag">${safe(photoCountLabel(item))}</span>`:''}</a><div class="card-body"><p class="card-price">${currency(item.ListPrice)}</p><a class="card-address" href="${safe(origin + listingPath(item))}"${embedded ? ' target="_blank" rel="noopener"' : ''}>${safe(listingAddress(item))}</a><p>${safe(item.PropertyType)} · ${safe(item.StandardStatus)}</p>${attribution(item)}</div></article>`).join('');
     template = template.replace('data-view="grid"></section>', `data-view="grid">${cards}<noscript>Turn on JavaScript to update filters and browse all result pages.</noscript></section>`);
   }
   return template;

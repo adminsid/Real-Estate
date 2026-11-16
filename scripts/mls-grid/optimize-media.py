@@ -17,7 +17,7 @@ for file in files:
     original_bytes += path.stat().st_size
     with Image.open(path) as source:
         source = ImageOps.exif_transpose(source)
-        for variant, width in [('card', 720), ('thumb', 160), ('display', 1600)]:
+        for variant, width in [('cardSmall', 480), ('card', 720), ('cardLarge', 1080), ('thumb', 160), ('display', 1600), ('displayLarge', 2560)]:
             target = output / f'{file}-{variant}.webp'
             if not target.exists():
                 image = source.copy()
