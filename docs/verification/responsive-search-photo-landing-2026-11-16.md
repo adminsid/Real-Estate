@@ -30,4 +30,9 @@ The existing image route now prefers a prepared 1600/1080-pixel display fallback
 
 Reference behavior consulted: [image decoding before presentation](https://developer.mozilla.org/en-US/docs/Web/API/HTMLImageElement/decode), [WCAG pause/stop/hide guidance](https://www.w3.org/WAI/WCAG22/Understanding/pause-stop-hide.html), and [Cloudflare Worker practices](https://developers.cloudflare.com/workers/best-practices/workers-best-practices/). These checks are not a claim of accessibility certification.
 
-Deployment versions and remote checks are recorded after publication.
+- Source commit `33e476b`, pushed to `codex/search-map-experience`.
+- Preview Worker: `13b5d9cb-4ca0-4618-aa40-94356aa8342f`.
+- Gated production Worker: `a6ba0c36-2790-40f5-8ecb-a9875d577b4c`.
+- Anonymous preview landing and `/api/featured?borough=Queens&maxPrice=800000` return HTTP 302 to Access. Public search remains HTTP 503 behind the existing release gates.
+- Deployed owner-session visual verification was not performed; local visual/interactions and remote access/deployment checks are separate evidence.
+- Deployments retain `IMAGE_TRANSFORM_LIMIT=0`, the existing bindings/queues and minute ingestion schedule, with production release and display-review flags false. No migration or billing activation was performed.
