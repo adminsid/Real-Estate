@@ -1,3 +1,5 @@
+import { syncOpenHouses,openHouseStatus } from './open-house-sync.mjs';
+import { copyrightNotice } from './display.mjs';
 import { inquiryInbox } from './consumer-inquiries.mjs';
 import { experienceRoute } from '../../../scripts/mls-grid/confidence.mjs';
 import { monitorSnapshot, monitorPage } from './feed-monitor.mjs';
@@ -15,7 +17,7 @@ import { DEFAULT_BRAND, brandCSS } from '../../../scripts/mls-grid/brand.mjs';
 import { publicOrigin, renderPage, embedDemo } from '../../../scripts/mls-grid/pages.mjs';
 import { mediaProcessing } from './media-processing.mjs';
 
-const assets = new Set(['/listing-navigation.mjs','/interaction.css','/property-location.mjs','/search-intent.mjs','/search-hero.mjs','/search-hero.css','/search-start.mjs','/confidence.mjs','/confidence-ui.mjs','/guidance.mjs','/confidence.css','/location-model.mjs','/vendor/maplibre-4.7.1.js','/vendor/maplibre-worker-4.7.1.js','/vendor/maplibre-4.7.1.css','/vendor/MAPLIBRE-LICENSE.txt','/bottom-dock.mjs','/bottom-dock.css','/search-updates.mjs','/app.mjs','/listing-enrichment.mjs','/consumer.mjs','/search-filters.mjs','/discovery.mjs','/search-map.mjs','/nyc-boroughs.json','/discovery.css','/search-icon.svg','/brand.mjs','/brand-editor.mjs','/embed.mjs','/embed-loader.js','/style.css']);
+const assets = new Set(['/listing-navigation.mjs','/interaction.css','/property-location.mjs','/search-intent.mjs','/open-houses.mjs','/search-choices.mjs','/search-hero.mjs','/search-hero.css','/search-start.mjs','/confidence.mjs','/confidence-ui.mjs','/guidance.mjs','/confidence.css','/location-model.mjs','/vendor/maplibre-4.7.1.js','/vendor/maplibre-worker-4.7.1.js','/vendor/maplibre-4.7.1.css','/vendor/MAPLIBRE-LICENSE.txt','/bottom-dock.mjs','/bottom-dock.css','/search-updates.mjs','/app.mjs','/listing-enrichment.mjs','/consumer.mjs','/search-filters.mjs','/discovery.mjs','/search-map.mjs','/nyc-boroughs.json','/discovery.css','/search-icon.svg','/brand.mjs','/brand-editor.mjs','/embed.mjs','/embed-loader.js','/style.css']);
 const json = (status, body) => Response.json(body,{status});
 async function bodyJSON(request) {
   if (!request.body) throw Error('Empty body');
@@ -42,7 +44,7 @@ function secure(response) {
 
 export async function handleRequest(request, env, {authorize = authorized, feedFetcher = fetch,schedule=work=>work} = {}) {
   try {
-    const url = new URL(request.url), mediaOperations = url.pathname === '/ops/media-processing' || url.pathname.startsWith('/ops/media-processing/'), feedOperations = mediaOperations || ['/ops/inquiries','/ops/inquiries.mjs','/admin','/ops/mls-grid','/ops/mls-members','/ops/mls-sync','/ops/mls-sync/status','/ops/mls-sync.mjs','/ops/mls-sync.css'].includes(url.pathname);
+    const url = new URL(request.url), mediaOperations = url.pathname === '/ops/media-processing' || url.pathname.startsWith('/ops/media-processing/'), feedOperations = mediaOperations || ['/ops/mls-open-houses','/ops/inquiries','/ops/inquiries.mjs','/admin','/ops/mls-grid','/ops/mls-members','/ops/mls-sync','/ops/mls-sync/status','/ops/mls-sync.mjs','/ops/mls-sync.css'].includes(url.pathname);
     if (feedOperations && !env.FEED_OPERATOR_EMAIL) return secure(json(403,{error:'Feed operator is not configured.'}));
     if (!await authorize(request,env,undefined,Date.now(),feedOperations ? env.FEED_OPERATOR_EMAIL : null)) return secure(json(403,{error:'Private staging. Sign in through Cloudflare Access.'}));
     const origin = publicOrigin(env.PUBLIC_ORIGIN);
@@ -51,6 +53,12 @@ export async function handleRequest(request, env, {authorize = authorized, feedF
     if (feedOperations) {
       if (!['GET','HEAD','POST'].includes(request.method)) return secure(json(405,{error:'Method not allowed'}));
       if (request.method === 'POST' && request.headers.get('Origin') !== origin) return secure(json(403,{error:'Request origin rejected'}));
+      if(url.pathname==='/ops/mls-open-houses'){
+        if(!env.LIVE_DB)return secure(json(503,{error:'Live event storage is unavailable.'}));
+        const result=request.method==='POST'?await syncOpenHouses(env):null,status=await openHouseStatus(env.LIVE_DB);
+        const html=`<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Open house import</title><link rel="stylesheet" href="/ops/mls-sync.css"><main><h1>Open house import</h1><p><a href="/ops/mls-sync">MLS import</a> · <a href="/">Search preview</a></p><p>Public open houses use a separate source cursor and the shared provider quota. Property/photograph imports continue independently. No private, broker-only or undated events are displayed.</p><pre>${escapeHTML(JSON.stringify({result,...status},null,2))}</pre><form method="post"><button>Run one event sync pass</button></form><p>After bootstrap and permission catch-up, scheduled checks run about every five minutes. Events expire by their reported end time; stale source checks suppress event display. Times and availability require confirmation with the listing brokerage.</p></main></html>`;
+        return secure(new Response(request.method==='HEAD'?null:html,{headers:{'Content-Type':'text/html; charset=utf-8'}}));
+      }
       if(url.pathname==='/ops/inquiries'){if(!env.LIVE_DB)return secure(json(503,{error:'The live inbox is not configured.'}));const response=secure(await inquiryInbox(request,env.LIVE_DB,env.FEED_OPERATOR_EMAIL));return request.method==='HEAD'?new Response(null,{status:response.status,headers:response.headers}):response;}
       if (mediaOperations) return secure(await mediaProcessing(request, env));
       if(url.pathname==='/admin')return secure(new Response(null,{status:302,headers:{Location:'/ops/mls-sync'}}));
@@ -103,6 +111,7 @@ export async function handleRequest(request, env, {authorize = authorized, feedF
     else if (url.pathname === '/theme.css') response=new Response(brandCSS(brand),{headers:{'Content-Type':'text/css; charset=utf-8'}});
     else if (url.pathname === '/api/search') response=json(200,await store.search(Object.fromEntries(url.searchParams)));
     else if(url.pathname==='/api/featured')response=json(200,await store.featured(Object.fromEntries(url.searchParams)));
+    else if(url.pathname==='/copyright')response=new Response('<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Copyright and DMCA notice</title><link rel="stylesheet" href="/style.css"><main><h1>Copyright and DMCA notice</h1>'+copyrightNotice+'<a href="/">New search</a></main></html>',{headers:{'Content-Type':'text/html; charset=utf-8'}});
     else if (url.pathname === '/api/suggestions') response=json(200,{suggestions:await store.suggestions(Object.fromEntries(url.searchParams))});
     else if (url.pathname === '/api/discovery') response=json(200,await store.discovery(Object.fromEntries(url.searchParams)));
     else if (url.pathname === '/embed-demo') response=new Response(embedDemo(brand,origin),{headers:{'Content-Type':'text/html; charset=utf-8'}});

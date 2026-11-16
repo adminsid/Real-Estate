@@ -1,7 +1,8 @@
+import { PUBLIC_STATUSES } from './search-choices.mjs';
 import { intentTheme } from './brand.mjs';
 const listingAddress=l=>l.addressWithheld?'Address withheld by the listing source':l.UnparsedAddress||[l.StreetNumber,l.StreetDirPrefix,l.StreetName,l.StreetSuffix,l.StreetDirSuffix,l.UnitNumber?'#'+l.UnitNumber:''].filter(Boolean).join(' ')||[l.PostalCity||l.City,l.StateOrProvince].filter(Boolean).join(', ')||'Property address not supplied';
 // Only local, permission-checked photos. Never use an upstream signed media URL here.
-export function heroCandidates(listings=[]){return (Array.isArray(listings)?listings:[]).filter(l=>l&&typeof l.source==='string'&&/^[A-Za-z0-9_-]+$/.test(l.source)&&typeof l.id==='string'&&/^[A-Za-z0-9_-]+$/.test(l.id)&&l.StandardStatus==='Active'&&/^\/media\/[a-f0-9]{64}$/.test(l.media?.[0]?.url||'')).slice(0,6);}
+export function heroCandidates(listings=[]){return (Array.isArray(listings)?listings:[]).filter(l=>l&&typeof l.source==='string'&&/^[A-Za-z0-9_-]+$/.test(l.source)&&typeof l.id==='string'&&/^[A-Za-z0-9_-]+$/.test(l.id)&&PUBLIC_STATUSES.includes(l.StandardStatus)&&/^\/media\/[a-f0-9]{64}$/.test(l.media?.[0]?.url||'')).slice(0,6);}
 export function heroQuery(parsed){if(parsed.warnings?.length)return null;const params=new URLSearchParams(parsed.params);params.set('status','Active');params.delete('browse');params.sort();return params.toString();}
 export function heroProfile(width,ratio=1,saveData=false){if(saveData)return 'cardSmall';const pixels=width*Math.min(2,ratio);return pixels>1600?'displayLarge':pixels>1080?'display':'cardLarge';}
 export function initializeSearchHero(){
@@ -17,7 +18,7 @@ export function initializeSearchHero(){
  function schedule(){stop();if(!paused&&!busy()&&slides.length>1&&!disposed)cycle=setTimeout(()=>{if(Date.now()-lastFetch>60000)update(lastParsed,true);else void show((index+1)%slides.length,revision);},9000);}
  function attribution(listing){
   const price=typeof listing.ListPrice==='number'?new Intl.NumberFormat('en-US',{style:'currency',currency:'USD',maximumFractionDigits:0}).format(listing.ListPrice):'Price not supplied',period=listing.PropertyType?.includes('Lease')?listing.LeaseAmountFrequency?' · '+listing.LeaseAmountFrequency:' · price period not supplied':'';
-  property.textContent=`${price}${period} · ${listingAddress(listing)}`;property.href=`/listing/${encodeURIComponent(listing.source)}/${encodeURIComponent(listing.id)}`;
+  property.textContent=`${price}${period} · ${listingAddress(listing)}${listing.StandardStatus==='Active'?'':' · '+listing.StandardStatus}`;property.href=`/listing/${encodeURIComponent(listing.source)}/${encodeURIComponent(listing.id)}`;
   source.textContent=`Listed by ${listing.ListOfficeName||'brokerage not supplied'}${listing.ListAgentFullName?' · '+listing.ListAgentFullName:''}. MLS #${listing.ListingId||listing.id} · ${listing.source==='onekey2'?'OneKey MLS, distributed by MLS GRID':listing.source}. Listing contact: ${listing.AttributionContact||listing.ListOfficePhone||'not supplied'}.`;
   const logos=document.querySelector('#start-photo-logos');logos.hidden=listing.source!=='onekey2';position.textContent=`${index+1} of ${slides.length} · Highest price first`;
  }

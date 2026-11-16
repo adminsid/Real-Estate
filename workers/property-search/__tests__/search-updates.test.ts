@@ -46,6 +46,7 @@ describe('lightweight search updates', () => {
       expect(Object.keys(second[0]).sort()).toEqual(['complete', 'source', 'updated_at', 'version']);
     } finally {sqlite.close();}
   });
+  it('detects separate open-house commits without exposing event identifiers',async()=>{const {db,sqlite}=databaseFixture();try{const before=await searchCheckpoints(db);sqlite.exec("INSERT INTO open_house_state(source,phase,timestamp) VALUES ('onekey2','delta','2026-11-16T12:00:00Z')");const after=await searchCheckpoints(db);expect(after[0].version).not.toBe(before[0].version);expect(Object.keys(after[0]).sort()).toEqual(['complete','source','updated_at','version']);}finally{sqlite.close();}});
   it('notifies once per changed checkpoint, without fetching results or mutating MLS data', async () => {
     vi.useFakeTimers(); const fetcher = vi.fn(async () => response(b)), onUpdate = vi.fn();
     const stop = watchSearchUpdates({getCurrent: () => ({version: a, key: '?borough=Queens'}), visible: () => true, fetcher, onUpdate});

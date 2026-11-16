@@ -1,3 +1,4 @@
+import { openHouseQuery,attachOpenHouses } from '../../../scripts/mls-grid/open-houses.mjs';
 import { featuredQuery,featuredResult } from '../../../scripts/mls-grid/featured-listings.mjs';
 import { suggestionQuery, publicSuggestions } from '../../../scripts/mls-grid/suggestions.mjs';
 import { searchQuery, mediaQuery } from '../../../scripts/mls-grid/search-query.mjs';
@@ -21,7 +22,7 @@ const CARD_FIELDS=new Set(['id','source','addressWithheld','obtainedAt','Modific
 export function searchStore(db, {production = false} = {}) {
   const rows = async (sql, values = []) => (await db.prepare(sql).bind(...values).all()).results;
   const first = (sql, values = []) => db.prepare(sql).bind(...values).first();
-  async function attach(records,{cards=false,includeCounts=true}={}) {
+  async function attach(records,{cards=false,includeCounts=true,now=Date.now()}={}) {
     const listings = records.map(row => {let listing=safeListing(JSON.parse(row.public_json));if(production&&cards)listing=Object.fromEntries(Object.entries(listing).filter(([key])=>CARD_FIELDS.has(key)));if(production&&!listing.addressWithheld&&typeof row.latitude==='number'&&typeof row.longitude==='number')listing.mapLocation={latitude:row.latitude,longitude:row.longitude,source:row.map_source};return listing;});
     if (!listings.length) return [];
     const query = mediaQuery(listings,production);
@@ -43,7 +44,8 @@ export function searchStore(db, {production = false} = {}) {
       if (!byListing.has(key)) byListing.set(key, []);
       byListing.get(key).push(photo);
     }
-    return listings.map(listing => {
+    const events=includeCounts?openHouseQuery(listings,now):null;const withEvents=events?attachOpenHouses(listings,await rows(events.sql,events.values)):listings;
+    return withEvents.map(listing => {
       const key=`${listing.source}:${listing.id}`,media=byListing.get(key)||[];
       const reported=Number.isSafeInteger(listing.PhotosCount)&&listing.PhotosCount>=0?listing.PhotosCount:null;
       const photoCount=totals.has(key)?totals.get(key):production?reported:reported??media.length;
@@ -74,7 +76,7 @@ export function searchStore(db, {production = false} = {}) {
       const stats = await first(`SELECT COUNT(*) AS total, SUM(CASE WHEN ${mediaCondition} THEN 1 ELSE 0 END) AS withPhotos, SUM(CASE WHEN ${belowCondition} THEN 1 ELSE 0 END) AS belowOriginal, SUM(CASE WHEN ${recentCondition} THEN 1 ELSE 0 END) AS recentlyListed FROM listings WHERE ${where}`, values);
       const total = production ? Math.min(stats.total,2500) : stats.total, offset = Math.min(Math.floor(requestedOffset / limit) * limit, Math.max(0, Math.ceil(total / limit) - 1) * limit);
       const records=await rows(`SELECT * FROM listings WHERE ${where} ORDER BY ${sortExpression},id,source LIMIT ? OFFSET ?`, [...values,Math.min(limit,total-offset),offset]);
-      const listings = await attach(records,{cards:true});
+      const listings = await attach(records,{cards:true,now:now.getTime()});
       const candidates = listings.filter(listing => listing.media.length), showcase = [];
       while(candidates.length && showcase.length < 2) {
         const listing = candidates.splice(Math.floor(Math.random()*candidates.length),1)[0];

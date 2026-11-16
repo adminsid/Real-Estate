@@ -1,3 +1,5 @@
+import { openHouseTime } from './open-houses.mjs';
+import { choiceValues,choiceLabel,typeApplies,toggleType,initializeChoicePickers,refreshChoicePickers } from './search-choices.mjs';
 import { intentTheme } from './brand.mjs';
 import { rememberResultContext,attachListingNavigation } from './listing-navigation.mjs';
 import { mountPropertyMap } from './property-location.mjs';
@@ -163,7 +165,7 @@ function card(l,i) {
  if(['condo','coop'].includes(profile.key)&&fee!==null)extra=`Reported ${profile.key==='coop'?'co-op charge':'building fee'}: ${money(fee)}/mo`;
  else if(profile.key==='rental'&&l.AvailabilityDate)extra='Available '+String(l.AvailabilityDate).slice(0,10);
  else if(profile.key==='land'&&l.Zoning)extra='Reported zoning: '+valueText(l.Zoning);
- if(extra)body.append(el('p',extra,'card-extra'));
+ if(extra)body.append(el('p',extra,'card-extra'));if(l.openHouses?.length)body.append(el('p','Open house · '+openHouseTime(l.openHouses[0]),'open-house-badge'));
  body.append(compactAttribution(l));
  const panel=previewPanel(l),signals=listingSignals(l),more=el('details','','card-more');more.append(el('summary','More facts'));
  if(panel)more.append(panel);if(signals.recentlyListed)more.append(el('p',`Listed ${signals.listedDate}`,'listing-signal'));if(signals.belowOriginal!==null)more.append(el('p',`${money(signals.belowOriginal)} below original price`,'listing-signal'));if(more.children.length>1)body.append(more);
@@ -180,12 +182,12 @@ function syncExperience() {
   'Commercial Lease':{key:'commercial',title:'Commercial spaces for lease',budget:'Quoted price'},
   Land:{key:'land',title:'Land for sale',budget:'Price'}
  };
- const experience=experiences[type]||{key:'home',title:'Properties',budget:'Price'};
+ const experience=experiences[type]||{key:'mixed',title:'Properties',budget:'Quoted price'};
  $('#results-query').placeholder=({rental:'Studio in Queens under $3,000',commercial:type.includes('Lease')?'Commercial lease in Queens under $8,000':'Commercial in Queens under $2 million',land:'Land in Queens under $500,000',investment:'Investment property in Queens under $2 million'})[experience.key]||'2 bedrooms in Queens under $800,000';
  document.body.dataset.intent=intentTheme(type).key;document.body.dataset.experience=experience.key;$('#search-title').textContent=experience.title+(form.elements.borough.value==='NYS'?' in New York State':' in NYC');$('#matches-heading').textContent=experience.title;
  $('#minimum-price-label').textContent='Minimum '+experience.budget.toLowerCase();$('#maximum-price-label').textContent='Maximum '+experience.budget.toLowerCase();
- const bedrooms=!['Commercial Sale','Commercial Lease','Land'].includes(type);$('#bedroom-filter').hidden=!bedrooms;form.elements.beds.disabled=!bedrooms;if(!bedrooms)form.elements.beds.value='';
- form.dataset.experience=experience.key;
+ const bedrooms=typeApplies(type,['Residential','Residential Lease','Residential Income']);$('#bedroom-filter').hidden=!bedrooms;form.elements.beds.disabled=!bedrooms;if(!bedrooms)form.elements.beds.value='';
+ form.dataset.experience=experience.key;let mixedHelp=$('#mixed-price-help');if(!mixedHelp){mixedHelp=el('p','','price-period-help');mixedHelp.id='mixed-price-help';$('.price-filter .price-range').append(mixedHelp);}mixedHelp.hidden=!type.includes(',');mixedHelp.textContent='Filters apply to every selected category. Sale prices and rents use each listing’s quoted amount; payment periods may differ.';
 }
 
 function renderShowcase(data) {
@@ -201,19 +203,19 @@ function renderShowcase(data) {
  $('#mix-photos').disabled=!data.showcase.length;
 }
 function syncFilters() {
- syncExperience();
+ syncExperience();refreshChoicePickers(form);
  discovery?.sync();
  for(const b of document.querySelectorAll('[data-location]')) b.setAttribute('aria-pressed',String(b.dataset.location===form.elements.borough.value));
- for(const b of document.querySelectorAll('[data-type]')) b.setAttribute('aria-pressed',String(b.dataset.type===form.elements.type.value));
+ for(const b of document.querySelectorAll('[data-type]')) b.setAttribute('aria-pressed',String(!form.elements.type.value||choiceValues(form.elements.type.value).includes(b.dataset.type)));
  for(const b of document.querySelectorAll('[data-filter]')) b.setAttribute('aria-pressed',String(form.elements[b.dataset.filter].value==='1'));
  const chips=[];
  for(const [key,title]of [['borough','Area'],['q','Keywords / place'],['type','Property'],['status','Status'],['minPrice','From'],['maxPrice','To'],['beds','Bedrooms'],['source','Source'],['baths','Bathrooms'],['subtype','Style'],['minArea','Minimum sq ft'],['minBuildingArea','Minimum building sq ft'],['minLot','Minimum lot sq ft'],['minUnits','Minimum units'],['maxTax','Annual taxes up to'],['maxFee','Monthly fee up to'],['availableBy','Available by'],['parking','Parking']]) {
   const control=form.elements[key],value=control.value;if(!value||(key==='borough'&&value==='NYC')||(key==='status'&&value==='Active'))continue;
-  const text=key==='minPrice'||key==='maxPrice'?money(Number(value)):control.tagName==='SELECT'?control.selectedOptions[0]?.textContent:value;
-  const chip=action(`${key==='type'?({Residential:'Buy','Residential Lease':'Rent','Residential Income':'Invest','Commercial Sale':'Commercial sale','Commercial Lease':'Commercial lease',Land:'Land'})[value]||'All properties':title+': '+String(text).slice(0,80)} ×`,()=>{control.value=key==='borough'?'NYC':'';if(key==='q')$('#results-query').value='';scheduleSearch(0);});
+  const text=['type','status'].includes(key)?choiceLabel(value,key):key==='minPrice'||key==='maxPrice'?money(Number(value)):control.tagName==='SELECT'?control.selectedOptions[0]?.textContent:value;
+  const chip=action(`${key==='type'?choiceLabel(value):title+': '+String(text).slice(0,80)} ×`,()=>{control.value=key==='borough'?'NYC':'';if(key==='q')$('#results-query').value='';scheduleSearch(0);});
   chip.setAttribute('aria-label',`Remove ${title.toLowerCase()} filter`);chips.push(chip);
  }
- for(const [key,title]of [['photosOnly','With photos'],['recent','Last 7 days'],['belowOriginal','Below original price'],['savedOnly','Saved properties']])if(form.elements[key].value==='1'){const chip=action(title+' ×',()=>{form.elements[key].value='';scheduleSearch(0);});chip.setAttribute('aria-label',`Remove ${title.toLowerCase()} filter`);chips.push(chip);}
+ for(const [key,title]of [['openHouses','Open houses'],['photosOnly','With photos'],['recent','Last 7 days'],['belowOriginal','Below original price'],['savedOnly','Saved properties']])if(form.elements[key].value==='1'){const chip=action(title+' ×',()=>{form.elements[key].value='';scheduleSearch(0);});chip.setAttribute('aria-label',`Remove ${title.toLowerCase()} filter`);chips.push(chip);}
  chips.push(...(discovery?.chips()||[]));
  if(chips.length)chips.push(action('Clear filters',()=>{resetSearchForm();scheduleSearch(0);}));
  $('#active-filters').hidden=!chips.length;$('#active-filters').replaceChildren(...chips);updateSavedButtons();
@@ -254,7 +256,7 @@ $('#focus-previous').addEventListener('click',()=>stepProperty(-1));
 $('#focus-next').addEventListener('click',()=>stepProperty(1));
 function resetSearchForm() {
  form.reset();
- for(const control of form.querySelectorAll('input[type=hidden]'))control.value='';
+ for(const control of form.querySelectorAll('input[type=hidden]'))control.value=({type:'Residential',status:'Active'})[control.name]||'';
 }
 function setBusy() {
  discovery?.invalidate();
@@ -310,13 +312,13 @@ async function search(pageNavigation=false) {
  } finally { if(version===requestVersion){$('#results').inert=false;$('#results').setAttribute('aria-busy','false');} }
 }
 form.addEventListener('submit',event=>{event.preventDefault();recordRecentOnSuccess=true;offset=0;$('.more-filters').open=false;search();});
-form.addEventListener('input',event=>{if(event.target.tagName==='INPUT'&&event.target.id!=='results-query')scheduleSearch();});
-form.addEventListener('change',event=>{if(event.target.tagName==='SELECT')scheduleSearch(0);});
+form.addEventListener('input',event=>{if(event.target.tagName==='INPUT'&&event.target.name&&event.target.id!=='results-query')scheduleSearch();});
+form.addEventListener('change',event=>{if(event.target.tagName==='SELECT'||['type','status'].includes(event.target.name))scheduleSearch(0);});
 $('#previous').addEventListener('click',()=>{offset=Math.max(0,offset-Number($('#page-size').value));focusIndex=0;search(true);});
 $('#next').addEventListener('click',()=>{offset+=Number($('#page-size').value);focusIndex=0;search(true);});
 $('#mix-photos').addEventListener('click',search);
 for(const b of document.querySelectorAll('[data-location]'))b.addEventListener('click',()=>{form.elements.borough.value=b.dataset.location;scheduleSearch(0);});
-for(const b of document.querySelectorAll('[data-type]'))b.addEventListener('click',()=>{form.elements.type.value=b.dataset.type;form.dispatchEvent(new Event('change',{bubbles:true}));scheduleSearch(0);});
+for(const b of document.querySelectorAll('[data-type]'))b.addEventListener('click',()=>{form.elements.type.value=toggleType(form.elements.type.value,b.dataset.type);form.elements.type.dispatchEvent(new Event('change',{bubbles:true}));});
 for(const b of document.querySelectorAll('[data-filter]'))b.addEventListener('click',()=>{const control=form.elements[b.dataset.filter];control.value=control.value==='1'?'':'1';scheduleSearch(0);});
 // Native disclosures retain keyboard behavior; dismiss only menus outside the interaction.
 document.addEventListener('pointerdown',event=>{for(const menu of document.querySelectorAll('[data-popover][open]'))if(!menu.contains(event.target))menu.open=false;});
@@ -337,7 +339,7 @@ $('#save-search').addEventListener('click',()=>{
  const params=queryParams();for(const key of ['offset','density','view','limit','sort','textSize','focus'])params.delete(key);params.sort();const query=params.toString();
  if(preferences.searches.some(item=>item.query===query)){persist('This search is already saved in this browser.');$('#saved-search-dialog').showModal();return;}
  if(preferences.searches.length>=10){$('#preference-status').textContent='You have 10 saved searches. Remove one to save another.';$('#saved-search-dialog').showModal();return;}
- const label=[form.elements.q.value||form.elements.borough.value,form.elements.type.selectedOptions[0].textContent,form.elements.maxPrice.value?'up to '+money(Number(form.elements.maxPrice.value)):'',form.elements.photosOnly.value?'with photos':'',form.elements.belowOriginal.value?'below original price':'',form.elements.recent.value?'last 7 days':''].filter(Boolean).join(' · ').slice(0,160);
+ const label=[form.elements.q.value||form.elements.borough.value,choiceLabel(form.elements.type.value),form.elements.maxPrice.value?'up to '+money(Number(form.elements.maxPrice.value)):'',form.elements.photosOnly.value?'with photos':'',form.elements.belowOriginal.value?'below original price':'',form.elements.recent.value?'last 7 days':''].filter(Boolean).join(' · ').slice(0,160);
  preferences.searches.push({query,label});populateSavedSearches();$('#saved-search-panel').open=true;persist('Search saved in this browser. Reopen it whenever you like.');$('#saved-search-dialog').showModal();
 });
 $('#saved-searches').addEventListener('change',()=>{
@@ -461,7 +463,7 @@ function watchListing(l) {
   onStatus:status=>{if(galleryListing===l&&$('#gallery').open)$('#gallery-count').textContent=`Photo ${galleryIndex+1} of ${galleryPhotos.length}`+(['queued','waiting'].includes(status?.state)?' · More photos requested':'');if(activeListing===l){const node=$('#listing-photo-progress');if(node)node.textContent=enrichmentMessage(status);}},
   onUpdate:next=>{
    const changed=JSON.stringify(l.media)!==JSON.stringify(next.media);
-   const factsChanged=l.ModificationTimestamp!==next.ModificationTimestamp||l.addressWithheld!==next.addressWithheld;
+   const factsChanged=l.ModificationTimestamp!==next.ModificationTimestamp||l.addressWithheld!==next.addressWithheld||JSON.stringify(l.openHouses)!==JSON.stringify(next.openHouses)||l.openHouseCoverage!==next.openHouseCoverage;
    Object.assign(l,next);
    if(factsChanged&&activeListing===l)renderListing(l);
    if(changed&&activeListing===l){const current=$('[data-listing-photos]');if(current&&!current.contains(document.activeElement))current.replaceWith(listingPhotos(l));}
@@ -489,6 +491,7 @@ function renderListing(l) {
  const applyReading=listingReadingControls(root),layout=el('div','','property-layout'),main=el('div','','property-main'),strip=el('div','','fact-strip');
  const summaries=profile.key==='land'?[['LotSizeAcres','acres'],['LotSizeSquareFeet','lot sq ft'],['Zoning','zoning'],['WaterSource','water source']]:profile.key.startsWith('commercial')?[['BuildingAreaTotal',`area (${l.BuildingAreaUnits||'units not supplied'})`],['BusinessType','use'],['ParkingTotal','parking spaces'],['Zoning','zoning']]:profile.key==='investment'?[['NumberOfUnitsTotal','reported units'],['BedroomsTotal','bedrooms'],['YearBuilt','year built'],['LotSizeSquareFeet','lot sq ft']]:[['BedroomsTotal','bedrooms'],['BathroomsFull','full bathrooms'],areaFact(l),['YearBuilt','year built']];
  for(const[field,title]of summaries){if(!provided(l[field]))continue;const item=el('div');item.append(el('strong',fieldText(l,field)),el('span',title));strip.append(item);}if(strip.childNodes.length)main.append(strip);
+ {const events=section('Upcoming open houses','open-houses');for(const event of l.openHouses||[]){const time=el('p',openHouseTime(event),'open-house-time');events.append(time);}if(!l.openHouses?.length)events.append(el('p',l.openHouseCoverage==='current'?'No upcoming public open house has been reported for this listing. Ask our team about a visit.':'Open house information is being updated. Ask our team to confirm available viewing options.','muted'));events.append(el('p','Public events reported by the listing source. Times are in New York time (ET) and may change without notice. Confirm access and attendance requirements with the listing brokerage. This is not a confirmed appointment.','muted'));root.append(events);}
  const locationSection=listingLocation(l),tabs=el('nav','','section-tabs');tabs.setAttribute('aria-label','Property sections');
  const sections=[['Overview','#overview'],['Features','#property-fit'],['Costs','#costs'],['All details','#all-details']];if(locationSection)sections.push(['Location','#location']);
  for(const[title,id]of sections){const jump=link(title,id);jump.addEventListener('click',event=>{event.preventDefault();const target=root.querySelector(id),details=target.querySelector('.reading-section');if(details)details.open=true;const heading=target.querySelector('h2');heading.tabIndex=-1;history.replaceState(null,'',id);target.scrollIntoView({block:'start'});heading.focus({preventScroll:true});});tabs.append(jump);}main.append(tabs);
@@ -502,6 +505,7 @@ function renderListing(l) {
  $('#freshness').textContent=`Last imported: ${stamp(l.obtainedAt)} · Source updated: ${stamp(l.ModificationTimestamp)}`;
 }
 
+initializeChoicePickers();
 discovery=initializeDiscovery({form,search:()=>scheduleSearch(0),renderCard:card});
 confidence=initializeConfidence({getSaved:()=>preferences.saved,toggleSaved,renderCard:card,address,openContact:(listing,kind,trigger)=>{activeListing=listing;openContact(kind,trigger);}});
 initializeStart();bottomDock=initializeBottomDock();

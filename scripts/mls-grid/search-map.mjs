@@ -16,8 +16,7 @@ export function createSearchMap({selectBorough,selectListing,searchBounds,clearB
  const scopeBounds=()=>selected==='NYS'?NYS_BOUNDS:NYC_BOUNDS;
  function reset(){const b=scopeBounds();map?.fitBounds([[b[0],b[1]],[b[2],b[3]]],{padding:24,duration:0});}
  const controls=document.querySelector('#map-controls');container.before(controls);
- controls.append(button('+',()=>map?.zoomIn({duration:reduced()?0:150})),button('−',()=>map?.zoomOut({duration:reduced()?0:150})),...[[ '←',-100,0],['↑',0,-100],['↓',0,100],['→',100,0]].map(([text,x,y])=>button(text,()=>map?.panBy([x,y],{duration:reduced()?0:100}))),button('Reset area',()=>{clearBounds();reset();}),button('Search NYS',()=>selectBorough('NYS')));
- ['Zoom in','Zoom out','Move map west','Move map north','Move map south','Move map east','Reset map area','Search New York State'].forEach((label,index)=>controls.children[index].setAttribute('aria-label',label));
+ controls.append(button('Reset area',()=>{clearBounds();reset();}),button('Search NYS',()=>selectBorough('NYS')));
  searchButton.addEventListener('click',()=>{if(!map)return;const b=map.getBounds(),ny=NYS_BOUNDS;const bounds=[Math.max(ny[0],b.getWest()),Math.max(ny[1],b.getSouth()),Math.min(ny[2],b.getEast()),Math.min(ny[3],b.getNorth())];if(bounds[0]>=bounds[2]||bounds[1]>=bounds[3]){status.textContent='Move the map into New York State to search this area.';return;}searchBounds(bounds.map(n=>n.toFixed(5)).join(','));});
  async function load(){
   if(map){map.resize();return;}if(loading)return loading;

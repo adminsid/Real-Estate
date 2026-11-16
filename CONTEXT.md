@@ -82,6 +82,10 @@ _Avoid_: CRM client, public marketplace listing, image-only business card
 A private, tracked referral event connecting one canonical CRM Person, the sending Workspace user, and a Network Connection. Brokerage management may oversee introductions with explicit sender context.
 _Avoid_: Referral exchange marketplace, duplicated client contact, unowned referral row
 
+**IDX Open House**:
+A listing source’s public open-house schedule associated with a listed property. It describes a reported event, not a confirmed showing appointment or an attendee’s RSVP.
+_Avoid_: Confirmed showing, Prime America-hosted event
+
 **Open House Attendance**:
 A visitor's RSVP or sign-in relationship with one Open House Event. Attendance keeps its own consent and event facts while referencing the resulting CRM Contact.
 _Avoid_: Contact, lead copy

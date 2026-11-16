@@ -19,7 +19,7 @@ export const INTENT_THEMES=Object.freeze({
  'Commercial Lease':{key:'commercial-lease',accent:'#794a65'},
  Land:{key:'land',accent:'#59693f'},
 });
-export function intentTheme(type){return INTENT_THEMES[type]||{key:'all',accent:DEFAULT_BRAND.accent};}
+export function intentTheme(type){if(String(type).includes(','))return {key:'mixed',accent:'#455b78'};return INTENT_THEMES[type]||{key:'all',accent:DEFAULT_BRAND.accent};}
 export function contrast(a, b) {
   const luminance = hex => {
     const rgb = hex.slice(1).match(/../g).map(value => parseInt(value, 16) / 255)
@@ -57,6 +57,7 @@ export function brandCSS(input) {
 ${palette('body', brand.accent)}
 ${['rental', 'commercial', 'investment', 'land'].map((key, i) => palette(`body[data-experience="${key}"]`, brand.colorMode === 'signature' ? brand.accent : ['#365979', '#304f63', '#704842', '#516840'][i])).join('\n')}
 ${Object.values(INTENT_THEMES).map(({key,accent})=>palette(`body[data-intent="${key}"]`,brand.colorMode==='signature'?brand.accent:accent)).join('\n')}
+${palette('body[data-intent="mixed"]',brand.colorMode==='signature'?brand.accent:'#455b78')}
 body{background:var(--brand-background)}
 .search-welcome h1,.listing-heading h1,.section h2,.contact-card h2,.results-toolbar h2,.disclosures h2,.photo-inspiration>summary{font-family:var(--heading-font)}
 .discovery-search,.listing-card,.hero,.contact-card,.disclosures,.calculator,.showcase-card{border-radius:var(--brand-radius)}

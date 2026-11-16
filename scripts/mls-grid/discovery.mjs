@@ -1,3 +1,4 @@
+import { typeApplies } from './search-choices.mjs';
 import { monthlyFee } from './consumer.mjs';
 import { FEATURE_FILTERS, featureList, parsePlaces, reportedFeatures, locationCoordinates } from './search-filters.mjs';
 import { createSearchMap } from './search-map.mjs';
@@ -42,10 +43,10 @@ export function initializeDiscovery({form,search,renderCard}) {
   $('#place-picker').addEventListener('change',()=>{const control=$('#place-picker'),places=safePlaces(form.elements.areas.value);if(control.value&&!places.includes(control.value)&&places.length<8){form.elements.areas.value=JSON.stringify([...places,control.value]);search();}control.value='';});
   function sync(){
     const type=form.elements.type.value;
-    for(const label of document.querySelectorAll('label[data-intents]')){const applies=!type||label.dataset.intents.split(',').includes(type);label.hidden=!applies;for(const control of label.querySelectorAll('input,select')){control.disabled=!applies;if(!applies)control.value=control.name==='bedMatch'?'minimum':'';}}
-    for(const option of form.elements.subtype.options){option.hidden=Boolean(option.dataset.intents&&type&&!option.dataset.intents.split(',').includes(type));option.disabled=option.hidden;}
+    for(const label of document.querySelectorAll('label[data-intents]')){const applies=typeApplies(type,label.dataset.intents.split(','));label.hidden=!applies;for(const control of label.querySelectorAll('input,select')){control.disabled=!applies;if(!applies)control.value=control.name==='bedMatch'?'minimum':'';}}
+    for(const option of form.elements.subtype.options){option.hidden=Boolean(option.dataset.intents&&!typeApplies(type,option.dataset.intents.split(',')));option.disabled=option.hidden;}
     if(form.elements.subtype.selectedOptions[0]?.disabled)form.elements.subtype.value='';
-    $('#bathroom-filter').hidden=['Land','Commercial Sale','Commercial Lease'].includes(type);form.elements.baths.disabled=$('#bathroom-filter').hidden;if(form.elements.baths.disabled)form.elements.baths.value='';
+    $('#bathroom-filter').hidden=!typeApplies(type,['Residential','Residential Lease','Residential Income']);form.elements.baths.disabled=$('#bathroom-filter').hidden;if(form.elements.baths.disabled)form.elements.baths.value='';
     const required=safeList(form.elements.required.value),preferred=safeList(form.elements.preferred.value);
     for(const[key,control]of amenityControls)control.value=required.includes(key)?'required':preferred.includes(key)?'preferred':'';
     const places=safePlaces(form.elements.areas.value);$('#selected-places').replaceChildren(...places.map(place=>action(place+' ×',()=>{const remaining=places.filter(value=>value!==place);form.elements.areas.value=remaining.length?JSON.stringify(remaining):'';search();})));

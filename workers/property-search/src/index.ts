@@ -1,3 +1,4 @@
+import { syncOpenHouses } from './open-house-sync.mjs'
 import { syncLive } from './sync.mjs'
 import { handleRequest } from './runtime.mjs'
 import { publishJobs } from './job-store.mjs'
@@ -13,6 +14,7 @@ export default {
     const result = await syncLive(env)
     console.log(JSON.stringify({ event: 'mls_grid_sync', ...result }))
     if(env.LIVE_SYNC_ENABLED==='true'){
+      try{const events=await syncOpenHouses(env);console.log(JSON.stringify({event:'mls_open_house_sync',...events}))}catch{console.error(JSON.stringify({event:'mls_open_house_sync_failed'}))}
       await seedJobs(env)
       await publishJobs(env)
       await geocodeIndependently(env)

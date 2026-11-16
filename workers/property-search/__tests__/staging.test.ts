@@ -7,7 +7,7 @@ import { searchStore } from '../src/store.mjs'
 import { publicProjection } from '../../../scripts/mls-grid/client.mjs'
 
 const origin = 'https://preview-search.primeamericany.com'
-const schema = readFileSync(new URL('../migrations/0001_search_staging.sql', import.meta.url), 'utf8')
+const schema = readFileSync(new URL('../migrations/0001_search_staging.sql', import.meta.url), 'utf8')+readFileSync(new URL('../migrations/0002_open_houses.sql',import.meta.url),'utf8')
 function fixture() {
   const sqlite = new DatabaseSync(':memory:'); sqlite.exec(schema)
   for (let i=0;i<110;i++) {

@@ -1,3 +1,5 @@
+import { openHouseCondition } from './open-houses.mjs';
+import { choiceValues } from './search-choices.mjs';
 import { recentListingDates } from './consumer.mjs';
 import { advancedConditions, featureList, featureSQL } from './search-filters.mjs';
 
@@ -21,10 +23,10 @@ export function searchQuery(params = {}, now = new Date(), indexed = false) {
   }
   if (query && !indexed) { conditions.push("search_text LIKE ? ESCAPE '\\'"); values.push(`%${query.replace(/[\\%_]/g, '\\$&')}%`); }
   advancedConditions(params,conditions,values,indexed);
+  if(params.openHouses==='1')conditions.push(openHouseCondition(now.getTime()));
   if (params.photosOnly === '1') conditions.push(indexed ? 'has_photos=1' : 'EXISTS (SELECT 1 FROM listing_media m WHERE m.source=listings.source AND m.listing_id=listings.id)');
-  for (const [param, column] of [['status', 'status'], ['type', 'property_type'], ['source', 'source']]) {
-    if (params[param]) { conditions.push(`${column}=?`); values.push(String(params[param])); }
-  }
+  for(const [param,column]of [['type','property_type'],['status','status']]){const selected=choiceValues(params[param],param);if(selected.length){conditions.push(selected.length===1?`${column}=?`:`${column} IN (${selected.map(()=>'?').join(',')})`);values.push(...selected);}}
+  if(params.source){conditions.push('source=?');values.push(String(params.source));}
   for (const [param, column, operator] of [['minPrice', 'price', '>='], ['maxPrice', 'price', '<='], ['beds', 'beds', '>=']]) {
     if (params[param] !== undefined && params[param] !== '') {
       const value = Number(params[param]);

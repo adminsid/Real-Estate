@@ -1,3 +1,4 @@
+import { OPEN_HOUSE_SCHEMA,openHouseQuery,attachOpenHouses } from './open-houses.mjs';
 import { featuredQuery,featuredResult } from './featured-listings.mjs';
 import { suggestionQuery, publicSuggestions } from './suggestions.mjs';
 import { DatabaseSync } from 'node:sqlite';
@@ -23,6 +24,7 @@ export function openStore(path) {
     CREATE TABLE IF NOT EXISTS demo_inquiries (
       id TEXT PRIMARY KEY, source TEXT NOT NULL, listing_id TEXT NOT NULL,
       created_at TEXT NOT NULL, request_json TEXT NOT NULL);`);
+  db.exec(OPEN_HOUSE_SCHEMA);
   return {
     close: () => db.close(),
     featured(params={},now=new Date()){const query=featuredQuery(params,now);const rows=db.prepare(query.sql).all(...query.values);return featuredResult(rows.map(row=>this.listing(row.source,row.id)));},
@@ -76,7 +78,7 @@ export function openStore(path) {
       if (!row) return null;
       const listing = JSON.parse(row.public_json);
       if (listing.addressWithheld) { delete listing.PublicRemarks; delete listing.TaxLegalDescription; }
-      return { ...listing, media: this.mediaFor(source, id), obtainedAt: listing.obtainedAt ?? null };
+      const query=openHouseQuery([listing]);return attachOpenHouses([{...listing,media:this.mediaFor(source,id),obtainedAt:listing.obtainedAt??null}],db.prepare(query.sql).all(...query.values))[0];
     },
     saveInquiry(id, source, listingId, inquiry) {
       if (!this.listing(source, listingId)) throw new Error('Listing unavailable');
@@ -106,8 +108,9 @@ export function openStore(path) {
         if (listing.addressWithheld) { delete listing.PublicRemarks; delete listing.TaxLegalDescription; }
         return { ...listing, media: media.get(listing.source + ':' + listing.id) || [] };
       });
-      const showcase = projected.slice(records.length).map(listing => ({ ...listing, featuredPhoto: Math.floor(Math.random() * listing.media.length) }));
-      return { environment: 'demo', total, offset, limit, sort, insights: { withPhotos: insights.withPhotos || 0, belowOriginal: insights.belowOriginal || 0, recentlyListed: insights.recentlyListed || 0 }, showcase, listings: projected.slice(0,records.length), checkpoints: db.prepare('SELECT source,complete,updated_at FROM checkpoints').all() };
+      const eventsQuery=openHouseQuery(projected,now.getTime()),withEvents=attachOpenHouses(projected,db.prepare(eventsQuery.sql).all(...eventsQuery.values));
+      const showcase = withEvents.slice(records.length).map(listing => ({ ...listing, featuredPhoto: Math.floor(Math.random() * listing.media.length) }));
+      return { environment: 'demo', total, offset, limit, sort, insights: { withPhotos: insights.withPhotos || 0, belowOriginal: insights.belowOriginal || 0, recentlyListed: insights.recentlyListed || 0 }, showcase, listings: withEvents.slice(0,records.length), checkpoints: db.prepare('SELECT source,complete,updated_at FROM checkpoints').all() };
     },
   };
 }

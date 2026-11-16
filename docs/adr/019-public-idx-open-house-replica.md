@@ -1,0 +1,15 @@
+# ADR 019: Replicate public IDX open houses separately
+
+Accepted November 16, 2026, for the private search preview. Public release remains gated by ADR 016 and display review.
+
+MLS GRID OpenHouse is a separate replication resource. It is not a Property expansion and must not be pulled once per property. The preview importer owns a distinct source-scoped cursor, precise modification version, bootstrap baseline/catch-up and fenced lease. It follows validated exact next links; commits precede cursor advancement. Delta polls run about every five minutes, subject to provider availability and the existing shared subscription budget. A six-day interruption restarts the event bootstrap before display resumes.
+
+All event requests use the existing private SourceGateway, pacing, response-size limits, budget reservations and core-priority policy. A resource-specific authorization denial backs off OpenHouse without declaring the Property credential invalid. Shared provider rate limits continue to apply. No consumer request contacts MLS GRID for events.
+
+The retained public projection requires explicit MlgCanView, IDX eligibility, Public type, an Active or unreported status, an exact source-scoped listing identity, and valid offset-qualified start/end timestamps. Canceled, ended, broker, private and unknown-type events are suppressed; revoked rows retain only replication identity/version. Remarks and access instructions are never retained or published. Join by provider ListingKey, or source-scoped normalized ListingId when no ListingKey is supplied; do not match addresses. Property eligibility remains independently required.
+
+Public event display waits for complete bootstrap and permission catch-up. It requires a completed event check within 90 minutes and a future end time. Cards, details, the open-house filter, matching hero photos and map queries use this common predicate. Detail dates are shown in New York time and explicitly require confirmation; an event is not a confirmed showing appointment. Missing coverage is labelled as updating rather than a statement that no events exist. Event commits also invalidate the lightweight search change token.
+
+This licensed read replica is not the brokerage's canonical Open House Event, Open House Attendance, RSVP, consent, CRM Contact, showing request or appointment. It neither creates attendance records nor asserts that Prime America hosts another brokerage's event. The owner-only /ops/mls-open-houses page reports safe aggregate progress and allows a bounded sync pass with existing Access/email/origin checks.
+
+Source documentation reviewed: [MLS GRID API v2](https://docs.mlsgrid.com/api-documentation/api-version-2.0), MLS GRID Best Practices Guide (resource replication and no per-property OpenHouse retrieval), [RESO OpenHouse](https://dd.reso.org/DD2.1/OpenHouse/) and [OpenHouseStatus](https://dd.reso.org/DD2.1/lookups/OpenHouseStatus/). Account permissions and actual field presence are verified by the live canary; the schema alone does not establish provider entitlement or complete market coverage.

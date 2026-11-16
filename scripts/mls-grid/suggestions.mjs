@@ -1,9 +1,9 @@
 import { searchQuery } from './search-query.mjs';
 import { reportedArea } from './location-model.mjs';
 import { BOROUGH_COUNTIES } from './search-filters.mjs';
-export function suggestionQuery({q='',type='Residential',borough='NYC'}={},production=false) {
+export function suggestionQuery({q='',type='Residential',borough='NYC',status='Active'}={},production=false) {
  const text=String(q).trim().slice(0,100);if(text.length<2)return null;
- const query=searchQuery({q:text,type,borough,status:'Active'},new Date(),production);
+ const query=searchQuery({q:text,type,borough,status},new Date(),production);
  return {sql:`SELECT public_json FROM listings WHERE ${query.where} LIMIT 80`,values:query.values,text};
 }
 export function publicSuggestions(records,text) {

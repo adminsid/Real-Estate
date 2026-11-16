@@ -1,3 +1,4 @@
+import { refreshChoicePickers } from './search-choices.mjs';
 import { initializeSearchHero } from './search-hero.mjs';
 import { BOROUGHS } from './confidence.mjs';
 import { interpretSearch,searchURL,RECENT_SEARCH_KEY,cleanRecent,rememberSearch } from './search-intent.mjs';
@@ -18,7 +19,7 @@ function composer({form,input,list,preview,getDefaults,onApply,onPreview=()=>{},
  function suggest(){clearTimeout(timer);controller?.abort();const current=++version,parsed=render(),query=parsed.params.q||input.value.trim();close();
   const local=BOROUGHS.filter(area=>query&&area.toLowerCase().includes(query.toLowerCase())).map(value=>({kind:'borough',label:value,value}));display(local);
   if(!parsed.params.q||query.length<2||query.length>100)return;
-  timer=setTimeout(async()=>{controller=new AbortController();try{const params=new URLSearchParams({q:query,type:parsed.params.type,borough:parsed.params.borough}),response=await fetch('/api/suggestions?'+params,{signal:controller.signal});if(!response.ok)throw Error();const data=await response.json();if(current!==version)return;
+  timer=setTimeout(async()=>{controller=new AbortController();try{const params=new URLSearchParams({q:query,type:parsed.params.type,borough:parsed.params.borough,status:parsed.params.status}),response=await fetch('/api/suggestions?'+params,{signal:controller.signal});if(!response.ok)throw Error();const data=await response.json();if(current!==version)return;
     const suggestions=(data.suggestions||[]).filter(item=>['area','address','zip','mls'].includes(item.kind)&&typeof item.label==='string'&&typeof item.value==='string').slice(0,12);
     areas=suggestions.filter(item=>item.kind==='area');render();display([...local,...suggestions].slice(0,12));feedback.textContent=items.length?`${items.length} ${items.length===1?'suggestion':'suggestions'}. Use arrow keys to choose or keep typing.`:'No suggestions. You can search the words you entered.';
    }catch(error){if(error.name!=='AbortError'&&current===version)feedback.textContent='Suggestions are unavailable. You can still search your entered words and filters.';}},250);
@@ -31,22 +32,23 @@ function composer({form,input,list,preview,getDefaults,onApply,onPreview=()=>{},
 }
 export function initializeSearchStart() {
  const form=$('#start-form'),hero=initializeSearchHero();
- const startComposer=composer({onPreview:parsed=>hero.update(parsed),form,input:$('#start-query'),list:$('#start-suggestions'),preview:$('#start-understanding'),getDefaults:()=>({type:form.elements.type.value,borough:form.elements.borough.value}),onApply(parsed,event){event.preventDefault();const href=searchURL(parsed.params),label=parsed.chips.map(chip=>chip.label).join(' · ').slice(0,220);try{rememberSearch(localStorage,{label,href});}catch{/* Optional history. */}location.href=href;}});
+ const startComposer=composer({onPreview:parsed=>hero.update(parsed),form,input:$('#start-query'),list:$('#start-suggestions'),preview:$('#start-understanding'),getDefaults:()=>({type:form.elements.type.value,borough:form.elements.borough.value,status:form.elements.status.value,openHouses:form.elements.openHouses.value}),onApply(parsed,event){event.preventDefault();const href=searchURL(parsed.params),label=parsed.chips.map(chip=>chip.label).join(' · ').slice(0,220);try{rememberSearch(localStorage,{label,href});}catch{/* Optional history. */}location.href=href;}});
  if(document.body.dataset.page==='start')startComposer.render();
- for(const button of document.querySelectorAll('[data-start-area]'))button.addEventListener('click',()=>{const href=searchURL({type:form.elements.type.value,borough:button.dataset.startArea});try{rememberSearch(localStorage,{label:button.dataset.startArea,href});}catch{/* Optional history. */}location.href=href;});
+ form.querySelector('[data-open-houses]').addEventListener('change',event=>{form.elements.openHouses.value=event.target.checked?'1':'';form.dispatchEvent(new Event('change',{bubbles:true}));});
+ for(const button of document.querySelectorAll('[data-start-area]'))button.addEventListener('click',()=>{const href=searchURL({type:form.elements.type.value,status:form.elements.status.value,openHouses:form.elements.openHouses.value,borough:button.dataset.startArea});try{rememberSearch(localStorage,{label:button.dataset.startArea,href});}catch{/* Optional history. */}location.href=href;});
  function recent(){let items=[];try{items=cleanRecent(JSON.parse(localStorage.getItem(RECENT_SEARCH_KEY)||'[]'));}catch{/* Optional history. */}$('#recent-searches').hidden=!items.length;$('#recent-search-list').replaceChildren(...items.map(item=>{const a=node('a',item.label);a.href=item.href;return a;}));}
  $('#recent-search-clear').addEventListener('click',()=>{try{localStorage.removeItem(RECENT_SEARCH_KEY);recent();$('#recent-search-status').textContent='Recent searches cleared from this browser.';}catch{$('#recent-search-status').textContent='Browser storage could not be updated.';}});recent();
 }
 export function initializeResultsComposer(form) {
  const input=$('#results-query');input.value=form.elements.q.value;
- composer({form,input,list:$('#results-suggestions'),preview:$('#results-understanding'),getDefaults:()=>({type:form.elements.type.value,borough:form.elements.borough.value}),merge:true,onApply(parsed,_event,removed){
+ composer({form,input,list:$('#results-suggestions'),preview:$('#results-understanding'),getDefaults:()=>({type:form.elements.type.value,borough:form.elements.borough.value,status:form.elements.status.value,openHouses:form.elements.openHouses.value}),merge:true,onApply(parsed,_event,removed){
    for(const key of removed){if(key==='bedsExact'){form.elements.beds.value='';form.elements.bedMatch.value='minimum';}else if(form.elements[key])form.elements[key].value=key==='borough'?'NYC':'';}
    for(const key of ['q','areas','beds','bedsExact','baths','minPrice','maxPrice']){if(!Object.hasOwn(parsed.params,key))continue;if(key==='bedsExact'){form.elements.beds.value=parsed.params[key]==='0'?'studio':parsed.params[key];form.elements.bedMatch.value='exact';}else if(form.elements[key])form.elements[key].value=parsed.params[key];}
    // Clear only the previously entered keywords when a phrase resolves to structured choices.
    form.elements.q.value=parsed.params.q||'';
    if(parsed.params.beds&&!parsed.params.bedsExact)form.elements.bedMatch.value='minimum';
-   for(const key of ['type','borough'])form.elements[key].value=parsed.params[key]||'';
+   for(const key of ['type','borough','status','openHouses'])form.elements[key].value=parsed.params[key]||'';
    try{rememberSearch(localStorage,{label:parsed.chips.map(chip=>chip.label).join(' · ').slice(0,220),href:searchURL(parsed.params)});}catch{/* Optional history. */}
-   input.value=form.elements.q.value;$('#results-understanding').hidden=true;
+   refreshChoicePickers(form);input.value=form.elements.q.value;$('#results-understanding').hidden=true;
   }});
 }

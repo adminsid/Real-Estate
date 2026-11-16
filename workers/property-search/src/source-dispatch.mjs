@@ -26,8 +26,9 @@ export function approvedRequest(input, kind) {
   if (url.protocol !== 'https:' || url.username || url.password || url.port || url.hash) throw Error('Rejected unsafe source URL');
   const rest = url.hostname === 'api.mlsgrid.com';
   if (rest) {
-    if (!['/v2/Property', '/v2/Member'].includes(url.pathname) || !url.searchParams.get('$filter')?.includes("OriginatingSystemName eq 'onekey2'")) throw Error('Rejected unsafe source URL');
-    if (!['core', 'gallery', 'cover', 'diagnostic'].includes(kind)) throw Error('Invalid source request class');
+    if (!['/v2/Property', '/v2/Member','/v2/OpenHouse'].includes(url.pathname) || !url.searchParams.get('$filter')?.includes("OriginatingSystemName eq 'onekey2'")) throw Error('Rejected unsafe source URL');
+    if((url.pathname==='/v2/OpenHouse'&&!['openhouse','diagnostic'].includes(kind))||(kind==='openhouse'&&url.pathname!=='/v2/OpenHouse'))throw Error('Invalid OpenHouse source class');
+    if (!['core', 'gallery', 'cover', 'diagnostic','openhouse'].includes(kind)) throw Error('Invalid source request class');
   } else if (!['gallery', 'cover'].includes(kind) || !(url.hostname === 'media.mlsgrid.com' || /^mlsgrid\.[a-f0-9]{32}\.r2\.cloudflarestorage\.com$/.test(url.hostname))) throw Error('Rejected unsafe source URL');
   return {url, rest, maximum: rest ? 8 * 1024 * 1024 : 15 * 1024 * 1024};
 }
@@ -44,7 +45,7 @@ export async function dispatchSource(env, input, {now = () => Date.now(), pause 
   if (input.jobId) {
     const job = await db.prepare("SELECT id FROM ingestion_jobs WHERE id=? AND claim_token=? AND claim_until>? AND state='claimed'").bind(input.jobId, input.token, now()).first();
     if (!job) return {error: 'Source job claim expired', retryAt: now() + 60000};
-  } else if (input.kind !== 'core' && input.kind !== 'diagnostic') throw Error('Source job claim required');
+  } else if (input.kind !== 'core' && input.kind !== 'diagnostic' && input.kind !== 'openhouse') throw Error('Source job claim required');
   if (!rest) {
     if (!input.mediaKey || !input.mediaRevision) throw Error('Media dispatch intent required');
     const media = await db.prepare(`SELECT m.file FROM listing_media m JOIN ingestion_jobs j ON j.source=m.source AND j.listing_id=m.listing_id
@@ -96,8 +97,8 @@ export async function dispatchSource(env, input, {now = () => Date.now(), pause 
       db.prepare("UPDATE source_attempts SET completed_at=?,actual_bytes=?,status=?,outcome='completed' WHERE id=? AND outcome='may_have_dispatched'").bind(now(), actual, response.status, id),
       db.prepare('UPDATE feed_budget SET bytes=bytes-? WHERE hour=? AND bytes>=?').bind(maximum - actual, hour, maximum - actual),
     ]);
-    if (rest && [401,403].includes(response.status)) await db.prepare("UPDATE source_control SET source_backoff_until=?,source_failure='credentials' WHERE source='onekey2'").bind(now() + 3600000).run();
-    else if(rest&&response.ok)await db.prepare("UPDATE source_control SET source_failure=NULL WHERE source='onekey2'").run();
+    if (rest && url.pathname!=='/v2/OpenHouse' && [401,403].includes(response.status)) await db.prepare("UPDATE source_control SET source_backoff_until=?,source_failure='credentials' WHERE source='onekey2'").bind(now() + 3600000).run();
+    else if(rest&&url.pathname!=='/v2/OpenHouse'&&response.ok)await db.prepare("UPDATE source_control SET source_failure=NULL WHERE source='onekey2'").run();
     // Unknown 429 scope is conservatively source-wide. A single media 403 is not
     // a REST credential rejection and cannot change feed_state.failure.
     const retryHeader = response.headers.get('Retry-After');
