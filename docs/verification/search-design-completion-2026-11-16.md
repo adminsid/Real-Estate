@@ -28,3 +28,8 @@ No observed older-adult/first-time-user session, screen-reader certification, ph
 Deploy to the private preview and update the production package while retaining its public-release gate. Cloudflare Access, IDX eligibility checks, current photo counts, source polling/quotas, paid-media disablement and image-transform allowance of zero remain unchanged. No schema migration, new paid service, source-token change or access-policy change is part of this release.
 
 Deployment identifiers and remote checks are recorded after publication.
+
+- Source commit: `f61cb7a` on `codex/search-map-experience`.
+- Private preview version: `010a32f7-96c6-4b92-8970-dd97561e41f3`.
+- Production version: `33f595a6-1a59-4ee5-8e5d-3f11716c268a`, with `PUBLIC_RELEASE_ENABLED=false`, `DISPLAY_REVIEW_COMPLETE=false` and `IMAGE_TRANSFORM_LIMIT=0` retained.
+- Remote unauthenticated checks: preview `/` and `/api/suggestions?q=Maspeth` return HTTP 302 to Access. The owner-authenticated deployed UI was not inspected; local browser checks and the successful deployment are separate verification evidence.
