@@ -24,4 +24,10 @@ User authorization: the user approved the prior search design recommendations an
 
 Target private preview: `prime-property-search-staging`, `preview-search.primeamericany.com`. Production package uses `prime-property-search`, `search.primeamericany.com`, with the existing public-release gate preserved. Deployment IDs and remote checks are recorded after publication.
 
+Deployed source commit: `d8d1c54` on `codex/search-map-experience`.
+
+- Preview version: `30581f0c-61b2-48a8-9649-62deaf43218c`. Cloudflare reported a 2 ms Worker startup. This is not a consumer page-load benchmark.
+- Production version: `6faa8013-f726-47c6-82fc-69121b43a25d`. `PUBLIC_RELEASE_ENABLED=false`, `DISPLAY_REVIEW_COMPLETE=false` and `IMAGE_TRANSFORM_LIMIT=0` remain in the deployed configuration.
+- Unauthenticated remote checks: preview `/`, `/your-search` and `/guide` return HTTP 302 to Access; production `/` returns HTTP 503 as expected for its closed release gate. No owner-authenticated remote visual check was performed; the UI checks above used fictional local data. No access policy was relaxed for verification.
+
 No schema migration, new paid service, image transformation allowance, Stream activation, source-poll frequency increase, bulk media preparation or transaction-document upload is included. These consumer actions do not create new upstream MLS calls; existing listing-photo enrichment remains the established on-demand path.
