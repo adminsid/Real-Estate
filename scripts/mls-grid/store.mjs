@@ -1,3 +1,4 @@
+import { suggestionQuery, publicSuggestions } from './suggestions.mjs';
 import { DatabaseSync } from 'node:sqlite';
 import { publicProjection } from './client.mjs';
 import { searchQuery, mediaQuery } from './search-query.mjs';
@@ -23,6 +24,7 @@ export function openStore(path) {
       created_at TEXT NOT NULL, request_json TEXT NOT NULL);`);
   return {
     close: () => db.close(),
+    suggestions(params={}) { const query=suggestionQuery(params);return query?publicSuggestions(db.prepare(query.sql).all(...query.values),query.text):[]; },
     discovery(params={},now=new Date()) {
       const queries=discoveryQueries(params,now);
       const results=Object.values(queries).map(query=>db.prepare(query.sql).all(...query.values));

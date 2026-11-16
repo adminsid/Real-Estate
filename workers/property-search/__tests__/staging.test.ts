@@ -33,7 +33,7 @@ function fixture() {
 describe('Private search staging',()=>{
   it('fails closed before reading data or static assets on every route',async()=>{
     const {sqlite,env}=fixture()
-    try {for(const path of ['/','/your-search','/guide','/how-it-works','/confidence-ui.mjs','/confidence.css','/app.mjs','/api/search','/api/listing/synthetic/TEST-0','/media/'+ 'a'.repeat(64),'/api/inquiries','/ops/mls-grid']) {
+    try {for(const path of ['/','/your-search','/guide','/how-it-works','/api/suggestions?q=test','/search-start.mjs','/search-intent.mjs','/confidence-ui.mjs','/confidence.css','/app.mjs','/api/search','/api/listing/synthetic/TEST-0','/media/'+ 'a'.repeat(64),'/api/inquiries','/ops/mls-grid']) {
       const response=await handleRequest(new Request(origin+path),env)
       expect(response.status).toBe(403);expect(response.headers.get('X-Robots-Tag')).toContain('noindex')
     }expect(env.ASSETS.fetch).not.toHaveBeenCalled();expect(env.SEARCH_MEDIA.get).not.toHaveBeenCalled()}finally{sqlite.close()}
@@ -46,6 +46,9 @@ describe('Private search staging',()=>{
         expect(response.status).toBe(200);expect(html).toContain(`data-page="${page}"`);expect(html).not.toContain('1 Fictional Lane');expect(response.headers.get('X-Robots-Tag')).toContain('noindex')
       }
       for(const path of ['/confidence-ui.mjs','/confidence.mjs','/guidance.mjs','/confidence.css'])expect((await handleRequest(new Request(origin+path),env,{authorize})).status).toBe(200)
+      const suggestions=await handleRequest(new Request(origin+'/api/suggestions?q=Fictional'),env,{authorize})
+      expect(suggestions.status).toBe(200);const items=(await suggestions.json()).suggestions
+      expect(items.length).toBeGreaterThan(0);expect(items.length).toBeLessThanOrEqual(12);expect(items.every(item=>item.kind==='address')).toBe(true);expect(items.some(item=>item.value==='0 Fictional Lane')).toBe(false)
     }finally{sqlite.close()}
   })
   it('supports 96-card pages and 100 saved identities within D1 parameter limits',async()=>{

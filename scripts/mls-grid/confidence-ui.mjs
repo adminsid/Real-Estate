@@ -1,4 +1,4 @@
-import { BOROUGHS, CHECKLIST, STAGES, createJourney, startSearch } from './confidence.mjs';
+import { CHECKLIST, STAGES, createJourney } from './confidence.mjs';
 import { relevantGuidance } from './guidance.mjs';
 const $=selector=>document.querySelector(selector);
 const node=(tag,text='',className='')=>{const element=document.createElement(tag);element.textContent=text;if(className)element.className=className;return element;};
@@ -17,7 +17,8 @@ export function initializeConfidence({getSaved,toggleSaved,renderCard,address,pu
  let storage;try{storage=localStorage;}catch{storage={getItem:()=>null,setItem:()=>{throw Error();},removeItem:()=>{throw Error();}};}
  const journey=createJourney(storage),status=$('#journey-status');
  function announce(text){status.textContent=text;}
- function saveNotice(text){const toast=$('#save-feedback');$('#save-feedback-text').textContent=text;toast.hidden=false;}
+ let pendingUndo;function saveNotice(text,undo){const toast=$('#save-feedback');$('#save-feedback-text').textContent=text;pendingUndo=undo;$('#save-feedback-undo').hidden=typeof undo!=='function';toast.hidden=false;}
+ $('#save-feedback-undo').addEventListener('click',()=>{const undo=pendingUndo;pendingUndo=null;$('#save-feedback-undo').hidden=true;undo?.();});
  $('#save-feedback-close').addEventListener('click',()=>{$('#save-feedback').hidden=true;});
  const stage=$('#journey-stage');for(const [key,title]of Object.entries(STAGES))stage.append(new Option(title,key));stage.value=journey.get().stage;
  function nextStep(){const stage=journey.get().stage,copy={exploring:'Save a few possibilities and note what matters to you.',comparing:'Compare reported facts and write down costs or details to confirm.',viewing:'Prepare your questions, identify the contact and confirm a viewing time.',deciding:'Ask your professional which documents and due-diligence steps apply before you commit.'};$('#journey-next').textContent=copy[stage];}
@@ -63,16 +64,6 @@ export function initializeConfidence({getSaved,toggleSaved,renderCard,address,pu
  window.addEventListener('storage',event=>{if(event.key==='prime-america-search-v1')announce('Saved properties changed in another tab. Refresh to see the current list.');});
  function viewingDraft(listing,date,time){const key=listing.source+':'+listing.id;if(!getSaved().includes(key))return;journey.update(key,{viewing:{date,time,state:'email-draft'}});}
  function removed(key){journey.remove(key);}
- return {loadSaved,saveNotice,removed,viewingDraft,preferredTime:key=>journey.get().entries[key]?.viewing};
+ return {loadSaved,saveNotice,removed,entry:key=>journey.get().entries[key],restore:(key,entry)=>journey.update(key,entry),viewingDraft,preferredTime:key=>journey.get().entries[key]?.viewing};
 }
-export function initializeStart() {
- const form=$('#start-form'),input=$('#start-query'),list=$('#start-suggestions');let selected=-1,suggestions=[];
- function close(){list.hidden=true;input.setAttribute('aria-expanded','false');input.removeAttribute('aria-activedescendant');selected=-1;}
- function suggest(){const text=input.value.trim().toLowerCase();suggestions=text?BOROUGHS.filter(area=>area.toLowerCase().includes(text)||area==='Bronx'&&'the bronx'.includes(text)):[];selected=-1;
-  list.replaceChildren(...suggestions.map((area,i)=>{const item=node('li',area);item.id='start-option-'+i;item.setAttribute('role','option');item.setAttribute('aria-selected','false');item.addEventListener('pointerdown',event=>{event.preventDefault();input.value=area;close();input.focus();});return item;}));list.hidden=!suggestions.length;input.setAttribute('aria-expanded',String(Boolean(suggestions.length)));input.removeAttribute('aria-activedescendant');
- }
- input.addEventListener('input',suggest);input.addEventListener('focus',suggest);input.addEventListener('blur',close);
- input.addEventListener('keydown',event=>{if(event.key==='Escape'){close();return;}if(['ArrowDown','ArrowUp'].includes(event.key)&&suggestions.length){event.preventDefault();selected=(selected+(event.key==='ArrowDown'?1:-1)+suggestions.length)%suggestions.length;[...list.children].forEach((item,i)=>item.setAttribute('aria-selected',String(i===selected)));input.setAttribute('aria-activedescendant',list.children[selected].id);}else if(event.key==='Enter'&&selected>=0&&!list.hidden){event.preventDefault();input.value=suggestions[selected];close();}});
- form.addEventListener('submit',event=>{event.preventDefault();location.href=startSearch({query:input.value,type:form.elements.type.value,borough:form.elements.borough.value});});
- for(const button of document.querySelectorAll('[data-start-area]'))button.addEventListener('click',()=>{location.href=startSearch({type:form.elements.type.value,borough:button.dataset.startArea});});
-}
+export { initializeSearchStart as initializeStart } from './search-start.mjs';

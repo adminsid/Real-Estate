@@ -44,9 +44,9 @@ export function initializeBottomDock() {
     $('#dock-input-error').hidden = selected !== 'bottom' || searchDialog.open || error.hidden;
     $('#dock-input-error').textContent = error.textContent;
     const count = $('#active-filters').children.length;
-    $('#dock-search-open').textContent = count ? `Search & filters (${Math.max(0,count - 1)})` : 'Search & filters';
+    $('#dock-search-open').textContent='Search';$('#dock-filters-open').textContent=count?`Filters (${Math.max(0,count-1)})`:'Filters';
     const isMap = $('#discovery-layout').dataset.layout === 'map';
-    $('#dock-map-toggle').textContent = isMap ? 'Homes' : 'Map';
+    $('#dock-map-toggle').textContent='Map';$('#dock-map-toggle').setAttribute('aria-pressed',String(isMap));
     $('#dock-map-toggle').setAttribute('aria-label',isMap ? 'Show homes' : 'Show map');
     $('#dock-map-tools').hidden = $('#discovery-layout').dataset.layout === 'homes';
   }
@@ -60,9 +60,9 @@ export function initializeBottomDock() {
     for (const anchor of document.querySelectorAll('#search-page a[href]')) { const url = new URL(anchor.href,location.href); if (url.pathname.startsWith('/listing/')) { url.searchParams.set('controls',selected); anchor.href = url.href; } }
     if (selected === 'bottom') {
       if(updates){move(updates,dock);dock.prepend(updates);}
-      move(form,$('#dock-search-body'));
+      move(form,$('#dock-search-body'));move($('#active-filters'),$('#results-filters'));
       move(actions,$('#dock-view-body')); move(browse,$('#dock-view-body'));
-      move(layout,$('#dock-layout')); move(save,$('#dock-view-body'));
+      move(layout,$('#dock-view-body')); move(save,$('#dock-view-body'));
       move(pagination,$('#dock-pages')); move(previous,$('#dock-desktop-pages')); move(next,$('#dock-desktop-pages'));
       move(comparison,$('#dock-comparison'));
       move(mapControls,$('#dock-map-tools')); move(mapAreas,$('#dock-map-tools')); move(mapSearch,$('#dock-map-tools'));
@@ -82,7 +82,7 @@ export function initializeBottomDock() {
     selected = position.value; applyPosition();
     try { localStorage.setItem('property-search-controls',selected); } catch { /* Optional preference. */ }
     const url = new URL(location.href); url.searchParams.set('controls',selected); history.replaceState(null,'',url); $('#open-full-search').href = document.body.dataset.publicOrigin + '/?' + url.searchParams;
-    (selected === 'bottom' ? $('#dock-view-open') : position).focus();
+    (selected === 'bottom' ? $('#results-view-open') : position).focus();
   });
 
   function panel(dialog, trigger) {
@@ -109,9 +109,15 @@ export function initializeBottomDock() {
     },true);
     dialog.addEventListener('click',event => { if (event.target === dialog) { const box = dialog.getBoundingClientRect(); if (event.clientX < box.left || event.clientX > box.right || event.clientY < box.top || event.clientY > box.bottom) dialog.close(); } });
   }
-  panel(searchDialog,$('#dock-search-open')); panel(viewDialog,$('#dock-view-open'));
+  panel(searchDialog,$('#dock-search-open')); panel(viewDialog,$('#results-view-open'));
+  $('#results-view-open').addEventListener('click',()=>{$('.view-preferences').open=true;});
+  $('#dock-search-open').addEventListener('click',()=>{ $('#dock-search-title').textContent='Search';$('.more-filters').open=false;$('#results-query').focus(); });
+  $('#dock-filters-open').addEventListener('click',()=>{panelTriggers.set(searchDialog,$('#dock-filters-open'));$('#dock-search-title').textContent='Filters';if(!searchDialog.open)searchDialog.showModal();$('#dock-filters-open').setAttribute('aria-expanded','true');$('.price-filter').open=true;$('.more-filters').open=true;$('.price-filter summary').focus();$('.price-filter').scrollIntoView({block:'start'});});
+  searchDialog.addEventListener('close',()=>$('#dock-filters-open').setAttribute('aria-expanded','false'));
+  function availableViewport(){const viewport=window.visualViewport;document.documentElement.style.setProperty('--available-height',(viewport?.height||innerHeight)+'px');document.documentElement.style.setProperty('--visual-top',(viewport?.offsetTop||0)+'px');document.body.dataset.keyboard=viewport&&viewport.height<innerHeight*.8?'open':'closed';if(searchDialog.open&&document.activeElement?.matches('input,select'))document.activeElement.scrollIntoView({block:'nearest'});}
+  window.visualViewport?.addEventListener('resize',availableViewport);availableViewport();
   form.addEventListener('submit',() => { if (filtersAreValid()) searchDialog.close(); });
-  save.addEventListener('click',() => { if (selected !== 'bottom') return; panelTriggers.set(viewDialog,save); $('.view-preferences').open = true; $('#saved-search-panel').open = true; viewDialog.showModal(); $('#dock-view-open').setAttribute('aria-expanded','true'); $('#preference-status').tabIndex = -1; $('#preference-status').focus(); });
+  save.addEventListener('click',() => { if (selected !== 'bottom') return; panelTriggers.set(viewDialog,save); $('.view-preferences').open = true; $('#saved-search-panel').open = true; if(!viewDialog.open)viewDialog.showModal(); $('#results-view-open').setAttribute('aria-expanded','true'); $('#preference-status').tabIndex = -1; $('#preference-status').focus(); });
   pagination.addEventListener('click',event => { if (selected === 'bottom' && event.target.closest('button')) viewDialog.close(); });
   $('#dock-map-toggle').addEventListener('click',() => {
     const mode = $('#discovery-layout').dataset.layout === 'map' ? 'homes' : 'map';

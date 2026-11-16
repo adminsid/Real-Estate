@@ -8,7 +8,7 @@ import { DEFAULT_BRAND, validateBrand, brandCSS } from './brand.mjs';
 import { publicOrigin, renderPage, embedDemo } from './pages.mjs';
 export function createPreviewServer(store, databasePath, options = {}) {
   const assets = { '/listing-enrichment.mjs': ['listing-enrichment.mjs', 'text/javascript; charset=utf-8'], '/search-updates.mjs': ['search-updates.mjs', 'text/javascript; charset=utf-8'], '/app.mjs': ['app.mjs', 'text/javascript; charset=utf-8'], '/consumer.mjs': ['consumer.mjs', 'text/javascript; charset=utf-8'], '/brand.mjs': ['brand.mjs', 'text/javascript; charset=utf-8'], '/brand-editor.mjs': ['brand-editor.mjs', 'text/javascript; charset=utf-8'], '/embed.mjs': ['embed.mjs', 'text/javascript; charset=utf-8'], '/embed-loader.js': ['embed-loader.js', 'text/javascript; charset=utf-8'], '/style.css': ['style.css', 'text/css; charset=utf-8'] };
-  for(const name of ['confidence.mjs','confidence-ui.mjs','guidance.mjs','confidence.css','location-model.mjs', 'vendor/maplibre-4.7.1.js', 'vendor/maplibre-worker-4.7.1.js', 'vendor/maplibre-4.7.1.css', 'vendor/MAPLIBRE-LICENSE.txt','bottom-dock.mjs','bottom-dock.css','search-filters.mjs','discovery.mjs','search-map.mjs','nyc-boroughs.json','discovery.css','search-icon.svg'])assets['/'+name]=[name,(name.endsWith('.mjs')||name.endsWith('.js'))?'text/javascript; charset=utf-8':name.endsWith('.css')?'text/css; charset=utf-8':name.endsWith('.svg')?'image/svg+xml':name.endsWith('.txt')?'text/plain; charset=utf-8':'application/json'];
+  for(const name of ['search-intent.mjs','search-start.mjs','confidence.mjs','confidence-ui.mjs','guidance.mjs','confidence.css','location-model.mjs', 'vendor/maplibre-4.7.1.js', 'vendor/maplibre-worker-4.7.1.js', 'vendor/maplibre-4.7.1.css', 'vendor/MAPLIBRE-LICENSE.txt','bottom-dock.mjs','bottom-dock.css','search-filters.mjs','discovery.mjs','search-map.mjs','nyc-boroughs.json','discovery.css','search-icon.svg'])assets['/'+name]=[name,(name.endsWith('.mjs')||name.endsWith('.js'))?'text/javascript; charset=utf-8':name.endsWith('.css')?'text/css; charset=utf-8':name.endsWith('.svg')?'image/svg+xml':name.endsWith('.txt')?'text/plain; charset=utf-8':'application/json'];
   const configuredOrigin = options.publicURL ? publicOrigin(options.publicURL) : null;
   const embedOrigins = (options.embedOrigins || []).map(publicOrigin);
   const brandPath = join(dirname(databasePath), 'brand.json');
@@ -93,6 +93,7 @@ export function createPreviewServer(store, databasePath, options = {}) {
         return;
       }
       if (url.pathname === '/api/search') { send(200, store.search(Object.fromEntries(url.searchParams))); return; }
+      if (url.pathname === '/api/suggestions') { send(200, {suggestions:store.suggestions(Object.fromEntries(url.searchParams))}); return; }
       if (url.pathname === '/api/discovery') { send(200, store.discovery(Object.fromEntries(url.searchParams))); return; }
       const match = url.pathname.match(/^\/api\/listing\/([^/]+)\/([^/]+)$/);
       if (match) {

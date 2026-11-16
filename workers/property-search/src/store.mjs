@@ -1,3 +1,4 @@
+import { suggestionQuery, publicSuggestions } from '../../../scripts/mls-grid/suggestions.mjs';
 import { searchQuery, mediaQuery } from '../../../scripts/mls-grid/search-query.mjs';
 import { discoveryQueries, discoveryResult } from '../../../scripts/mls-grid/discovery-data.mjs';
 import { searchCheckpoints } from './search-checkpoints.mjs';
@@ -14,7 +15,7 @@ const CARD_FIELDS=new Set(['id','source','addressWithheld','obtainedAt','Modific
  'StateOrProvince','CountyOrParish','PostalCode','UnparsedAddress','StreetNumber','StreetNumberNumeric','StreetDirPrefix','StreetName','StreetSuffix','StreetDirSuffix','UnitNumber',
  'ListOfficeName','ListOfficePhone','ListAgentFullName','AttributionContact','OnMarketDate','NumberOfUnitsTotal','YearBuilt','TaxAnnualAmount','NetOperatingIncome',
  'BusinessType','Zoning','Utilities','LeaseAmountFrequency','PetsAllowed','LeaseTerm','RentIncludes','AssociationFee','AssociationFeeFrequency',
- 'LaundryFeatures','AssociationAmenities','InteriorFeatures','AccessibilityFeatures','ExteriorFeatures']);
+ 'AvailabilityDate','AssociationFee2','AssociationFee2Frequency','LaundryFeatures','AssociationAmenities','InteriorFeatures','AccessibilityFeatures','ExteriorFeatures']);
 
 export function searchStore(db, {production = false} = {}) {
   const rows = async (sql, values = []) => (await db.prepare(sql).bind(...values).all()).results;
@@ -50,6 +51,7 @@ export function searchStore(db, {production = false} = {}) {
     });
   }
   return {
+    async suggestions(params={}) { const query=suggestionQuery(params,production);return query?publicSuggestions(await rows(query.sql,query.values),query.text):[]; },
     async discovery(params={},now=new Date()) {
       const queries=discoveryQueries(params,now,production);
       const results=await Promise.all(Object.values(queries).map(query=>rows(query.sql,query.values)));

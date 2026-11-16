@@ -14,7 +14,7 @@ import { DEFAULT_BRAND, brandCSS } from '../../../scripts/mls-grid/brand.mjs';
 import { publicOrigin, renderPage, embedDemo } from '../../../scripts/mls-grid/pages.mjs';
 import { mediaProcessing } from './media-processing.mjs';
 
-const assets = new Set(['/confidence.mjs','/confidence-ui.mjs','/guidance.mjs','/confidence.css','/location-model.mjs','/vendor/maplibre-4.7.1.js','/vendor/maplibre-worker-4.7.1.js','/vendor/maplibre-4.7.1.css','/vendor/MAPLIBRE-LICENSE.txt','/bottom-dock.mjs','/bottom-dock.css','/search-updates.mjs','/app.mjs','/listing-enrichment.mjs','/consumer.mjs','/search-filters.mjs','/discovery.mjs','/search-map.mjs','/nyc-boroughs.json','/discovery.css','/search-icon.svg','/brand.mjs','/brand-editor.mjs','/embed.mjs','/embed-loader.js','/style.css']);
+const assets = new Set(['/search-intent.mjs','/search-start.mjs','/confidence.mjs','/confidence-ui.mjs','/guidance.mjs','/confidence.css','/location-model.mjs','/vendor/maplibre-4.7.1.js','/vendor/maplibre-worker-4.7.1.js','/vendor/maplibre-4.7.1.css','/vendor/MAPLIBRE-LICENSE.txt','/bottom-dock.mjs','/bottom-dock.css','/search-updates.mjs','/app.mjs','/listing-enrichment.mjs','/consumer.mjs','/search-filters.mjs','/discovery.mjs','/search-map.mjs','/nyc-boroughs.json','/discovery.css','/search-icon.svg','/brand.mjs','/brand-editor.mjs','/embed.mjs','/embed-loader.js','/style.css']);
 const json = (status, body) => Response.json(body,{status});
 async function bodyJSON(request) {
   if (!request.body) throw Error('Empty body');
@@ -100,6 +100,7 @@ export async function handleRequest(request, env, {authorize = authorized, feedF
     if (url.pathname === '/api/brand') response=json(200,{brand,demo:true,readOnly:true});
     else if (url.pathname === '/theme.css') response=new Response(brandCSS(brand),{headers:{'Content-Type':'text/css; charset=utf-8'}});
     else if (url.pathname === '/api/search') response=json(200,await store.search(Object.fromEntries(url.searchParams)));
+    else if (url.pathname === '/api/suggestions') response=json(200,{suggestions:await store.suggestions(Object.fromEntries(url.searchParams))});
     else if (url.pathname === '/api/discovery') response=json(200,await store.discovery(Object.fromEntries(url.searchParams)));
     else if (url.pathname === '/embed-demo') response=new Response(embedDemo(brand,origin),{headers:{'Content-Type':'text/html; charset=utf-8'}});
     else if (assets.has(url.pathname)) response=await env.ASSETS.fetch(request);
