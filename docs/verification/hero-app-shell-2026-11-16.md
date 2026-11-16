@@ -25,4 +25,10 @@ The initial browser check caught the existing brand editor assuming that a remov
 
 Implementation references: [registered CSS properties](https://developer.mozilla.org/en-US/docs/Web/CSS/@property), [reduced transparency preferences](https://developer.mozilla.org/en-US/docs/Web/CSS/@media/prefers-reduced-transparency). Reduced transparency has limited browser coverage; opaque inputs and the near-opaque fallback do not depend on that media feature.
 
-No new service, database migration, image transformation, source request path, permission change or Workspace application deployment is included. Private preview and the gated production package are the deployment targets. Deployment identifiers and access checks are recorded after publication.
+No new service, database migration, image transformation, source request path, permission change or Workspace application deployment is included. Private preview and the gated production package are the deployment targets. Deployment results:
+
+- Source commit `0085da1`, pushed to `codex/search-map-experience`.
+- Preview Worker version `d6770b83-ec45-4b18-9e8f-24cb018245ac`.
+- Gated production Worker version `0c22f890-0ed1-409f-bc49-574948d7bf40`.
+- Anonymous preview GET returns HTTP 302 to Access; public search GET remains HTTP 503. Both deployed configurations retain the zero image-transformation limit and existing release settings.
+- Owner-authenticated deployed rendering was not inspected. Local visual/interaction checks, unit tests and remote deployment/access checks are separate evidence.
