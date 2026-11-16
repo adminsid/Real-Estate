@@ -1,3 +1,5 @@
+import { experienceRoute } from './confidence.mjs';
+import { initializeConfidence, initializeStart, heartIcon, guidancePanel } from './confidence-ui.mjs';
 import { followListing,enrichmentMessage } from './listing-enrichment.mjs';
 import { watchSearchUpdates } from './search-updates.mjs';
 import { initializeBrand } from './brand-editor.mjs';
@@ -59,7 +61,8 @@ $('.photo-stage').addEventListener('touchstart',event=>{if(event.touches.length=
 $('.photo-stage').addEventListener('touchend',event=>{if(!touchStart||event.changedTouches.length!==1)return;const dx=event.changedTouches[0].clientX-touchStart.x,dy=event.changedTouches[0].clientY-touchStart.y;touchStart=null;if(Math.abs(dx)>60&&Math.abs(dx)>Math.abs(dy)*1.5)showPhoto(galleryIndex+(dx<0?1:-1));},{passive:true});
 
 const form = $('#search');
-let discovery,bottomDock;
+let discovery,bottomDock,confidence;
+const page=experienceRoute(location.pathname,location.search,document.body.dataset.embedded==='true');document.body.dataset.page=page;
 let offset = 0, controller, requestVersion = 0, debounce, pageData;
 const updates = el('div','','search-updates');updates.hidden = true;
 updates.id='search-updates';
@@ -78,17 +81,31 @@ try {
 } catch { /* Browsing still works when storage is unavailable. */ }
 function persist(message='Viewing preferences saved in this browser.') {
  try { localStorage.setItem(storageKey,JSON.stringify(preferences));$('#preference-status').textContent=message; }
- catch { $('#preference-status').textContent='Browser storage is unavailable. These choices will last for this page only.'; }
+ catch { $('#preference-status').textContent='Browser storage is unavailable. These choices will last for this page only.';return false; }
+ return true;
 }
-function listingHref(l) { return `${document.body.dataset.publicOrigin}/listing/${encodeURIComponent(l.source)}/${encodeURIComponent(l.id)}${location.search}`; }
+function listingHref(l) { return `${document.body.dataset.publicOrigin}/listing/${encodeURIComponent(l.source)}/${encodeURIComponent(l.id)}${location.pathname==='/'||location.pathname==='/embed'?location.search:''}`; }
 function savedKey(l) { return `${l.source}:${l.id}`; }
 function updateSavedButtons() {
  $('#saved-count').textContent=preferences.saved.length;
  for(const button of document.querySelectorAll('[data-save-key]')) {
   const saved=preferences.saved.includes(button.dataset.saveKey);
-  button.textContent=saved?'♥':'♡';button.setAttribute('aria-pressed',String(saved));
-  button.setAttribute('aria-label',`${saved?'Unsave':'Save'} ${button.dataset.saveAddress}`);
+  button.replaceChildren(heartIcon(saved));if(button.dataset.saveLabel)button.append(document.createTextNode(saved?'Saved':'Save property'));button.setAttribute('aria-pressed',String(saved));
+  button.setAttribute('aria-label',`${saved?'Remove from saved properties:':'Save property:'} ${button.dataset.saveAddress}`);button.title=saved?'Remove from your saved properties':'Save this property to Your search';
  }
+}
+function toggleSaved(key) {
+ const already=preferences.saved.includes(key);
+ if(!already&&preferences.saved.length>=100){confidence?.saveNotice('You have 100 saves. Remove one to make room.');return;}
+ preferences.saved=already?preferences.saved.filter(item=>item!==key):[...preferences.saved,key];
+ if(already)confidence?.removed(key);
+ const stored=persist(already?'Property removed from your browser saves.':'Property saved in this browser.');updateSavedButtons();
+ confidence?.saveNotice(stored?(already?'Removed from your saves.':'Saved. Keep questions and compare it in Your search.'):'Browser storage is unavailable. This save lasts for this page only.');
+ if(page==='journey')confidence?.loadSaved();
+ else if(form.elements.savedOnly.value==='1')scheduleSearch(0);
+}
+function saveButton(l,withLabel=false) {
+ const button=action('',()=>toggleSaved(savedKey(l)),withLabel?'secondary save-property':'save-home'),saved=preferences.saved.includes(savedKey(l));button.dataset.saveKey=savedKey(l);button.dataset.saveAddress=address(l);if(withLabel)button.dataset.saveLabel='true';button.append(heartIcon(saved));if(withLabel)button.append(document.createTextNode(saved?'Saved':'Save property'));button.setAttribute('aria-pressed',String(saved));button.setAttribute('aria-label',`${saved?'Remove from saved properties:':'Save property:'} ${address(l)}`);button.title=saved?'Remove from your saved properties':'Save this property to Your search';return button;
 }
 function previewPanel(l) {
  const fields=previewFields(l);if(!fields.length)return null;
@@ -122,14 +139,7 @@ function card(l,i) {
    media.append(previous,next);
   }
  } else {cover.append(el('div','Photo not available','photo-fallback'));if(Number.isSafeInteger(l.photoCount)&&l.photoCount>=0)cover.append(el('span',photoCountLabel(l),'photo-tag'));}
- const save=action('',()=>{
-  const key=savedKey(l),already=preferences.saved.includes(key);
-  if(!already&&preferences.saved.length>=100){$('#preference-status').textContent='You have saved 100 homes. Unsave one to make room.';return;}
-  preferences.saved=already?preferences.saved.filter(item=>item!==key):[...preferences.saved,key];
-  persist(already?'Home removed from your browser saves.':'Home saved in this browser.');updateSavedButtons();
-  if(form.elements.savedOnly.value==='1')scheduleSearch(0);
- },'save-home');
- save.dataset.saveKey=savedKey(l);save.dataset.saveAddress=address(l);
+ const save=saveButton(l);
  media.prepend(cover);media.append(save);
  const body=el('div','','card-body'),heading=el('div','','card-heading');heading.append(el('span',statusText(l),'pill'),el('span',profile.label,'card-type'));body.append(heading,el('div',priceText(l),'card-price'));
  const residential=['house','condo','coop','rental'].includes(profile.key);
@@ -142,7 +152,6 @@ function card(l,i) {
  if(signals.belowOriginal!==null)body.append(el('p',`${money(signals.belowOriginal)} below original price`,'listing-signal'));
  body.append(compactAttribution(l));
  const actions=el('div','','card-actions');actions.append(link('View details →',href,'details-link'));
- if((!production || publicEmail(l)) && ['Active','Coming Soon','Active Under Contract'].includes(l.StandardStatus)){const tour=action('Request a showing',()=>{activeListing=l;openContact('tour',tour);},'secondary');actions.append(tour);}
  body.append(actions);node.append(media,body);discovery?.decorateCard(node,l);return node;
 }
 function syncExperience() {
@@ -330,8 +339,10 @@ applyView();populateSavedSearches();updateSavedButtons();
 let activeListing,stopListingRefresh,contactKind='tour',contactTrigger,contactSaved=false,contactVersion=0;
 function openContact(kind,trigger) {
  contactVersion++;contactSaved=false;contactKind=kind;contactTrigger=trigger;
+ $('#contact-form').reset();
  $('#contact-title').textContent=kind==='tour'?'Request a showing':'Ask a question';$('#contact-property').textContent=address(activeListing);
- $('#contact-recipient').textContent=`Listing contact: ${activeListing.ListAgentFullName || 'Agent name not provided'} · ${activeListing.ListOfficeName || 'Brokerage not provided'}. ${production?'This opens an email draft to the published listing contact.':'This preview does not deliver requests to this contact.'}`;
+ $('#contact-recipient').textContent=`Listed by ${activeListing.ListAgentFullName || 'agent name not provided'} · ${activeListing.ListOfficeName || 'brokerage not provided'}. ${production?'Draft recipient: '+(publicEmail(activeListing)||'No public email supplied')+'. This is the published listing email; confirm who will respond and whom they represent.':'This preview does not deliver requests to this contact.'}`;$('#contact-recipient').className='contact-route';
+ const preferred=confidence?.preferredTime(savedKey(activeListing));for(const name of ['date','time'])$('#contact-form').elements[name].value=preferred?.[name]||'';
  $('#message-title').textContent=kind==='tour'?'Anything you would like to ask? (optional)':'Your question';$('#contact-submit').textContent=production?'Open email draft':kind==='tour'?'Save demo showing request':'Save demo question';
  $('#tour-fields').hidden=$('#tour-help').hidden=kind!=='tour';for(const name of ['date','time'])$('#contact-form').elements[name].required=kind==='tour';$('#contact-form').elements.message.required=kind==='message';
  $('#contact-status').textContent='';$('#contact-status').className='';$('#contact-submit').disabled=false;$('#contact-form').inert=false;$('#contact-form').setAttribute('aria-busy','false');
@@ -345,8 +356,9 @@ $('#contact-form').addEventListener('submit',async e=>{
   const email=publicEmail(activeListing);
   if(!email){$('#contact-status').textContent='No public email was supplied. Use the listing brokerage phone shown on the property page.';return;}
   const subject=`${contactKind==='tour'?'Showing request':'Question'} · MLS #${activeListing.ListingId || activeListing.id}`;
-  const body=[`Hello,`,`I am interested in ${address(activeListing)}.`,contactKind==='tour'?`Preferred showing: ${data.date} at ${data.time} New York time (ET). Please confirm availability.`:'',data.message,`Name: ${data.name}`,`Email: ${data.email}`,data.phone?`Phone: ${data.phone}`:'',`Listing: ${document.body.dataset.publicOrigin}/listing/${activeListing.source}/${activeListing.id}`].filter(Boolean).join('\n\n');
+  const body=[`Hello,`,`I am interested in ${address(activeListing)}.`,contactKind==='tour'?`Preferred showing: ${data.date} at ${data.time} New York time (ET). Please confirm availability.`:'',data.message,data.representation?`Existing representation: ${{yes:'I already work with an agent',no:'I do not currently have an agent',unsure:'I am not sure'}[data.representation]}. Please explain your role.`:'',`Name: ${data.name}`,`Email: ${data.email}`,data.phone?`Phone: ${data.phone}`:'',`Listing: ${document.body.dataset.publicOrigin}/listing/${activeListing.source}/${activeListing.id}`].filter(Boolean).join('\n\n');
   location.href=`mailto:${email}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+  if(contactKind==='tour')confidence?.viewingDraft(activeListing,data.date,data.time);
   $('#contact-status').textContent='Email draft opened. Send it in your email app to contact the listing brokerage. No appointment has been confirmed.';return;
  }
  $('#contact-submit').disabled=true;$('#contact-form').inert=true;$('#contact-form').setAttribute('aria-busy','true');$('#contact-status').textContent='Saving your demo request…';
@@ -395,7 +407,7 @@ function contactCard(l) {
  if(l.ListOfficePhone){const phone=String(l.ListOfficePhone).replace(/[^0-9+]/g,'');if(/^[+]?\d{7,15}$/.test(phone))direct.append(link('Call brokerage',`tel:${phone}`));}
  if(direct.childNodes.length)node.append(direct);
  if(!production)node.append(el('p','Demo requests stay here and are not delivered.','local-notice'));else if(!direct.childNodes.length)node.append(el('p','A public email or phone was not provided by the listing source.','local-notice'));
- const role=el('details','','contact-role');role.append(el('summary','About this contact'),el('p','The agent and brokerage are supplied by the MLS. Confirm whom they represent before sharing confidential information. An inquiry does not establish buyer representation.','muted'));node.append(role);return node;
+ node.append(guidancePanel(l));return node;
 }
 
 function listingDescription(l) {
@@ -459,7 +471,7 @@ function renderListing(l) {
  heading.append(left,right);root.append(heading);
  const sharing=el('div','','listing-sharing'),shareStatus=el('span','','share-status'),publicLink=document.body.dataset.publicOrigin+location.pathname;shareStatus.setAttribute('role','status');
  const separate=link('Open separately ↗',location.href,'button secondary');separate.target='_blank';separate.rel='noopener';
- sharing.append(action('Share listing',async()=>{try{await navigator.clipboard.writeText(publicLink);shareStatus.textContent='Link copied.';}catch{shareStatus.replaceChildren(el('span','Copy this link: '));const field=el('input');field.value=publicLink;field.readOnly=true;field.setAttribute('aria-label','Listing share link');shareStatus.append(field);field.focus();field.select();}},'secondary'),link('Contact','#listing-contact','button secondary'),separate,shareStatus);root.append(sharing);
+ sharing.append(saveButton(l,true),action('Share listing',async()=>{try{await navigator.clipboard.writeText(publicLink);shareStatus.textContent='Link copied.';}catch{shareStatus.replaceChildren(el('span','Copy this link: '));const field=el('input');field.value=publicLink;field.readOnly=true;field.setAttribute('aria-label','Listing share link');shareStatus.append(field);field.focus();field.select();}},'secondary'),link('Contact','#listing-contact','button secondary'),separate,shareStatus);root.append(sharing);
  root.append(listingPhotos(l));if(production){const progress=el('p','','muted');progress.id='listing-photo-progress';progress.setAttribute('role','status');root.append(progress,action('Check for more photos',()=>{stopListingRefresh?.();stopListingRefresh=watchListing(l);},'secondary'));}
  const applyReading=listingReadingControls(root),layout=el('div','','property-layout'),main=el('div','','property-main'),strip=el('div','','fact-strip');
  const summaries=profile.key==='land'?[['LotSizeAcres','acres'],['LotSizeSquareFeet','lot sq ft'],['Zoning','zoning'],['WaterSource','water source']]:profile.key.startsWith('commercial')?[['BuildingAreaTotal',`area (${l.BuildingAreaUnits||'units not supplied'})`],['BusinessType','use'],['ParkingTotal','parking spaces'],['Zoning','zoning']]:profile.key==='investment'?[['NumberOfUnitsTotal','reported units'],['BedroomsTotal','bedrooms'],['YearBuilt','year built'],['LotSizeSquareFeet','lot sq ft']]:[['BedroomsTotal','bedrooms'],['BathroomsFull','full bathrooms'],areaFact(l),['YearBuilt','year built']];
@@ -473,15 +485,24 @@ function renderListing(l) {
  panel.append(el('p',cautions[profile.key]+' Unreported details require confirmation.','muted'));fit.append(panel);main.append(readingSection(fit));
  if(l.PropertyType==='Residential'||l.PropertyType==='Residential Income')main.append(readingSection(calculator(l,profile)));
  else{const costs=section(profile.key==='rental'?'Rent & move-in costs':profile.key==='commercial-lease'?'Lease costs':profile.key==='commercial-sale'?'Ownership costs':'Land purchase costs','costs');costs.append(grid(l,profile.key==='rental'?['ListPrice','LeaseAmountFrequency','SecurityDeposit','RentIncludes','TenantPays']:profile.key==='commercial-lease'?['ListPrice','LeaseAmountFrequency','LeaseTerm','TenantPays','RentIncludes','SecurityDeposit']:['ListPrice','TaxAnnualAmount','AssociationFee','AssociationFeeFrequency']),el('p','Confirm charges and payment periods. Missing costs are not assumed to be zero.','muted'));main.append(readingSection(costs));}
- if(locationSection)main.append(readingSection(locationSection));main.append(readingSection(allDetails(l)));layout.append(main,contactCard(l));root.append(layout);target.replaceWith(root);applyReading();
+ if(locationSection)main.append(readingSection(locationSection));main.append(readingSection(allDetails(l)));layout.append(main,contactCard(l));root.append(layout);target.replaceWith(root);applyReading();updateSavedButtons();
  $('#freshness').textContent=`Last imported: ${stamp(l.obtainedAt)} · Source updated: ${stamp(l.ModificationTimestamp)}`;
 }
 
 discovery=initializeDiscovery({form,search:()=>scheduleSearch(0),renderCard:card});
-bottomDock=initializeBottomDock();
+confidence=initializeConfidence({getSaved:()=>preferences.saved,toggleSaved,renderCard:card,address,publicEmail,openContact:(listing,kind,trigger)=>{activeListing=listing;openContact(kind,trigger);}});
+initializeStart();bottomDock=initializeBottomDock();
+window.addEventListener('storage',event=>{if(event.key!==storageKey)return;try{const stored=JSON.parse(event.newValue||'{}');if(Array.isArray(stored.saved))preferences.saved=stored.saved.filter(key=>typeof key==='string'&&/^[a-zA-Z0-9_-]+:[a-zA-Z0-9_-]+$/.test(key)&&key.length<=160).slice(0,100);else preferences.saved=[];updateSavedButtons();}catch{/* Retain this tab's valid choices. */}});
+for(const a of document.querySelectorAll('.site-header nav a'))if(new URL(a.href).pathname===location.pathname&&location.pathname!=='/')a.classList.add('nav-current');
+if(location.pathname==='/guide'&&location.hash){const topic=document.getElementById(location.hash.slice(1));if(topic?.matches('details')){topic.open=true;requestAnimationFrame(()=>topic.scrollIntoView());}}
+window.addEventListener('hashchange',()=>{if(location.pathname==='/guide'){const topic=document.getElementById(location.hash.slice(1));if(topic?.matches('details'))topic.open=true;}});
+
 const route=location.pathname.match(/^\/listing\/([^/]+)\/([^/]+)$/);
 if(route){$('#search-page').hidden=true;$('#listing-page').hidden=false;$('#back-results').href='/'+location.search;try{const response=await fetch(`/api/listing/${route[1]}/${route[2]}`);if(!response.ok)throw Error();const data=await response.json();renderListing(data.listing);if(production){stopListingRefresh=watchListing(data.listing);window.addEventListener('pagehide',()=>stopListingRefresh?.(),{once:true});}}catch{$('#listing-content').replaceChildren();$('#listing-content').append(el('div','This listing is unavailable. Return to the results to find another property.','error-panel'));}}
-else{const params=new URLSearchParams(location.search);for(const control of form.elements)if(control.name&&params.has(control.name))control.value=params.get(control.name);const restored=Number(params.get('offset')||0);offset=Number.isSafeInteger(restored)&&restored>=0?restored:0;search();
+else if(page==='journey'){
+ $('#journey-properties').before($('#comparison-tray'));confidence.loadSaved();
+}
+else if(page==='results'){const params=new URLSearchParams(location.search);for(const control of form.elements)if(control.name&&params.has(control.name))control.value=params.get(control.name);const restored=Number(params.get('offset')||0);offset=Number.isSafeInteger(restored)&&restored>=0?restored:0;search();
  if(production){
   let stop;
   const start=()=>{stop?.();stop = watchSearchUpdates({

@@ -1,3 +1,4 @@
+import { experienceRoute } from '../../../scripts/mls-grid/confidence.mjs';
 import { monitorSnapshot, monitorPage } from './feed-monitor.mjs';
 import { handleProduction } from './production.mjs';
 import { replica } from './replica.mjs';
@@ -13,7 +14,7 @@ import { DEFAULT_BRAND, brandCSS } from '../../../scripts/mls-grid/brand.mjs';
 import { publicOrigin, renderPage, embedDemo } from '../../../scripts/mls-grid/pages.mjs';
 import { mediaProcessing } from './media-processing.mjs';
 
-const assets = new Set(['/location-model.mjs','/vendor/maplibre-4.7.1.js','/vendor/maplibre-worker-4.7.1.js','/vendor/maplibre-4.7.1.css','/vendor/MAPLIBRE-LICENSE.txt','/bottom-dock.mjs','/bottom-dock.css','/search-updates.mjs','/app.mjs','/listing-enrichment.mjs','/consumer.mjs','/search-filters.mjs','/discovery.mjs','/search-map.mjs','/nyc-boroughs.json','/discovery.css','/search-icon.svg','/brand.mjs','/brand-editor.mjs','/embed.mjs','/embed-loader.js','/style.css']);
+const assets = new Set(['/confidence.mjs','/confidence-ui.mjs','/guidance.mjs','/confidence.css','/location-model.mjs','/vendor/maplibre-4.7.1.js','/vendor/maplibre-worker-4.7.1.js','/vendor/maplibre-4.7.1.css','/vendor/MAPLIBRE-LICENSE.txt','/bottom-dock.mjs','/bottom-dock.css','/search-updates.mjs','/app.mjs','/listing-enrichment.mjs','/consumer.mjs','/search-filters.mjs','/discovery.mjs','/search-map.mjs','/nyc-boroughs.json','/discovery.css','/search-icon.svg','/brand.mjs','/brand-editor.mjs','/embed.mjs','/embed-loader.js','/style.css']);
 const json = (status, body) => Response.json(body,{status});
 async function bodyJSON(request) {
   if (!request.body) throw Error('Empty body');
@@ -113,11 +114,12 @@ export async function handleRequest(request, env, {authorize = authorized, feedF
         const derived=Boolean(object);object??=await env.SEARCH_MEDIA.get(record.file);
         if(!object || !await store.mediaFile(media[1]))return secure(json(404,{error:'Photo unavailable'}));
         response=new Response(object.body,{headers:{'Content-Type':derived?'image/webp':record.type,'Content-Length':String(object.size)}});
-      } else if (url.pathname==='/' || url.pathname==='/embed' || route) {
+      } else if (['/','/your-search','/guide','/how-it-works','/embed'].includes(url.pathname) || route) {
         const asset=await env.ASSETS.fetch(new Request(origin+'/_template.html'));if(!asset.ok)throw Error('Template missing');
         const listing=route?await store.listing(route[1],route[2]):null,unavailable=Boolean(route&&!listing);
-        const results=route?null:await store.search({borough:'NYC',type:'Residential',status:'Active',...Object.fromEntries(url.searchParams)});
-        let html=renderPage(await asset.text(),{brand,origin,listing,unavailable,embedded:url.pathname==='/embed',results,embedOrigins:[origin]});
+        const page=experienceRoute(url.pathname,url.search);
+        const results=route||page!=='results'?null:await store.search({borough:'NYC',type:'Residential',status:'Active',...Object.fromEntries(url.searchParams)});
+        let html=renderPage(await asset.text(),{brand,origin,listing,unavailable,page,embedded:url.pathname==='/embed',results,embedOrigins:[origin]});
         html=html.replace('Sample listings · preview only','Synthetic listings · private staging').replace('Demo listings from OneKey MLS, distributed by MLS GRID.','Fictional inventory for testing. These are not MLS listings or properties offered for sale.').replace('Demo requests stay here and are not delivered.','Demo requests stay in private staging and are not delivered.');
         response=new Response(html,{status:unavailable?404:200,headers:{'Content-Type':'text/html; charset=utf-8'}});
       } else response=json(404,{error:'Not found'});

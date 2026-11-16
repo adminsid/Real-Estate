@@ -1,3 +1,4 @@
+import { experienceRoute } from '../../../scripts/mls-grid/confidence.mjs';
 import { imageObject, IMAGE_VARIANTS } from './image-variants.mjs';
 import { copyrightNotice,idxNotice } from './display.mjs';
 import { searchStore } from './store.mjs';
@@ -7,7 +8,7 @@ import { publishJobs } from './job-store.mjs';
 import { DEFAULT_BRAND,brandCSS } from '../../../scripts/mls-grid/brand.mjs';
 import { searchCheckpoints } from './search-checkpoints.mjs';
 import { publicOrigin,renderPage,escapeHTML } from '../../../scripts/mls-grid/pages.mjs';
-const assets=new Set(['/location-model.mjs','/vendor/maplibre-4.7.1.js','/vendor/maplibre-worker-4.7.1.js','/vendor/maplibre-4.7.1.css','/vendor/MAPLIBRE-LICENSE.txt','/bottom-dock.mjs','/bottom-dock.css','/app.mjs','/search-updates.mjs','/listing-enrichment.mjs','/consumer.mjs','/search-filters.mjs','/discovery.mjs','/search-map.mjs','/nyc-boroughs.json','/discovery.css','/search-icon.svg','/brand.mjs','/brand-editor.mjs','/embed.mjs','/embed-loader.js','/style.css','/mls-grid.png','/onekey.png']);
+const assets=new Set(['/confidence.mjs','/confidence-ui.mjs','/guidance.mjs','/confidence.css','/location-model.mjs','/vendor/maplibre-4.7.1.js','/vendor/maplibre-worker-4.7.1.js','/vendor/maplibre-4.7.1.css','/vendor/MAPLIBRE-LICENSE.txt','/bottom-dock.mjs','/bottom-dock.css','/app.mjs','/search-updates.mjs','/listing-enrichment.mjs','/consumer.mjs','/search-filters.mjs','/discovery.mjs','/search-map.mjs','/nyc-boroughs.json','/discovery.css','/search-icon.svg','/brand.mjs','/brand-editor.mjs','/embed.mjs','/embed-loader.js','/style.css','/mls-grid.png','/onekey.png']);
 export function productionHeaders(response,{privateReview=false,noindex=false}={}) {
   const headers=new Headers(response.headers);
   // Eligibility and freshness are checked on every read. No cached revoked listings or photos.
@@ -83,16 +84,17 @@ export async function handleProduction(request,env,{privateReview=false,now=Date
         const etag='"'+record.file+'-'+image.representation+'"';
         if(request.headers.get('If-None-Match')===etag)response=new Response(null,{status:304,headers:{ETag:etag}});
         else response=new Response(image.object.body,{headers:{'Content-Type':image.type,'Content-Length':String(image.object.size),ETag:etag}});
-      } else if(url.pathname==='/' || url.pathname==='/embed' || route) {
+      } else if(['/','/your-search','/guide','/how-it-works','/embed'].includes(url.pathname) || route) {
         const asset=await env.ASSETS.fetch(new Request(origin+'/_production.html'));if(!asset.ok)throw Error('Template missing');
         const listing=route?await store.listing(route[1],route[2]):null,unavailable=Boolean(route&&!listing);
-        const results=route?null:await store.search({borough:'NYC',type:'Residential',status:'Active',...Object.fromEntries(url.searchParams)},new Date(now));
-        let html=renderPage(await asset.text(),{brand,origin,listing,unavailable,embedded:url.pathname==='/embed',results,embedOrigins:[origin,'https://primeamericany.com','https://www.primeamericany.com']});
+        const page=experienceRoute(url.pathname,url.search);
+        const results=route||page!=='results'?null:await store.search({borough:'NYC',type:'Residential',status:'Active',...Object.fromEntries(url.searchParams)},new Date(now));
+        let html=renderPage(await asset.text(),{brand,origin,listing,unavailable,page,embedded:url.pathname==='/embed',results,embedOrigins:[origin,'https://primeamericany.com','https://www.primeamericany.com']});
         const checked=results?.checkpoints?.find(checkpoint=>checkpoint.source==='onekey2')?.updated_at || (await env.SEARCH_DB.prepare('SELECT last_complete FROM feed_state WHERE source=?').bind('onekey2').first())?.last_complete;
         html=html.replace('<p id="freshness"></p>',`<p>${idxNotice(checked)}</p><p id="freshness"></p>`).replace('</footer>',`</footer><details class="disclosures"><summary>Copyright and DMCA notice</summary>${copyrightNotice}</details>`);
         html=html.replace('<body ', '<body data-environment="production" ');
         if(privateReview)html=html.replace('<main id="main">','<p class="local-notice">Private live-data review. Import may be incomplete. Not approved for public display.</p><main id="main">');
-        else if(!unavailable && url.pathname!=='/embed')html=html.replace('<meta name="robots" content="noindex,nofollow">','<meta name="robots" content="index,follow">');
+        else if(!unavailable && !['/embed','/your-search'].includes(url.pathname))html=html.replace('<meta name="robots" content="noindex,nofollow">','<meta name="robots" content="index,follow">');
         response=new Response(html,{status:unavailable?404:200,headers:{'Content-Type':'text/html; charset=utf-8'}});
       } else response=Response.json({error:'Not found'},{status:404});
     }

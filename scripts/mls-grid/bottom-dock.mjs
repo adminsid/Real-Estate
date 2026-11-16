@@ -56,13 +56,13 @@ export function initializeBottomDock() {
     for (const menu of originalPopovers) menu.open = false;
     document.body.dataset.controls = selected; position.value = selected;
     dock.hidden = selected !== 'bottom';
-    $('#skip-controls').hidden = selected !== 'bottom' || location.pathname.startsWith('/listing/');
+    $('#skip-controls').hidden = selected !== 'bottom' || document.body.dataset.page!=='results' || location.pathname.startsWith('/listing/');
     for (const anchor of document.querySelectorAll('#search-page a[href]')) { const url = new URL(anchor.href,location.href); if (url.pathname.startsWith('/listing/')) { url.searchParams.set('controls',selected); anchor.href = url.href; } }
     if (selected === 'bottom') {
       if(updates){move(updates,dock);dock.prepend(updates);}
       move(form,$('#dock-search-body'));
       move(actions,$('#dock-view-body')); move(browse,$('#dock-view-body'));
-      move(layout,$('#dock-layout')); move(save,$('#dock-actions'));
+      move(layout,$('#dock-layout')); move(save,$('#dock-view-body'));
       move(pagination,$('#dock-pages')); move(previous,$('#dock-desktop-pages')); move(next,$('#dock-desktop-pages'));
       move(comparison,$('#dock-comparison'));
       move(mapControls,$('#dock-map-tools')); move(mapAreas,$('#dock-map-tools')); move(mapSearch,$('#dock-map-tools'));

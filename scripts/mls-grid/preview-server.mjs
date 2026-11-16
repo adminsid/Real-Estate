@@ -1,3 +1,4 @@
+import { experienceRoute } from './confidence.mjs';
 import { createServer } from 'node:http';
 import { readFile, writeFile, rename } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
@@ -7,7 +8,7 @@ import { DEFAULT_BRAND, validateBrand, brandCSS } from './brand.mjs';
 import { publicOrigin, renderPage, embedDemo } from './pages.mjs';
 export function createPreviewServer(store, databasePath, options = {}) {
   const assets = { '/listing-enrichment.mjs': ['listing-enrichment.mjs', 'text/javascript; charset=utf-8'], '/search-updates.mjs': ['search-updates.mjs', 'text/javascript; charset=utf-8'], '/app.mjs': ['app.mjs', 'text/javascript; charset=utf-8'], '/consumer.mjs': ['consumer.mjs', 'text/javascript; charset=utf-8'], '/brand.mjs': ['brand.mjs', 'text/javascript; charset=utf-8'], '/brand-editor.mjs': ['brand-editor.mjs', 'text/javascript; charset=utf-8'], '/embed.mjs': ['embed.mjs', 'text/javascript; charset=utf-8'], '/embed-loader.js': ['embed-loader.js', 'text/javascript; charset=utf-8'], '/style.css': ['style.css', 'text/css; charset=utf-8'] };
-  for(const name of ['location-model.mjs', 'vendor/maplibre-4.7.1.js', 'vendor/maplibre-worker-4.7.1.js', 'vendor/maplibre-4.7.1.css', 'vendor/MAPLIBRE-LICENSE.txt','bottom-dock.mjs','bottom-dock.css','search-filters.mjs','discovery.mjs','search-map.mjs','nyc-boroughs.json','discovery.css','search-icon.svg'])assets['/'+name]=[name,(name.endsWith('.mjs')||name.endsWith('.js'))?'text/javascript; charset=utf-8':name.endsWith('.css')?'text/css; charset=utf-8':name.endsWith('.svg')?'image/svg+xml':name.endsWith('.txt')?'text/plain; charset=utf-8':'application/json'];
+  for(const name of ['confidence.mjs','confidence-ui.mjs','guidance.mjs','confidence.css','location-model.mjs', 'vendor/maplibre-4.7.1.js', 'vendor/maplibre-worker-4.7.1.js', 'vendor/maplibre-4.7.1.css', 'vendor/MAPLIBRE-LICENSE.txt','bottom-dock.mjs','bottom-dock.css','search-filters.mjs','discovery.mjs','search-map.mjs','nyc-boroughs.json','discovery.css','search-icon.svg'])assets['/'+name]=[name,(name.endsWith('.mjs')||name.endsWith('.js'))?'text/javascript; charset=utf-8':name.endsWith('.css')?'text/css; charset=utf-8':name.endsWith('.svg')?'image/svg+xml':name.endsWith('.txt')?'text/plain; charset=utf-8':'application/json'];
   const configuredOrigin = options.publicURL ? publicOrigin(options.publicURL) : null;
   const embedOrigins = (options.embedOrigins || []).map(publicOrigin);
   const brandPath = join(dirname(databasePath), 'brand.json');
@@ -58,14 +59,15 @@ export function createPreviewServer(store, databasePath, options = {}) {
       }
       if (url.pathname === '/embed-demo') { response.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' }); response.end(embedDemo(brand, origin)); return; }
       const listingRoute = url.pathname.match(/^\/listing\/([^/]+)\/([^/]+)$/);
-      if (url.pathname === '/' || url.pathname === '/embed' || listingRoute) {
+      if (['/','/your-search','/guide','/how-it-works','/embed'].includes(url.pathname) || listingRoute) {
         const template = await readFile(new URL('preview.html', import.meta.url), 'utf8');
         // Read eligibility after asynchronous file I/O, immediately before rendering the response.
         const listing = listingRoute ? store.listing(decodeURIComponent(listingRoute[1]), decodeURIComponent(listingRoute[2])) : null;
         const unavailable = Boolean(listingRoute && !listing);
-        const results = listingRoute ? null : store.search({ borough: 'NYC', type: 'Residential', status: 'Active', ...Object.fromEntries(url.searchParams) });
+        const page=experienceRoute(url.pathname,url.search);
+        const results = listingRoute || page!=='results' ? null : store.search({ borough: 'NYC', type: 'Residential', status: 'Active', ...Object.fromEntries(url.searchParams) });
         response.writeHead(unavailable ? 404 : 200, { 'Content-Type': 'text/html; charset=utf-8' });
-        response.end(renderPage(template, { brand, origin, listing, unavailable, embedded: url.pathname === '/embed', results, embedOrigins: [localOrigin, ...embedOrigins] })); return;
+        response.end(renderPage(template, { brand, origin, listing, unavailable, page, embedded: url.pathname === '/embed', results, embedOrigins: [localOrigin, ...embedOrigins] })); return;
       }
       const asset = assets[url.pathname];
       if (asset) { response.writeHead(200, { 'Content-Type': asset[1] }); response.end(await readFile(new URL(asset[0], import.meta.url))); return; }
@@ -75,7 +77,7 @@ export function createPreviewServer(store, databasePath, options = {}) {
         if (!media) { send(404, { error: 'Photo unavailable' }); return; }
         try {
           const variant = url.searchParams.get('variant');
-          if (variant && !['card', 'thumb', 'display'].includes(variant)) { send(400, { error: 'Unknown image size' }); return; }
+          if (variant && !['cardSmall', 'card', 'cardLarge', 'thumb', 'display', 'displayLarge'].includes(variant)) { send(400, { error: 'Unknown image size' }); return; }
           let bytes, type = media.type, representation = 'original';
           if (variant) {
             try { bytes = await readFile(join(dirname(databasePath), 'media', 'optimized', `${media.file}-${variant}.webp`)); type = 'image/webp'; representation = variant; }

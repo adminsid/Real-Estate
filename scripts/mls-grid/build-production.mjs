@@ -9,9 +9,8 @@ template=template.replace('<p id="freshness"></p>','<p id="freshness"></p><p>Som
 template=template.replace('<option value="Closed">Closed</option>','').replace('All imported sources','All listing sources');
 template=template.replace('Demo only. This saves a request to this computer. It does not contact an agent or reserve a time.','This opens your email app. Send the draft to contact the listing brokerage. A requested time is not a confirmed appointment.');
 template=template.replace('Save demo request','Open email draft');
-template=template.replace('<span>Property search</span>','<span>Prime America Real Estate</span>');
 template=template.replace('<h2>Listing information</h2>','<h2>Listing information</h2><div class="listing-sources"><img src="/onekey.png" alt="OneKey MLS"><img src="/mls-grid.png" alt="MLS GRID"></div>');
-template=template.replace('<span>Property search · NYC</span>','<span>Prime America Real Estate · NYC</span><a href="mailto:info@primeamericany.com">Report a listing error</a><a href="/copyright">Copyright / DMCA notices</a>');
+template=template.replace('<span>Property search · NYC</span>','<span class="provider-identity">Search provided by Prime America Real Estate, Inc.<br><a href="tel:+13477253142">347-725-3142 · Search support</a></span><a href="mailto:info@primeamericany.com">Report a listing error</a><a href="/copyright">Copyright / DMCA notices</a>');
 template=template.replace('<button id="brand-open"','<button hidden id="brand-open"');
 await writeFile(new URL('../../workers/property-search/public/_production.html',import.meta.url),template);
 console.log('Built production search assets. Publication requires domain approval, display review, and a healthy completed replica.');

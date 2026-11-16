@@ -1,6 +1,6 @@
 # Consumer confidence and the purpose of saving
 
-Date: November 15, 2026. Status: proposed product requirements informed by official-source research. The user endorsed the preceding search-start, card, photo, accessibility and navigation recommendations and added confidence, rights and professional accountability as core requirements. This document does not claim that the new experience or legal workflows are implemented, approved legal forms, or a completed compliance review.
+Date: November 15, 2026. Status: product requirements informed by official-source research; the first consumer-interface implementation is recorded in [deployment verification](verification/consumer-confidence-preview-2026-11-15.md). The user endorsed the preceding search-start, card, photo, accessibility and navigation recommendations and added confidence, rights and professional accountability as core requirements. This document does not claim that the new experience or legal workflows are implemented, approved legal forms, or a completed compliance review.
 
 Related: [language and trust guide](search-trust-and-language-guide.md), [NY requirements research](research/ny-consumer-confidence-requirements-2026-11-15.md), [portal litigation research](research/portal-trust-and-litigation-lessons-2026-11-15.md), [website vocabulary](website-vocabulary-guide.md).
 
@@ -107,4 +107,4 @@ Test with first-time shoppers and older adults without coaching. They should be 
 
 ## Current implementation gap
 
-Code inspection on this date shows browser-local saved IDs and a production contact flow that opens an email draft. It does not establish a consumer account/workspace, reliable platform delivery/confirmation, prescribed document acknowledgment/signature, transaction workflow or broker compliance dashboard. No legal form, consent gate, document storage, website code or live deployment was added in this research/design change. Existing release and spending controls remain unchanged.
+At the research checkpoint, the search held browser-local saved IDs and opened email drafts. The subsequent first interface release adds the search start page, useful browser-owned planning, contextual explanations and transparency pages. Contact still opens an email draft. Consumer accounts/cross-device storage, provider-backed message delivery, confirmed appointments, prescribed document acknowledgment/signature, transaction records and a broker compliance dashboard remain separate implementation work. The interface does not claim these exist or that a legal requirement has been completed. Existing release and spending controls remain unchanged.
