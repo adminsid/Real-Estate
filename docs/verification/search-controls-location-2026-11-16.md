@@ -40,4 +40,10 @@ Owner-only preview `/ops/inquiries` lists the latest 100 requests. Team members 
 
 Use the existing private preview and update the gated production package. Keep Access, IDX eligibility, feed quotas/schedules, public-release gates and paid-image-transform allowance zero. No new paid map provider, Cloudflare Images or Stream service is introduced. Migration is additive and old code can run with the new tables present; code rollback does not remove inquiry records.
 
-Deployment IDs, migration outcome and remote checks are recorded after publication.
+- Source commit: `ae527f2`, pushed to `codex/search-map-experience`.
+- Preview Worker version: `601590b0-1a54-4640-887f-8846e731cab6`.
+- Gated production Worker version: `b7023d88-e072-4eb1-8841-42aaf75e39bf`.
+- Remote live search D1 migration `0011_consumer_inquiries.sql` applied successfully; subsequent migration listing reports none pending.
+- Remote anonymous GET: preview results URL returns HTTP 302 to Access; owner inbox `/ops/inquiries` returns HTTP 302 to Access; public search returns HTTP 503 with release gates retained.
+- Deployed owner-session page rendering was not inspected. Local real-map/browser checks and remote deployment/access checks are distinct evidence.
+- Deployment preserved `IMAGE_TRANSFORM_LIMIT=0`, the preview minute schedule and the existing queue/binding configuration. Public release and display-review flags remain false.
