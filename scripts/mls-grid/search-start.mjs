@@ -1,16 +1,17 @@
+import { initializeSearchHero } from './search-hero.mjs';
 import { BOROUGHS } from './confidence.mjs';
 import { interpretSearch,searchURL,RECENT_SEARCH_KEY,cleanRecent,rememberSearch } from './search-intent.mjs';
 const node=(tag,text='',className='')=>{const element=document.createElement(tag);element.textContent=text;if(className)element.className=className;return element;};
 const $=selector=>document.querySelector(selector);
 const kindLabel={borough:'Borough',area:'Neighborhood / postal town',address:'Address',zip:'ZIP code',mls:'MLS number'};
-function composer({form,input,list,preview,getDefaults,onApply,merge=false}) {
+function composer({form,input,list,preview,getDefaults,onApply,onPreview=()=>{},merge=false}) {
  let selected=-1,items=[],areas=[],controller,timer,version=0;const removed=new Set();
  const feedback=node('p','','search-understanding-status');feedback.setAttribute('role','status');feedback.setAttribute('aria-live','polite');preview.after(feedback);
  function interpretation(){const parsed=interpretSearch(input.value,{...getDefaults(),areas});for(const key of removed){if(key==='borough')parsed.params.borough='NYC';else delete parsed.params[key];}parsed.chips=parsed.chips.filter(chip=>!removed.has(chip.key));return parsed;}
  function close(){feedback.textContent='';list.hidden=true;input.setAttribute('aria-expanded','false');input.removeAttribute('aria-activedescendant');selected=-1;}
  function render(){const parsed=interpretation();preview.hidden=!input.value.trim();preview.replaceChildren();
   if(!preview.hidden){preview.append(node('span','Search with:','interpretation-label'));for(const chip of parsed.chips){if(chip.key==='type'){preview.append(node('span',chip.label,'intent-chip'));continue;}const button=node('button',chip.label+' ×','intent-chip');button.type='button';button.setAttribute('aria-label','Remove '+chip.label);button.addEventListener('click',()=>{removed.add(chip.key);render();});preview.append(button);}preview.append(node('p',parsed.warnings.join(' ')||(merge?'These choices update your search. Other filters stay as selected.':'Review these choices. Search applies only the choices shown.'),'interpretation-help'));}
-  return parsed;
+  onPreview(parsed);return parsed;
  }
  function select(item){const parsed=interpretation(),residual=parsed.params.q||'';input.value=residual&&input.value!==residual?input.value.replace(residual,item.value):item.value;areas=item.kind==='area'?[item]:[];removed.clear();if(item.kind==='borough')input.value=item.value;close();render();input.focus();}
  function display(suggestions){items=suggestions;selected=-1;list.replaceChildren(...items.map((item,i)=>{const option=node('li');option.id=input.id+'-option-'+i;option.setAttribute('role','option');option.setAttribute('aria-selected','false');option.append(node('span',item.label),node('small',kindLabel[item.kind]));option.addEventListener('pointerdown',event=>event.preventDefault());option.addEventListener('click',()=>select(item));return option;}));list.hidden=!items.length;input.setAttribute('aria-expanded',String(Boolean(items.length)));input.removeAttribute('aria-activedescendant');}
@@ -29,8 +30,9 @@ function composer({form,input,list,preview,getDefaults,onApply,merge=false}) {
  return {render};
 }
 export function initializeSearchStart() {
- const form=$('#start-form');
- composer({form,input:$('#start-query'),list:$('#start-suggestions'),preview:$('#start-understanding'),getDefaults:()=>({type:form.elements.type.value,borough:form.elements.borough.value}),onApply(parsed,event){event.preventDefault();const href=searchURL(parsed.params),label=parsed.chips.map(chip=>chip.label).join(' · ').slice(0,220);try{rememberSearch(localStorage,{label,href});}catch{/* Optional history. */}location.href=href;}});
+ const form=$('#start-form'),hero=initializeSearchHero();
+ const startComposer=composer({onPreview:parsed=>hero.update(parsed),form,input:$('#start-query'),list:$('#start-suggestions'),preview:$('#start-understanding'),getDefaults:()=>({type:form.elements.type.value,borough:form.elements.borough.value}),onApply(parsed,event){event.preventDefault();const href=searchURL(parsed.params),label=parsed.chips.map(chip=>chip.label).join(' · ').slice(0,220);try{rememberSearch(localStorage,{label,href});}catch{/* Optional history. */}location.href=href;}});
+ if(document.body.dataset.page==='start')startComposer.render();
  for(const button of document.querySelectorAll('[data-start-area]'))button.addEventListener('click',()=>{const href=searchURL({type:form.elements.type.value,borough:button.dataset.startArea});try{rememberSearch(localStorage,{label:button.dataset.startArea,href});}catch{/* Optional history. */}location.href=href;});
  function recent(){let items=[];try{items=cleanRecent(JSON.parse(localStorage.getItem(RECENT_SEARCH_KEY)||'[]'));}catch{/* Optional history. */}$('#recent-searches').hidden=!items.length;$('#recent-search-list').replaceChildren(...items.map(item=>{const a=node('a',item.label);a.href=item.href;return a;}));}
  $('#recent-search-clear').addEventListener('click',()=>{try{localStorage.removeItem(RECENT_SEARCH_KEY);recent();$('#recent-search-status').textContent='Recent searches cleared from this browser.';}catch{$('#recent-search-status').textContent='Browser storage could not be updated.';}});recent();

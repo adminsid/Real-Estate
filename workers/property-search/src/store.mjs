@@ -1,3 +1,4 @@
+import { featuredQuery,featuredResult } from '../../../scripts/mls-grid/featured-listings.mjs';
 import { suggestionQuery, publicSuggestions } from '../../../scripts/mls-grid/suggestions.mjs';
 import { searchQuery, mediaQuery } from '../../../scripts/mls-grid/search-query.mjs';
 import { discoveryQueries, discoveryResult } from '../../../scripts/mls-grid/discovery-data.mjs';
@@ -20,16 +21,16 @@ const CARD_FIELDS=new Set(['id','source','addressWithheld','obtainedAt','Modific
 export function searchStore(db, {production = false} = {}) {
   const rows = async (sql, values = []) => (await db.prepare(sql).bind(...values).all()).results;
   const first = (sql, values = []) => db.prepare(sql).bind(...values).first();
-  async function attach(records,{cards=false}={}) {
+  async function attach(records,{cards=false,includeCounts=true}={}) {
     const listings = records.map(row => {let listing=safeListing(JSON.parse(row.public_json));if(production&&cards)listing=Object.fromEntries(Object.entries(listing).filter(([key])=>CARD_FIELDS.has(key)));if(production&&!listing.addressWithheld&&typeof row.latitude==='number'&&typeof row.longitude==='number')listing.mapLocation={latitude:row.latitude,longitude:row.longitude,source:row.map_source};return listing;});
     if (!listings.length) return [];
     const query = mediaQuery(listings,production);
-    if(production&&cards)query.sql=`SELECT * FROM (SELECT scoped.*,ROW_NUMBER() OVER(PARTITION BY source,listing_id) AS ordinal FROM (${query.sql}) scoped) WHERE ordinal=1`;
+    if(production&&cards)query.sql=`SELECT * FROM (SELECT scoped.*,ROW_NUMBER() OVER(PARTITION BY source,listing_id ORDER BY position,media_key) AS ordinal FROM (${query.sql}) scoped) WHERE ordinal=1`;
     // A current manifest includes all public photos, even pending/failed downloads.
     // Aggregate only this page's listing IDs using the existing parent index.
     const [photos, counts] = await Promise.all([
       rows(query.sql, query.values),
-      production ? rows(`SELECT c.source,c.listing_id,COUNT(m.media_key) AS photo_count
+      production && includeCounts ? rows(`SELECT c.source,c.listing_id,COUNT(m.media_key) AS photo_count
         FROM json_each(?) wanted JOIN listing_components c
         ON c.source=json_extract(wanted.value,'$[0]') AND c.listing_id=json_extract(wanted.value,'$[1]')
         LEFT JOIN listing_media m ON m.source=c.source AND m.listing_id=c.listing_id
@@ -51,6 +52,7 @@ export function searchStore(db, {production = false} = {}) {
     });
   }
   return {
+    async featured(params={},now=new Date()){const query=featuredQuery(params,now,production);return featuredResult(await attach(await rows(query.sql,query.values),{cards:true,includeCounts:false}));},
     async suggestions(params={}) { const query=suggestionQuery(params,production);return query?publicSuggestions(await rows(query.sql,query.values),query.text):[]; },
     async discovery(params={},now=new Date()) {
       const queries=discoveryQueries(params,now,production);

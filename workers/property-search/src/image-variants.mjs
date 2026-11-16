@@ -12,7 +12,7 @@ export async function imageObject(env,store,record,variant,{now=Date.now()}={}){
  const bucket=env.SEARCH_MEDIA,key=variant?'optimized/v1/'+record.file+'-'+variant+'.webp':record.file;
  if(variant){const cached=await bucket.get(key);if(cached)return {object:cached,type:'image/webp',representation:variant+'-v1'};}
  if(variant&&!imagePreparationEnabled(env)){
-  for(const profile of ['cardSmall','cardLarge','display']){
+  for(const profile of (['display','displayLarge'].includes(variant)?['display','cardLarge','cardSmall']:['cardSmall','cardLarge','display'])){
    if(profile===variant)continue;
    const cached=await bucket.get('optimized/v1/'+record.file+'-'+profile+'.webp');
    if(cached)return {object:cached,type:'image/webp',representation:profile+'-v1'};
@@ -26,7 +26,7 @@ export async function imageObject(env,store,record,variant,{now=Date.now()}={}){
   // Fixed profile jobs are deduplicated and published by the durable outbox.
   const parent=await env.SEARCH_DB.prepare("SELECT source,listing_id FROM listing_media WHERE file=? AND state='ready' LIMIT 1").bind(record.file).first();
   if(parent)await insertJob(env.SEARCH_DB,{kind:'variant',source:parent.source,id:parent.listing_id,revision:record.file,profile:variant==='card'?'cardSmall':variant,now}).run();
-  for(const profile of ['cardSmall','cardLarge','display']){
+  for(const profile of (['display','displayLarge'].includes(variant)?['display','cardLarge','cardSmall']:['cardSmall','cardLarge','display'])){
    if(profile===variant)continue;
    const ready=await bucket.get('optimized/v1/'+record.file+'-'+profile+'.webp');
    if(ready)return {object:ready,type:'image/webp',representation:profile+'-v1'};

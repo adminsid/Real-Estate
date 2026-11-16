@@ -28,6 +28,10 @@ describe('Capped responsive photo delivery',()=>{
    expect(result.representation).toBe('cardSmall-v1');expect(input).not.toHaveBeenCalled()
   }finally{sqlite.close()}
  })
+ it('prefers the largest prepared display fallback without spending or preparing images',async()=>{
+  const {sqlite,db}=databaseFixture(),input=vi.fn(),put=vi.fn(),prepared={body:new Uint8Array([1,2]),size:2};
+  try{for(const budget of ['0','100000']){const get=vi.fn(async(key:string)=>/-(cardSmall|cardLarge)\.webp$/.test(key)?prepared:null),result=await imageObject({SEARCH_DB:db,SEARCH_MEDIA:{get,put},IMAGES:{input},IMAGE_TRANSFORM_LIMIT:budget,PREPARED_MEDIA_ONLY:'true'},{},{file:'original'},'display',{now});expect(result.representation).toBe('cardLarge-v1');expect(input).not.toHaveBeenCalled();expect(put).not.toHaveBeenCalled();}expect(sqlite.prepare('SELECT COUNT(*) AS n FROM image_transform_budget').get()?.n).toBe(0);}finally{sqlite.close()}
+ })
  it('serves a prepared smaller image without transforming or substituting a large original',async()=>{
   const {sqlite,db}=databaseFixture(),input=vi.fn(),cancel=vi.fn(async()=>{})
   try{

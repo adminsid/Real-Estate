@@ -1,3 +1,4 @@
+import { featuredQuery,featuredResult } from './featured-listings.mjs';
 import { suggestionQuery, publicSuggestions } from './suggestions.mjs';
 import { DatabaseSync } from 'node:sqlite';
 import { publicProjection } from './client.mjs';
@@ -24,6 +25,7 @@ export function openStore(path) {
       created_at TEXT NOT NULL, request_json TEXT NOT NULL);`);
   return {
     close: () => db.close(),
+    featured(params={},now=new Date()){const query=featuredQuery(params,now);const rows=db.prepare(query.sql).all(...query.values);return featuredResult(rows.map(row=>this.listing(row.source,row.id)));},
     suggestions(params={}) { const query=suggestionQuery(params);return query?publicSuggestions(db.prepare(query.sql).all(...query.values),query.text):[]; },
     discovery(params={},now=new Date()) {
       const queries=discoveryQueries(params,now);
