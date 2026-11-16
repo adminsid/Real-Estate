@@ -28,7 +28,7 @@ export async function initializeBrand() {
       const name = document.createTextNode(brand.name), descriptor = document.createElement('span'); descriptor.textContent = brand.descriptor;
       node.replaceChildren(name, descriptor);
     }
-    document.querySelector('.header-note').textContent = brand.tagline;
+    const headerNote=document.querySelector('.header-note');if(headerNote)headerNote.textContent=brand.tagline;
     document.querySelector('.embed-brand').textContent = `${brand.name} · ${brand.descriptor}`;
     document.querySelector('#brand-contrast').textContent = `Readable colors · buttons ${contrast(brand.accent, '#ffffff').toFixed(1)}:1 · links ${contrast(brand.accent, brand.background).toFixed(1)}:1`;
     stylesheet.href = '/theme.css?' + new URLSearchParams(brand);

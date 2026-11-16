@@ -38,7 +38,7 @@ export function renderPage(template, { brand: input, origin, listing, unavailabl
   }
   const metadata = `<title>${safe(title)}</title><meta name="description" content="${safe(description)}">${unavailable ? '' : `<link rel="canonical" href="${safe(canonical)}">`}<meta property="og:type" content="website"><meta property="og:title" content="${safe(title)}"><meta property="og:description" content="${safe(description)}"><meta property="og:site_name" content="${safe(brand.name)}">${unavailable ? '' : `<meta property="og:url" content="${safe(canonical)}">`}${listing?.media?.[0] ? `<meta property="og:image" content="${safe(origin + listing.media[0].url)}?variant=display"><meta property="og:image:alt" content="Listing photo for ${safe(listingAddress(listing))}"><meta name="twitter:card" content="summary_large_image">` : '<meta name="twitter:card" content="summary">'}`;
   template = template.replace(/<title>.*?<\/title>/, metadata)
-    .replace('<body>', `<body data-page="${page}" data-embedded="${embedded}" data-public-origin="${safe(origin)}" data-embed-origins="${safe(embedOrigins.join(' '))}">`)
+    .replace('<body>', `<body ${page==='start'&&!listing?'data-intent="buy" ':''}data-page="${page}" data-embedded="${embedded}" data-public-origin="${safe(origin)}" data-embed-origins="${safe(embedOrigins.join(' '))}">`)
     .replaceAll('PRIME AMERICA<span>REAL ESTATE</span>', `${safe(brand.name)}<span>${safe(brand.descriptor)}</span>`)
     .replace('New York City. Your next chapter.</span>', `${safe(brand.tagline)}</span>`);
   if(!listing&&!unavailable&&page!=='results') {
@@ -49,6 +49,7 @@ export function renderPage(template, { brand: input, origin, listing, unavailabl
     if(page==='trust')template=template.replace('<section id="trust-page" class="confidence-page">','<section id="trust-page" class="confidence-page">'+trustHTML);
     if(page==='journey')template=template.replace('<meta name="robots" content="index,follow">','<meta name="robots" content="noindex,nofollow">');
   }
+  if(page!=='start'||listing||unavailable)template=template.replace('<a href="/?browse=1">Explore</a>','<a href="/">New search</a>');
   if (listing || unavailable) {
     template = template.replace('<section id="search-page">', '<section id="search-page" hidden>')
       .replace('<section id="listing-page" hidden>', '<section id="listing-page">')

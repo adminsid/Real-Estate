@@ -11,6 +11,15 @@ export const BRAND_PRESETS = Object.freeze({
   city: { accent: '#303d50', background: '#f7f7f7', font: 'modern', corners: 'crisp' },
   studio: { accent: '#794b59', background: '#fcf7f5', font: 'editorial', corners: 'round' },
 });
+export const INTENT_THEMES=Object.freeze({
+ Residential:{key:'buy',accent:'#315b7b'},
+ 'Residential Lease':{key:'rent',accent:'#246757'},
+ 'Residential Income':{key:'invest',accent:'#64518a'},
+ 'Commercial Sale':{key:'commercial-sale',accent:'#41556c'},
+ 'Commercial Lease':{key:'commercial-lease',accent:'#794a65'},
+ Land:{key:'land',accent:'#59693f'},
+});
+export function intentTheme(type){return INTENT_THEMES[type]||{key:'all',accent:DEFAULT_BRAND.accent};}
 export function contrast(a, b) {
   const luminance = hex => {
     const rgb = hex.slice(1).match(/../g).map(value => parseInt(value, 16) / 255)
@@ -43,10 +52,11 @@ export function brandCSS(input) {
   const brand = validateBrand(input), radius = { crisp: '3px', soft: '12px', round: '22px' }[brand.corners];
   const font = brand.font === 'editorial' ? 'Georgia,serif' : 'system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif';
   // Generated stylesheet is served as a same-origin asset: no inline styles or arbitrary CSS.
-  const palette = (selector, accent) => `${selector}{--accent:${accent};--wash:color-mix(in srgb,${accent} 7%,white);}`;
+  const palette = (selector, accent) => `${selector}{--accent:${accent};--wash:color-mix(in srgb,var(--accent) 7%,white);}`;
   return `:root{--brand-background:${brand.background};--brand-radius:${radius};--heading-font:${font};--navy:${brand.accent};}
 ${palette('body', brand.accent)}
 ${['rental', 'commercial', 'investment', 'land'].map((key, i) => palette(`body[data-experience="${key}"]`, brand.colorMode === 'signature' ? brand.accent : ['#365979', '#304f63', '#704842', '#516840'][i])).join('\n')}
+${Object.values(INTENT_THEMES).map(({key,accent})=>palette(`body[data-intent="${key}"]`,brand.colorMode==='signature'?brand.accent:accent)).join('\n')}
 body{background:var(--brand-background)}
 .search-welcome h1,.listing-heading h1,.section h2,.contact-card h2,.results-toolbar h2,.disclosures h2,.photo-inspiration>summary{font-family:var(--heading-font)}
 .discovery-search,.listing-card,.hero,.contact-card,.disclosures,.calculator,.showcase-card{border-radius:var(--brand-radius)}

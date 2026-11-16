@@ -99,7 +99,7 @@ export async function handleProduction(request,env,{privateReview=false,now=Date
         const checked=results?.checkpoints?.find(checkpoint=>checkpoint.source==='onekey2')?.updated_at || (await env.SEARCH_DB.prepare('SELECT last_complete FROM feed_state WHERE source=?').bind('onekey2').first())?.last_complete;
         html=html.replace('<p id="freshness"></p>',`<p>${idxNotice(checked)}</p><p id="freshness"></p>`).replace('</footer>',`</footer><details class="disclosures"><summary>Copyright and DMCA notice</summary>${copyrightNotice}</details>`);
         html=html.replace('<body ', '<body data-environment="production" ');
-        if(privateReview)html=html.replace('<main id="main">','<p class="local-notice">Private live-data review. Import may be incomplete. Not approved for public display.</p><main id="main">');
+        if(privateReview)html=html.replace('</main>','<details class="disclosures private-review-notice"><summary>Preview status</summary><p>Private live-data review. Import may be incomplete. Not approved for public display.</p></details></main>');
         else if(!unavailable && !['/embed','/your-search'].includes(url.pathname))html=html.replace('<meta name="robots" content="noindex,nofollow">','<meta name="robots" content="index,follow">');
         response=new Response(html,{status:unavailable?404:200,headers:{'Content-Type':'text/html; charset=utf-8'}});
       } else response=Response.json({error:'Not found'},{status:404});

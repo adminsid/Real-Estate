@@ -362,11 +362,15 @@ describe('Public release gate and consumer routes',()=>{
    first.mockRestore()
   }finally{sqlite.close()}
  })
+ it('keeps the private-review disclosure below the hero without opening public release',async()=>{
+  const {sqlite,db}=await seeded(),env=configure(db);
+  try{const response=await handleProduction(new Request(env.PUBLIC_ORIGIN+'/'),env,{privateReview:true,now}),html=await response.text();expect(response.status).toBe(200);expect(html).toContain('data-intent="buy"');expect(html).not.toContain('search-identity');expect(html).not.toContain('YOUR NEXT PLACE STARTS HERE');expect(html).toContain('<a href="/?browse=1">Explore</a>');expect(html.indexOf('Private live-data review.')).toBeGreaterThan(html.indexOf('id="start-form"'));expect(html).toContain('private-review-notice');expect(html).toContain('<summary>Preview status</summary>');expect(response.headers.get('X-Robots-Tag')).toContain('noindex');expect((await handleProduction(new Request(env.PUBLIC_ORIGIN+'/'),{...env,PUBLIC_RELEASE_ENABLED:'false'},{now})).status).toBe(503);}finally{sqlite.close()}
+ })
  it('renders canonical listing pages, sitemap links, and honest contact behavior without MLS calls',async()=>{
   const {sqlite,db}=await seeded(),env=configure(db)
   try {
    const page=await handleProduction(new Request(env.PUBLIC_ORIGIN+'/listing/onekey2/KEY-1'),env,{now}),html=await page.text()
-   expect(page.status).toBe(200);expect(html).toContain('data-environment="production"');expect(html).toContain('href="https://search.primeamericany.com/listing/onekey2/KEY-1"');expect(html).toContain('index,follow')
+   expect(page.status).toBe(200);expect(html).toContain('<a href="/">New search</a>');expect(html).toContain('data-environment="production"');expect(html).toContain('href="https://search.primeamericany.com/listing/onekey2/KEY-1"');expect(html).toContain('index,follow')
    expect((await handleProduction(new Request(env.PUBLIC_ORIGIN+'/sitemap.xml?page=0'),env,{now})).status).toBe(200)
    expect((await handleProduction(new Request(env.PUBLIC_ORIGIN+'/api/inquiries',{method:'POST'}),env,{now})).status).toBe(403)
    const head=await handleProduction(new Request(env.PUBLIC_ORIGIN+'/api/search',{method:'HEAD'}),env,{now});expect(await head.text()).toBe('')

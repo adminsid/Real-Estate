@@ -1,3 +1,4 @@
+import { intentTheme } from './brand.mjs';
 const listingAddress=l=>l.addressWithheld?'Address withheld by the listing source':l.UnparsedAddress||[l.StreetNumber,l.StreetDirPrefix,l.StreetName,l.StreetSuffix,l.StreetDirSuffix,l.UnitNumber?'#'+l.UnitNumber:''].filter(Boolean).join(' ')||[l.PostalCity||l.City,l.StateOrProvince].filter(Boolean).join(', ')||'Property address not supplied';
 // Only local, permission-checked photos. Never use an upstream signed media URL here.
 export function heroCandidates(listings=[]){return (Array.isArray(listings)?listings:[]).filter(l=>l&&typeof l.source==='string'&&/^[A-Za-z0-9_-]+$/.test(l.source)&&typeof l.id==='string'&&/^[A-Za-z0-9_-]+$/.test(l.id)&&l.StandardStatus==='Active'&&/^\/media\/[a-f0-9]{64}$/.test(l.media?.[0]?.url||'')).slice(0,6);}
@@ -7,7 +8,7 @@ export function initializeSearchHero(){
  const page=document.querySelector('#start-page');if(document.body.dataset.page!=='start'||page.hidden)return {update(){}};
  const backdrop=document.querySelector('#start-backdrop'),credit=document.querySelector('#start-photo-credit'),property=document.querySelector('#start-photo-property'),source=document.querySelector('#start-photo-source'),status=document.querySelector('#start-photo-status'),position=document.querySelector('#start-photo-position'),pause=document.querySelector('#start-photo-pause'),next=document.querySelector('#start-photo-next'),reduce=matchMedia('(prefers-reduced-motion: reduce)'),connection=navigator.connection;
  backdrop.hidden=false;let paused=reduce.matches||Boolean(connection?.saveData),timer,cycle,request,revision=0,query,slides=[],index=-1,currentImage,pendingImage,loading=false,lastFetch=0,disposed=false,focusedPlayback=false;
- const announce=value=>{if(status.textContent!==value)status.textContent=value;};
+ const announce=value=>{status.dataset.quiet=String(value==='Photos match your current search choices.');if(status.textContent!==value)status.textContent=value;};
  const cancelImage=image=>{image?.removeAttribute('srcset');image?.removeAttribute('src');};
  const stop=()=>{clearTimeout(cycle);cycle=undefined;};
  const busy=()=>document.hidden||(page.contains(document.activeElement)&&!focusedPlayback)||document.querySelector('#start-form').contains(document.activeElement)||credit.matches(':hover');
@@ -29,7 +30,7 @@ export function initializeSearchHero(){
  }
  let lastParsed;
  function update(parsed,force=false){
-  lastParsed=parsed;const initial=query===undefined,nextQuery=heroQuery(parsed);if(nextQuery===query&&!force)return;query=nextQuery;revision++;const version=revision;cancelImage(pendingImage);pendingImage=undefined;request?.abort();clearTimeout(timer);stop();loading=false;slides=[];buttons();backdrop.dataset.state='updating';credit.hidden=!currentImage;position.textContent='Previous search photo · updating…';
+  document.body.dataset.intent=intentTheme(parsed.params.type).key;lastParsed=parsed;const initial=query===undefined,nextQuery=heroQuery(parsed);if(nextQuery===query&&!force)return;query=nextQuery;revision++;const version=revision;cancelImage(pendingImage);pendingImage=undefined;request?.abort();clearTimeout(timer);stop();loading=false;slides=[];buttons();backdrop.dataset.state='updating';credit.hidden=!currentImage;position.textContent='Previous search photo · updating…';
   if(!nextQuery){clearPhoto('Check the search choices above to preview matching properties.');return;}
   announce('Finding matching property photos…');
   timer=setTimeout(async()=>{if(document.hidden||disposed)return;const activeRequest=new AbortController();request=activeRequest;const timeout=setTimeout(()=>activeRequest.abort(),8000);try{const response=await fetch('/api/featured?'+nextQuery,{signal:activeRequest.signal});if(!response.ok)throw Error();const data=await response.json();if(version!==revision||disposed)return;lastFetch=Date.now();slides=heroCandidates(data.listings);if(!slides.length){clearPhoto('No matching photos yet. Search to see all matching listings, including those without photos.');return;}await show(0,version);}catch(error){if(version===revision&&!disposed){clearPhoto('Photo previews are unavailable. You can still search for properties.');buttons();}}finally{clearTimeout(timeout);}},force||initial?0:450);

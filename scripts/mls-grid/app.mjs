@@ -1,3 +1,4 @@
+import { intentTheme } from './brand.mjs';
 import { rememberResultContext,attachListingNavigation } from './listing-navigation.mjs';
 import { mountPropertyMap } from './property-location.mjs';
 import { locationCoordinates } from './search-filters.mjs';
@@ -181,7 +182,7 @@ function syncExperience() {
  };
  const experience=experiences[type]||{key:'home',title:'Properties',budget:'Price'};
  $('#results-query').placeholder=({rental:'Studio in Queens under $3,000',commercial:type.includes('Lease')?'Commercial lease in Queens under $8,000':'Commercial in Queens under $2 million',land:'Land in Queens under $500,000',investment:'Investment property in Queens under $2 million'})[experience.key]||'2 bedrooms in Queens under $800,000';
- document.body.dataset.experience=experience.key;$('#search-title').textContent=experience.title+(form.elements.borough.value==='NYS'?' in New York State':' in NYC');$('#matches-heading').textContent=experience.title;
+ document.body.dataset.intent=intentTheme(type).key;document.body.dataset.experience=experience.key;$('#search-title').textContent=experience.title+(form.elements.borough.value==='NYS'?' in New York State':' in NYC');$('#matches-heading').textContent=experience.title;
  $('#minimum-price-label').textContent='Minimum '+experience.budget.toLowerCase();$('#maximum-price-label').textContent='Maximum '+experience.budget.toLowerCase();
  const bedrooms=!['Commercial Sale','Commercial Lease','Land'].includes(type);$('#bedroom-filter').hidden=!bedrooms;form.elements.beds.disabled=!bedrooms;if(!bedrooms)form.elements.beds.value='';
  form.dataset.experience=experience.key;
@@ -475,7 +476,7 @@ function watchListing(l) {
 }
 function renderListing(l) {
  releasePropertyMap?.();
- activeListing=l;const profile=consumerProfile(l),target=$('#listing-content'),root=el('div');root.id='listing-content';
+ document.body.dataset.intent=intentTheme(l.PropertyType).key;activeListing=l;const profile=consumerProfile(l),target=$('#listing-content'),root=el('div');root.id='listing-content';
  document.body.dataset.experience=profile.key==='rental'?'rental':profile.key.startsWith('commercial')?'commercial':profile.key==='investment'?'investment':profile.key==='land'?'land':'home';root.className=`profile-${profile.key}`;
  const heading=el('div','','listing-heading'),left=el('div'),right=el('div');
  left.append(el('span',`${statusText(l)} · ${profile.label}`,'pill'),el('h1',address(l)),el('p',locationText(l),'muted'));
