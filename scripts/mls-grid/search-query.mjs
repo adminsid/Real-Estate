@@ -1,11 +1,15 @@
+import { openHouseCondition } from './open-houses.mjs';
+import { choiceValues } from './search-choices.mjs';
 import { recentListingDates } from './consumer.mjs';
+import { advancedConditions, featureList, featureSQL } from './search-filters.mjs';
 
 // Shared parameterized filter contract for local SQLite and Cloudflare D1.
 export function searchQuery(params = {}, now = new Date(), indexed = false) {
   const conditions = ['1=1'];
   const values = [];
   const query = String(params.q || '').trim().toLowerCase().slice(0, 200);
-  if (params.borough) {
+  if (params.borough==='NYS')conditions.push("state='NY'");
+  else if (params.borough) {
     const boroughs = { Manhattan: ['New York', 'New York County', 'New York (Manhattan)', 'Manhattan'], Brooklyn: ['Kings', 'Kings County', 'Kings (Brooklyn)', 'Brooklyn'], Queens: ['Queens', 'Queens County'], Bronx: ['Bronx', 'Bronx County'], 'Staten Island': ['Richmond', 'Richmond County', 'Richmond (Staten Island)', 'Staten Island'] };
     const county = params.borough === 'NYC' ? Object.values(boroughs).flat() : boroughs[params.borough];
     if (!county) throw new Error('Invalid borough');
@@ -18,10 +22,11 @@ export function searchQuery(params = {}, now = new Date(), indexed = false) {
     else conditions.push('0=1');
   }
   if (query && !indexed) { conditions.push("search_text LIKE ? ESCAPE '\\'"); values.push(`%${query.replace(/[\\%_]/g, '\\$&')}%`); }
+  advancedConditions(params,conditions,values,indexed);
+  if(params.openHouses==='1')conditions.push(openHouseCondition(now.getTime()));
   if (params.photosOnly === '1') conditions.push(indexed ? 'has_photos=1' : 'EXISTS (SELECT 1 FROM listing_media m WHERE m.source=listings.source AND m.listing_id=listings.id)');
-  for (const [param, column] of [['status', 'status'], ['type', 'property_type'], ['source', 'source']]) {
-    if (params[param]) { conditions.push(`${column}=?`); values.push(String(params[param])); }
-  }
+  for(const [param,column]of [['type','property_type'],['status','status']]){const selected=choiceValues(params[param],param);if(selected.length){conditions.push(selected.length===1?`${column}=?`:`${column} IN (${selected.map(()=>'?').join(',')})`);values.push(...selected);}}
+  if(params.source){conditions.push('source=?');values.push(String(params.source));}
   for (const [param, column, operator] of [['minPrice', 'price', '>='], ['maxPrice', 'price', '<='], ['beds', 'beds', '>=']]) {
     if (params[param] !== undefined && params[param] !== '') {
       const value = Number(params[param]);
@@ -48,6 +53,11 @@ export function searchQuery(params = {}, now = new Date(), indexed = false) {
   if (!Number.isSafeInteger(requestedOffset) || requestedOffset < 0) throw new Error('Invalid offset');
   const sorts = { priceAsc: 'price IS NULL,price ASC', priceDesc: 'price IS NULL,price DESC', newest: "json_extract(public_json,'$.OnMarketDate') IS NULL,json_extract(public_json,'$.OnMarketDate') DESC" };
   if(indexed) { sorts.priceAsc='missing_price,price ASC'; sorts.priceDesc='missing_price,price DESC'; sorts.newest='missing_date,on_market_date DESC'; }
+  // A new arrival must not disappear behind a full page of same-day listings.
+  // Price/status edits use ModificationTimestamp and must not move old entries up.
+  sorts.newest+=",COALESCE(julianday(json_extract(public_json,'$.OriginalEntryTimestamp')),0) DESC,id DESC";
+  const preferred=featureList(params.preferred);
+  sorts.best=preferred.length ? `(${preferred.map(key=>`CASE WHEN ${featureSQL(key)} THEN 1 ELSE 0 END`).join('+')}) DESC,${sorts.newest}` : sorts.newest;
   const sort = params.sort || 'priceAsc';
   if (!Object.hasOwn(sorts, sort)) throw new Error('Invalid sort');
   const where = conditions.join(' AND ');
@@ -56,5 +66,5 @@ export function searchQuery(params = {}, now = new Date(), indexed = false) {
 
 export function mediaQuery(listings, indexed = false) {
   const wanted = [...new Map(listings.map(listing => [JSON.stringify([listing.source,listing.id]),[listing.source,listing.id]])).values()];
-  return { sql: `SELECT m.source,m.listing_id,m.file,m.caption FROM json_each(?) wanted JOIN listing_media m ON m.source=json_extract(wanted.value,'$[0]') AND m.listing_id=json_extract(wanted.value,'$[1]') ${indexed ? "WHERE m.state='ready'" : ''} ORDER BY m.position,m.media_key`, values: [JSON.stringify(wanted)] };
+  return { sql: `SELECT m.source,m.listing_id,m.file,m.caption,m.position,m.media_key${indexed?",EXISTS(SELECT 1 FROM ingestion_jobs j WHERE j.kind='variant' AND j.source=m.source AND j.listing_id=m.listing_id AND j.revision=m.file AND j.profile='cardSmall' AND j.state='ready') AS preview_ready":''} FROM json_each(?) wanted JOIN listing_media m ON m.source=json_extract(wanted.value,'$[0]') AND m.listing_id=json_extract(wanted.value,'$[1]') ${indexed ? "WHERE m.state='ready' AND EXISTS(SELECT 1 FROM listing_components c WHERE c.source=m.source AND c.listing_id=m.listing_id AND c.manifest_version=c.core_version)" : ''} ORDER BY m.position,m.media_key`, values: [JSON.stringify(wanted)] };
 }

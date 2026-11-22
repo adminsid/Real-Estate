@@ -1,5 +1,5 @@
 import { describe,it,expect,vi } from 'vitest'
-import { DatabaseSync } from 'node:sqlite'
+import { databaseFixture } from './production-fixture'
 import { readFileSync } from 'node:fs'
 import { replica,timestampKey } from '../src/replica.mjs'
 import { feedReady,syncLive } from '../src/sync.mjs'
@@ -8,23 +8,6 @@ import { handleProduction } from '../src/production.mjs'
 import { searchStore } from '../src/store.mjs'
 import { searchQuery } from '../../../scripts/mls-grid/search-query.mjs'
 
-export function databaseFixture() {
- const sqlite=new DatabaseSync(':memory:')
- sqlite.exec(readFileSync(new URL('../production-migrations/0001_replica.sql',import.meta.url),'utf8'))
- function prepare(sql:string) {
-  let values: (string|number|null)[]=[]
-  return {
-   bind(...next: (string|number|null)[]){if(next.length>100)throw Error('D1 parameter limit');values=next;return this},
-   async first(){return sqlite.prepare(sql).get(...values)||null},
-   async all(){return {results:sqlite.prepare(sql).all(...values)}},
-   async run(){const result=sqlite.prepare(sql).run(...values);return {meta:{changes:Number(result.changes)}}},
-  }
- }
- const db={prepare,async batch(statements:ReturnType<typeof prepare>[]) {
-  sqlite.exec('BEGIN');try {const results=[];for(const statement of statements)results.push(await statement.run());sqlite.exec('COMMIT');return results}catch(error){sqlite.exec('ROLLBACK');throw error}
- }}
- return {sqlite,db,repo:replica(db)}
-}
 const now=Date.parse('2026-10-09T20:00:00Z')
 const row=(overrides:Record<string,unknown>={})=>({OriginatingSystemName:'onekey2',ListingKey:'KEY-1',ListingId:'KEY1001',MlgCanView:true,MlgCanUse:['IDX'],StandardStatus:'Active',PropertyType:'Residential',CountyOrParish:'Queens',StateOrProvince:'NY',City:'Flushing',PostalCode:'11355',UnparsedAddress:'123 Maple Avenue',StreetNumber:'123',StreetName:'Maple',ListPrice:500000,BedroomsTotal:2,ModificationTimestamp:'2026-10-09T18:00:00.123100Z',OnMarketDate:'2026-10-08',ListOfficeName:'Test brokerage',ListAgentFullName:'Test agent',AttributionContact:'agent@example.invalid',PrivateRemarks:'NEVER PUBLIC',Media:[{MediaKey:'PHOTO-1',Permission:['Public'],MediaModificationTimestamp:'2026-10-09T18:00:00Z',MediaURL:'https://media.mlsgrid.com/test?secret=signed',Order:0}],...overrides})
 const configure=(db:ReturnType<typeof databaseFixture>['db'])=>({APP_ENV:'production',PUBLIC_ORIGIN:'https://search.primeamericany.com',APPROVED_IDX_ORIGIN:'https://search.primeamericany.com',PUBLIC_RELEASE_ENABLED:'true',DISPLAY_REVIEW_COMPLETE:'true',SEARCH_DB:db,SEARCH_RATE_LIMIT:{limit:vi.fn(async()=>({success:true}))},PHOTO_RATE_LIMIT:{limit:vi.fn(async()=>({success:true}))},SEARCH_MEDIA:{get:vi.fn(async()=>({body:'image',size:5}))},ASSETS:{fetch:vi.fn(async()=>new Response(readFileSync(new URL('../../../scripts/mls-grid/preview.html',import.meta.url),'utf8')))}})
@@ -36,6 +19,20 @@ async function seeded() {
  return {...fixture,lease}
 }
 describe('Production listing replica',()=>{
+ it('serves a read-only update token without photos, source requests, or cursor disclosure',async()=>{
+  const {sqlite,db}=await seeded(),env=configure(db)
+  try{
+   const response=await handleProduction(new Request(env.PUBLIC_ORIGIN+'/api/search-updates'),env,{now})
+   expect(response.status).toBe(200)
+   const data=await response.json()
+   expect(data.checkpoints).toHaveLength(1)
+   expect(data.checkpoints[0].version).toMatch(/^[a-f0-9]{64}$/)
+   expect(Object.keys(data.checkpoints[0]).sort()).toEqual(['complete','source','updated_at','version'])
+   expect(response.headers.get('Cache-Control')).toBe('private, no-store')
+   expect(env.SEARCH_MEDIA.get).not.toHaveBeenCalled()
+   expect((await handleProduction(new Request(env.PUBLIC_ORIGIN+'/api/search-updates',{method:'POST'}),env,{now})).status).toBe(405)
+  }finally{sqlite.close()}
+ })
  it('retains sub-millisecond removals and the exact provider watermark',async()=>{
   const {sqlite,repo,db,lease}=await seeded()
   try {
@@ -67,8 +64,9 @@ describe('Production listing replica',()=>{
    await repo.apply([row({InternetAddressDisplayYN:false,PublicRemarks:'Secret address 123 Maple',ModificationTimestamp:'2026-10-09T19:00:00Z'}),row({ListingKey:'KEY-OUT',CountyOrParish:'Nassau',ModificationTimestamp:'2026-10-09T19:30:00Z'})],null,lease,now)
    const store=searchStore(db,{production:true}),listing=await store.listing('onekey2','KEY-1')
    expect(listing.UnparsedAddress).toBeUndefined();expect(listing.PrivateRemarks).toBeUndefined();expect(listing.PublicRemarks).toBeUndefined();expect(listing.media).toHaveLength(0)
-   expect((await store.search({q:'maple'})).total).toBe(0)
-   expect((await store.search({q:'11355'})).total).toBe(1)
+   expect((await store.search({borough:'NYC',q:'maple'})).total).toBe(0)
+   expect((await store.search({borough:'NYC',q:'11355'})).total).toBe(1)
+   expect((await store.search({borough:'NYS',q:'maple'})).total).toBe(1)
    expect((await repo.state()).watermark).toBe('2026-10-09T19:30:00Z')
    const q=searchQuery({type:'Residential',status:'Active',sort:'priceAsc'},new Date(now),true)
    const plan=sqlite.prepare(`EXPLAIN QUERY PLAN SELECT id FROM listings WHERE ${q.where} ORDER BY ${q.sortExpression},id,source LIMIT 24`).all(...q.values)
@@ -88,7 +86,7 @@ describe('Production listing replica',()=>{
   const {sqlite,db}=databaseFixture(),prepared=vi.spyOn(db,'prepare')
   const outside=Array.from({length:20},(_,i)=>row({ListingKey:`OUT-${i}`,CountyOrParish:'Nassau',Media:Array.from({length:30},(_,j)=>({MediaKey:`P-${i}-${j}`,Permission:['Public']}))}))
   try {
-   expect(await downloadPhotos(outside,{LIVE_DB:db,LIVE_MEDIA:{put:vi.fn()}},async()=>{})).toEqual({attempted:0,ready:0,failed:0})
+   expect(await downloadPhotos(outside,{LIVE_DB:db,LIVE_MEDIA:{put:vi.fn()}},async()=>{})).toEqual({attempted:0,ready:0,failed:0,bytes:0})
    expect(prepared.mock.calls.length).toBeLessThanOrEqual(2)
   }finally{sqlite.close()}
  })
@@ -99,7 +97,7 @@ describe('Production listing replica',()=>{
    await repo.apply(rows,null,lease,now)
    sqlite.exec("UPDATE listing_media SET state='ready'")
    const prepared=vi.spyOn(db,'prepare'),fetcher=vi.fn()
-   expect(await downloadPhotos(rows,{LIVE_DB:db,LIVE_MEDIA:{put:vi.fn()}},async()=>{},{fetcher,now:()=>now})).toEqual({attempted:0,ready:0,failed:0})
+   expect(await downloadPhotos(rows,{LIVE_DB:db,LIVE_MEDIA:{put:vi.fn()}},async()=>{},{fetcher,now:()=>now})).toEqual({attempted:0,ready:0,failed:0,bytes:0})
    expect(prepared.mock.calls.length).toBeLessThanOrEqual(2)
    expect(fetcher).not.toHaveBeenCalled()
   }finally{sqlite.close()}
@@ -341,7 +339,7 @@ describe('Public release gate and consumer routes',()=>{
   const {sqlite,db}=await seeded(),env=configure(db)
   try {
    for(const settings of [{PUBLIC_RELEASE_ENABLED:'false'},{APPROVED_IDX_ORIGIN:'https://primeamericany.com'},{DISPLAY_REVIEW_COMPLETE:'false'}]) {
-    for(const path of ['/','/app.mjs','/api/search','/media/'+'a'.repeat(64),'/sitemap.xml']) {
+    for(const path of ['/','/app.mjs','/api/search','/media/'+'a'.repeat(64),'/sitemap.xml','/sitemap-pages.xml']) {
      const response=await handleProduction(new Request(env.PUBLIC_ORIGIN+path),{...env,...settings},{now});expect(response.status).toBe(503);expect(response.headers.get('X-Robots-Tag')).toContain('noindex')
     }
    }
@@ -364,16 +362,51 @@ describe('Public release gate and consumer routes',()=>{
    first.mockRestore()
   }finally{sqlite.close()}
  })
+ it('keeps the private-review disclosure below the hero without opening public release',async()=>{
+  const {sqlite,db}=await seeded(),env=configure(db);
+  try{const response=await handleProduction(new Request(env.PUBLIC_ORIGIN+'/'),env,{privateReview:true,now}),html=await response.text();expect(response.status).toBe(200);expect(html).toContain('data-intent="buy"');expect(html).not.toContain('search-identity');expect(html).not.toContain('YOUR NEXT PLACE STARTS HERE');expect(html).toContain('<a href="/?browse=1">Explore</a>');expect(html.indexOf('Private live-data review.')).toBeGreaterThan(html.indexOf('id="start-form"'));expect(html).toContain('private-review-notice');expect(html).toContain('<summary>Preview status</summary>');expect(response.headers.get('X-Robots-Tag')).toContain('noindex');expect((await handleProduction(new Request(env.PUBLIC_ORIGIN+'/'),{...env,PUBLIC_RELEASE_ENABLED:'false'},{now})).status).toBe(503);}finally{sqlite.close()}
+ })
  it('renders canonical listing pages, sitemap links, and honest contact behavior without MLS calls',async()=>{
   const {sqlite,db}=await seeded(),env=configure(db)
   try {
    const page=await handleProduction(new Request(env.PUBLIC_ORIGIN+'/listing/onekey2/KEY-1'),env,{now}),html=await page.text()
-   expect(page.status).toBe(200);expect(html).toContain('data-environment="production"');expect(html).toContain('href="https://search.primeamericany.com/listing/onekey2/KEY-1"');expect(html).toContain('index,follow')
-   expect((await handleProduction(new Request(env.PUBLIC_ORIGIN+'/sitemap.xml?page=0'),env,{now})).status).toBe(200)
-   expect((await handleProduction(new Request(env.PUBLIC_ORIGIN+'/api/inquiries',{method:'POST'}),env,{now})).status).toBe(405)
+   expect(page.status).toBe(200);expect(html).toContain('<a href="/">New search</a>');expect(html).toContain('data-environment="production"');expect(html).toContain('href="https://search.primeamericany.com/listing/onekey2/KEY-1"');expect(html).toContain('index,follow')
+   const listingsSitemap=await handleProduction(new Request(env.PUBLIC_ORIGIN+'/sitemap.xml?page=0'),env,{now})
+   expect(listingsSitemap.status).toBe(200)
+   expect(await listingsSitemap.text()).toContain(`<loc>${env.PUBLIC_ORIGIN}/listing/onekey2/KEY-1</loc>`)
+   expect((await handleProduction(new Request(env.PUBLIC_ORIGIN+'/api/inquiries',{method:'POST'}),env,{now})).status).toBe(403)
    const head=await handleProduction(new Request(env.PUBLIC_ORIGIN+'/api/search',{method:'HEAD'}),env,{now});expect(await head.text()).toBe('')
    sqlite.exec('DELETE FROM listings')
    expect((await handleProduction(new Request(env.PUBLIC_ORIGIN+'/listing/onekey2/KEY-1'),env,{now})).status).toBe(404)
+   expect(await (await handleProduction(new Request(env.PUBLIC_ORIGIN+'/sitemap.xml?page=0'),env,{now})).text()).not.toContain('KEY-1')
+  }finally{sqlite.close()}
+ })
+ it('advertises only canonical search pages and keeps shared filters out of the index',async()=>{
+  const {sqlite,db}=await seeded(),env=configure(db)
+  const request=async(path:string)=>handleProduction(new Request(env.PUBLIC_ORIGIN+path),env,{now})
+  try {
+   const sitemapIndex=await (await request('/sitemap.xml')).text()
+   expect(sitemapIndex).toContain(`<loc>${env.PUBLIC_ORIGIN}/sitemap-pages.xml</loc>`)
+   expect(sitemapIndex).toContain(`<loc>${env.PUBLIC_ORIGIN}/sitemap.xml?page=0</loc>`)
+   const sitemap=await request('/sitemap-pages.xml')
+   expect(sitemap.status).toBe(200)
+   expect(sitemap.headers.get('Content-Type')).toContain('application/xml')
+   expect(sitemap.headers.get('Cache-Control')).toContain('no-store')
+   const paths=['/','/guide','/how-it-works']
+   const locations=[...(await sitemap.text()).matchAll(/<loc>(.*?)<\/loc>/g)].map(match=>match[1])
+   expect(locations).toEqual(paths.map(path=>env.PUBLIC_ORIGIN+path))
+   for(const path of paths) {
+    const html=await (await request(path)).text()
+    expect(html).toContain('<meta name="robots" content="index,follow">')
+    expect(html).toContain(`<link rel="canonical" href="${env.PUBLIC_ORIGIN+path}">`)
+   }
+   for(const path of ['/?borough=Queens&openHouses=1','/embed','/your-search']) {
+    const page=await request(path)
+    expect(page.status).toBe(200)
+    expect(await page.text()).toContain('<meta name="robots" content="noindex,nofollow">')
+   }
+   const filtered=await request('/?borough=Queens')
+   expect(await filtered.text()).toContain('123 Maple Avenue')
   }finally{sqlite.close()}
  })
 })

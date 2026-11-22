@@ -2,6 +2,8 @@
 
 Research date: October 8, 2026. Status: proposed brokerage policy and product requirements; not implemented or certified as a complete legal review. Initial market: all five NYC boroughs. Leadership names and business titles below were supplied by the company; license records have not been independently verified.
 
+November 15, 2026 review: see the [consumer confidence experience](consumer-confidence-experience.md), [updated NY requirements](research/ny-consumer-confidence-requirements-2026-11-15.md) and [dated portal litigation research](research/portal-trust-and-litigation-lessons-2026-11-15.md). These add transaction-specific form scope, current PCDS links, pending-versus-enacted buyer-agreement distinctions and NYC rental/IDX verification inputs. They do not mark this guide implemented or legally certified.
+
 Related: [website vocabulary](website-vocabulary-guide.md), [NYC rental-rights research](nyc-rental-rights-research.md), [IDX display review](idx-preview-display-review.md). This guide adds safeguards to the vocabulary guide; it does not authorize disclosure of confidential or non-public MLS data.
 
 ## 1. Translate the philosophy into observable conduct
@@ -30,7 +32,7 @@ These are proposed company standards, not claims that every feature exists today
 
 Article 12-A is a foundation for NY licensing, not the whole website compliance perimeter. The review must also address implementing regulations, fair housing, consumer protection, rental charges, accessibility, privacy, consent and transaction-specific disclosure duties. A conflict between a feed instruction and applicable law goes to the responsible broker and legal reviewer; neither a disclaimer nor silently changing the feed resolves it.
 
-The DOS [license-law compilation](https://dos.ny.gov/real-estate-license-law) is dated January 2024. Use it to locate provisions, then check amendments and current authoritative sources. Pending bills, agency guidance, contracts and court rulings need separate labels.
+The [March 2026 DOS license-law compilation](https://dos.ny.gov/system/files/documents/2026/03/real-estate-license-law_03.2026.pdf) helps locate provisions; check amendments and current authoritative sources. Official sites can retain superseded form URLs, so verify the effective document version as well as its host. Pending bills, agency guidance, contracts and court rulings need separate labels.
 
 ### Initial NY compliance checkpoints
 

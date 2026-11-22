@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { readFile } from 'node:fs/promises'
 import { runInNewContext } from 'node:vm'
-import { DEFAULT_BRAND, BRAND_PRESETS, validateBrand, brandCSS, contrast } from '../../scripts/mls-grid/brand.mjs'
+import { DEFAULT_BRAND, BRAND_PRESETS, validateBrand, brandCSS, contrast,INTENT_THEMES,intentTheme } from '../../scripts/mls-grid/brand.mjs'
 import { renderPage, publicOrigin, listingPath } from '../../scripts/mls-grid/pages.mjs'
 import { publicProjection } from '../../scripts/mls-grid/client.mjs'
 
@@ -25,6 +25,11 @@ describe('Portable search branding and public pages', () => {
   expect(css).toContain('body[data-experience="rental"]{--accent:#303d50;')
   expect(css).toContain('--brand-radius:3px')
   expect(brandCSS(DEFAULT_BRAND)).toContain('body[data-experience="rental"]{--accent:#365979;')
+ })
+ it('provides distinct readable intent palettes while honoring signature brand settings',()=>{
+  expect(new Set(Object.values(INTENT_THEMES).map(theme=>theme.accent)).size).toBe(6);
+  for(const [type,{key,accent}]of Object.entries(INTENT_THEMES)){expect(intentTheme(type).key).toBe(key);expect(contrast(accent,'#ffffff')).toBeGreaterThanOrEqual(4.5);expect(contrast(accent,DEFAULT_BRAND.background)).toBeGreaterThanOrEqual(4.5);expect(brandCSS(DEFAULT_BRAND)).toContain(`body[data-intent="${key}"]{--accent:${accent};`);expect(brandCSS({...DEFAULT_BRAND,colorMode:'signature',accent:'#303d50'})).toContain(`body[data-intent="${key}"]{--accent:#303d50;`);}
+  expect(intentTheme('')).toMatchObject({key:'all'});
  })
  it('accepts only exact public origins and uses stable listing paths', () => {
   expect(publicOrigin('https://homes.example/')).toBe('https://homes.example')
