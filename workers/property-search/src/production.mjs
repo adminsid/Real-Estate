@@ -8,8 +8,15 @@ import { requestEnrichment,enrichmentStatus } from './enrichment.mjs';
 import { publishJobs } from './job-store.mjs';
 import { DEFAULT_BRAND,brandCSS } from '../../../scripts/mls-grid/brand.mjs';
 import { searchCheckpoints } from './search-checkpoints.mjs';
-import { publicOrigin,renderPage,escapeHTML } from '../../../scripts/mls-grid/pages.mjs';
+import { publicOrigin,renderPage,escapeHTML,listingPath } from '../../../scripts/mls-grid/pages.mjs';
 const assets=new Set(['/listing-navigation.mjs','/interaction.css','/property-location.mjs','/search-intent.mjs','/open-houses.mjs','/search-choices.mjs','/search-hero.mjs','/search-hero.css','/search-start.mjs','/confidence.mjs','/confidence-ui.mjs','/guidance.mjs','/confidence.css','/location-model.mjs','/vendor/maplibre-4.7.1.js','/vendor/maplibre-worker-4.7.1.js','/vendor/maplibre-4.7.1.css','/vendor/MAPLIBRE-LICENSE.txt','/bottom-dock.mjs','/bottom-dock.css','/app.mjs','/search-updates.mjs','/listing-enrichment.mjs','/consumer.mjs','/search-filters.mjs','/discovery.mjs','/search-map.mjs','/nyc-boroughs.json','/discovery.css','/search-icon.svg','/brand.mjs','/brand-editor.mjs','/embed.mjs','/embed-loader.js','/style.css','/mls-grid.png','/onekey.png']);
+const publicSearchPages=['/','/guide','/how-it-works'];
+const publicPagesSitemap='/sitemap-pages.xml';
+const sitemapXML=(tag,urls)=>{
+  const entry=tag==='sitemapindex'?'sitemap':'url';
+  const locations=urls.map(url=>`<${entry}><loc>${escapeHTML(url)}</loc></${entry}>`).join('');
+  return new Response(`<?xml version="1.0" encoding="UTF-8"?><${tag} xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${locations}</${tag}>`,{headers:{'Content-Type':'application/xml'}});
+};
 export function productionHeaders(response,{privateReview=false,noindex=false}={}) {
   const headers=new Headers(response.headers);
   // Eligibility and freshness are checked on every read. No cached revoked listings or photos.
@@ -60,15 +67,16 @@ export async function handleProduction(request,env,{privateReview=false,now=Date
     else if(url.pathname==='/theme.css')response=new Response(brandCSS(brand),{headers:{'Content-Type':'text/css; charset=utf-8'}});
     else if(assets.has(url.pathname))response=await env.ASSETS.fetch(request);
     else if(url.pathname==='/robots.txt')response=new Response(privateReview?'User-agent: *\nDisallow: /\n':`User-agent: *\nDisallow: /api/\nDisallow: /ops/\nDisallow: /embed\nSitemap: ${origin}/sitemap.xml\n`,{headers:{'Content-Type':'text/plain'}});
+    else if(url.pathname===publicPagesSitemap)response=sitemapXML('urlset',publicSearchPages.map(path=>origin+path));
     else if(url.pathname==='/sitemap.xml') {
       const page=Number(url.searchParams.get('page') || 0);if(!Number.isInteger(page)||page<0||page>1000)throw Error('Invalid sitemap page');
-      const safe=escapeHTML;
       if(!url.searchParams.has('page')) {
         const count=await env.SEARCH_DB.prepare('SELECT COUNT(*) AS total FROM listings').first();
-        response=new Response(`<?xml version="1.0" encoding="UTF-8"?><sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${Array.from({length:Math.max(1,Math.ceil(count.total/1000))},(_,i)=>`<sitemap><loc>${safe(origin)}/sitemap.xml?page=${i}</loc></sitemap>`).join('')}</sitemapindex>`,{headers:{'Content-Type':'application/xml'}});
+        const listingSitemaps=Array.from({length:Math.max(1,Math.ceil(count.total/1000))},(_,i)=>`${origin}/sitemap.xml?page=${i}`);
+        response=sitemapXML('sitemapindex',[origin+publicPagesSitemap,...listingSitemaps]);
       } else {
         const rows=await env.SEARCH_DB.prepare('SELECT source,id FROM listings ORDER BY source,id LIMIT 1000 OFFSET ?').bind(page*1000).all();
-        response=new Response(`<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${rows.results.map(row=>`<url><loc>${safe(origin)}/listing/${encodeURIComponent(row.source)}/${encodeURIComponent(row.id)}</loc></url>`).join('')}</urlset>`,{headers:{'Content-Type':'application/xml'}});
+        response=sitemapXML('urlset',rows.results.map(row=>origin+listingPath(row)));
       }
     } else if(url.pathname==='/copyright')response=new Response(`<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Copyright notices · Prime America Real Estate</title><link rel="stylesheet" href="/style.css"><main><h1>Copyright and listing-data notices</h1><p>Send listing corrections or copyright notices to <a href="mailto:info@primeamericany.com">info@primeamericany.com</a>.</p>${copyrightNotice}<a href="/">Return to property search</a></main></html>`,{headers:{'Content-Type':'text/html; charset=utf-8'}});
     else if(url.pathname==='/api/search')response=Response.json(await store.search({borough:'NYC',type:'Residential',status:'Active',...Object.fromEntries(url.searchParams)},new Date(now)));
@@ -90,7 +98,7 @@ export async function handleProduction(request,env,{privateReview=false,now=Date
         const etag='"'+record.file+'-'+image.representation+'"';
         if(request.headers.get('If-None-Match')===etag)response=new Response(null,{status:304,headers:{ETag:etag}});
         else response=new Response(image.object.body,{headers:{'Content-Type':image.type,'Content-Length':String(image.object.size),ETag:etag}});
-      } else if(['/','/your-search','/guide','/how-it-works','/embed'].includes(url.pathname) || route) {
+      } else if(publicSearchPages.includes(url.pathname) || ['/your-search','/embed'].includes(url.pathname) || route) {
         const asset=await env.ASSETS.fetch(new Request(origin+'/_production.html'));if(!asset.ok)throw Error('Template missing');
         const listing=route?await store.listing(route[1],route[2]):null,unavailable=Boolean(route&&!listing);
         const page=experienceRoute(url.pathname,url.search);
@@ -100,7 +108,7 @@ export async function handleProduction(request,env,{privateReview=false,now=Date
         html=html.replace('<p id="freshness"></p>',`<p>${idxNotice(checked)}</p><p id="freshness"></p>`).replace('</main>',`<details id="copyright-notice" class="disclosures"><summary>Copyright and DMCA notice</summary>${copyrightNotice}</details></main>`);
         html=html.replace('<body ', '<body data-environment="production" ');
         if(privateReview)html=html.replace('</main>','<details class="disclosures private-review-notice"><summary>Preview status</summary><p>Private live-data review. Import may be incomplete. Not approved for public display.</p></details></main>');
-        else if(!unavailable && !['/embed','/your-search'].includes(url.pathname))html=html.replace('<meta name="robots" content="noindex,nofollow">','<meta name="robots" content="index,follow">');
+        else if(listing || (publicSearchPages.includes(url.pathname) && page!=='results'))html=html.replace('<meta name="robots" content="noindex,nofollow">','<meta name="robots" content="index,follow">');
         response=new Response(html,{status:unavailable?404:200,headers:{'Content-Type':'text/html; charset=utf-8'}});
       } else response=Response.json({error:'Not found'},{status:404});
     }

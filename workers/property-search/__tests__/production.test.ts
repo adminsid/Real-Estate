@@ -339,7 +339,7 @@ describe('Public release gate and consumer routes',()=>{
   const {sqlite,db}=await seeded(),env=configure(db)
   try {
    for(const settings of [{PUBLIC_RELEASE_ENABLED:'false'},{APPROVED_IDX_ORIGIN:'https://primeamericany.com'},{DISPLAY_REVIEW_COMPLETE:'false'}]) {
-    for(const path of ['/','/app.mjs','/api/search','/media/'+'a'.repeat(64),'/sitemap.xml']) {
+    for(const path of ['/','/app.mjs','/api/search','/media/'+'a'.repeat(64),'/sitemap.xml','/sitemap-pages.xml']) {
      const response=await handleProduction(new Request(env.PUBLIC_ORIGIN+path),{...env,...settings},{now});expect(response.status).toBe(503);expect(response.headers.get('X-Robots-Tag')).toContain('noindex')
     }
    }
@@ -371,11 +371,42 @@ describe('Public release gate and consumer routes',()=>{
   try {
    const page=await handleProduction(new Request(env.PUBLIC_ORIGIN+'/listing/onekey2/KEY-1'),env,{now}),html=await page.text()
    expect(page.status).toBe(200);expect(html).toContain('<a href="/">New search</a>');expect(html).toContain('data-environment="production"');expect(html).toContain('href="https://search.primeamericany.com/listing/onekey2/KEY-1"');expect(html).toContain('index,follow')
-   expect((await handleProduction(new Request(env.PUBLIC_ORIGIN+'/sitemap.xml?page=0'),env,{now})).status).toBe(200)
+   const listingsSitemap=await handleProduction(new Request(env.PUBLIC_ORIGIN+'/sitemap.xml?page=0'),env,{now})
+   expect(listingsSitemap.status).toBe(200)
+   expect(await listingsSitemap.text()).toContain(`<loc>${env.PUBLIC_ORIGIN}/listing/onekey2/KEY-1</loc>`)
    expect((await handleProduction(new Request(env.PUBLIC_ORIGIN+'/api/inquiries',{method:'POST'}),env,{now})).status).toBe(403)
    const head=await handleProduction(new Request(env.PUBLIC_ORIGIN+'/api/search',{method:'HEAD'}),env,{now});expect(await head.text()).toBe('')
    sqlite.exec('DELETE FROM listings')
    expect((await handleProduction(new Request(env.PUBLIC_ORIGIN+'/listing/onekey2/KEY-1'),env,{now})).status).toBe(404)
+   expect(await (await handleProduction(new Request(env.PUBLIC_ORIGIN+'/sitemap.xml?page=0'),env,{now})).text()).not.toContain('KEY-1')
+  }finally{sqlite.close()}
+ })
+ it('advertises only canonical search pages and keeps shared filters out of the index',async()=>{
+  const {sqlite,db}=await seeded(),env=configure(db)
+  const request=async(path:string)=>handleProduction(new Request(env.PUBLIC_ORIGIN+path),env,{now})
+  try {
+   const sitemapIndex=await (await request('/sitemap.xml')).text()
+   expect(sitemapIndex).toContain(`<loc>${env.PUBLIC_ORIGIN}/sitemap-pages.xml</loc>`)
+   expect(sitemapIndex).toContain(`<loc>${env.PUBLIC_ORIGIN}/sitemap.xml?page=0</loc>`)
+   const sitemap=await request('/sitemap-pages.xml')
+   expect(sitemap.status).toBe(200)
+   expect(sitemap.headers.get('Content-Type')).toContain('application/xml')
+   expect(sitemap.headers.get('Cache-Control')).toContain('no-store')
+   const paths=['/','/guide','/how-it-works']
+   const locations=[...(await sitemap.text()).matchAll(/<loc>(.*?)<\/loc>/g)].map(match=>match[1])
+   expect(locations).toEqual(paths.map(path=>env.PUBLIC_ORIGIN+path))
+   for(const path of paths) {
+    const html=await (await request(path)).text()
+    expect(html).toContain('<meta name="robots" content="index,follow">')
+    expect(html).toContain(`<link rel="canonical" href="${env.PUBLIC_ORIGIN+path}">`)
+   }
+   for(const path of ['/?borough=Queens&openHouses=1','/embed','/your-search']) {
+    const page=await request(path)
+    expect(page.status).toBe(200)
+    expect(await page.text()).toContain('<meta name="robots" content="noindex,nofollow">')
+   }
+   const filtered=await request('/?borough=Queens')
+   expect(await filtered.text()).toContain('123 Maple Avenue')
   }finally{sqlite.close()}
  })
 })
